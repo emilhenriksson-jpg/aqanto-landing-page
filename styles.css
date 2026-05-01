@@ -315,9 +315,11 @@ p {
 }
 
 .impact-strip div,
+.answer-grid article,
 .money-grid article,
 .task-card,
 .architecture-map article,
+.supplier-grid article,
 .pitch-points div,
 .calc-panel,
 .result-panel {
@@ -365,6 +367,32 @@ p {
     radial-gradient(circle at 15% 12%, rgba(18, 215, 208, 0.16), transparent 28%),
     radial-gradient(circle at 85% 28%, rgba(255, 184, 77, 0.1), transparent 26%),
     var(--bg);
+}
+
+.answer-section {
+  background:
+    radial-gradient(circle at 80% 8%, rgba(18, 215, 208, 0.14), transparent 28%),
+    #080d13;
+}
+
+.answer-grid,
+.supplier-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.answer-grid article,
+.supplier-grid article {
+  padding: 24px;
+  min-height: 270px;
+}
+
+.answer-grid h3,
+.supplier-grid h3 {
+  font-size: 26px;
 }
 
 .calculator {
@@ -477,6 +505,12 @@ input[type="range"] {
   color: #061017;
 }
 
+.supplier-section {
+  background:
+    radial-gradient(circle at 15% 20%, rgba(255, 184, 77, 0.12), transparent 30%),
+    #0b1015;
+}
+
 .pitch-section p {
   color: #41515f;
 }
@@ -559,10 +593,12 @@ input[type="range"] {
 @media (max-width: 980px) {
   .founder-grid,
   .impact-strip,
+  .answer-grid,
   .calculator,
   .money-grid,
   .task-board,
   .pitch-layout,
+  .supplier-grid,
   .architecture-map,
   .final-cta {
     grid-template-columns: 1fr;
@@ -637,9 +673,11 @@ input[type="range"] {
   }
 
   .impact-strip div,
+  .answer-grid article,
   .money-grid article,
   .task-card,
   .architecture-map article,
+  .supplier-grid article,
   .pitch-points div,
   .calc-panel,
   .result-panel {
@@ -658,10 +696,12 @@ input[type="range"] {
   }
 
   .section-heading,
+  .answer-grid,
   .calculator,
   .money-grid,
   .task-board,
   .pitch-layout,
+  .supplier-grid,
   .architecture-map {
     padding-right: 18px;
     padding-left: 18px;
