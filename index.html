@@ -3,337 +3,209 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aqanto - AI-bokföring som sänker kostnaden</title>
+    <title>Aqanto - AI-baserad bokföring</title>
     <meta
       name="description"
-      content="Aqanto är ett AI-baserat bokföringsbolag som hjälper företag med löpande bokföring, kostnadskontroll och mänsklig support 24/7."
+      content="Aqanto hjälper bolag sänka kostnaden för löpande bokföring med AI, mänsklig review och tydlig audit."
     />
-    <link rel="preload" as="image" href="assets/aqanto-hero.png" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="topbar" aria-label="Huvudnavigation">
-      <a class="brand" href="#top" aria-label="Aqanto start">
+    <header class="topbar">
+      <a class="brand" href="aqanto.html" aria-label="Aqanto start">
         <span class="brand-mark" aria-hidden="true">A</span>
         <span>Aqanto</span>
       </a>
-      <nav class="nav">
-        <a href="#bookkeeping">Bokföring</a>
-        <a href="#savings">Besparing</a>
-        <a href="#supplier-check">Prischeck</a>
+      <nav class="nav" aria-label="Aqanto navigation">
+        <a href="#work">Flöde</a>
+        <a href="#savings">Prischeck</a>
+        <a href="#trust">Kontroll</a>
       </nav>
     </header>
 
-    <main id="top">
+    <main>
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-media" aria-hidden="true"></div>
         <div class="hero-content">
-          <p class="eyebrow">AI-baserad bokföring för företag</p>
-          <h1 id="hero-title">Aqanto gör bokföringen billigare, snabbare och enklare.</h1>
+          <p class="eyebrow">AI-baserad bokföring med mänsklig kontroll</p>
+          <h1 id="hero-title">Aqanto gör löpande bokföring billigare, snabbare och lättare att följa.</h1>
           <p class="hero-copy">
-            För 10 000 kr i månaden får bolaget AI-driven löpande bokföring,
-            kontroll på leverantörskostnader och mänsklig support 24/7.
+            Från 10 000 kr/månad för företag som vill ersätta onödigt manuellt arbete med AI-stödd
+            hantering av underlag, konteringsförslag, avstämning, avvikelser och rapportförberedelse.
           </p>
           <div class="hero-actions">
-            <a class="button primary" href="#bookkeeping">Så hjälper Aqanto</a>
-            <a class="button secondary" href="#supplier-check">Se om du betalar för mycket</a>
+            <a class="button primary" href="#savings">Räkna på besparingen</a>
+            <a class="button secondary" href="#trust">Se kontrollmodellen</a>
           </div>
-          <div class="hero-proof" aria-label="Viktiga argument">
-            <span>10 000 kr/mån</span>
-            <span>Människa 24/7</span>
-            <span>AI + riktig bokföringssupport</span>
-          </div>
-          <div class="leadership-callout" aria-label="Ägare och ledning">
-            <strong>Emil Henriksson grundade Aqanto. Sweden Buyersclub AB är majoritetsägare.</strong>
-            <span>Joakim Hahne är storägare och vd. Kombinationen ger Aqanto både marknadskraft och djup trovärdighet inom bokföring, fakturaflöden och ekonomiadministration.</span>
+          <div class="proof-strip" aria-label="Aqanto proof points">
+            <span>Från 10 000 kr/mån</span>
+            <span>Provider-oberoende arkitektur</span>
+            <span>AI med mänsklig review</span>
           </div>
         </div>
       </section>
 
-      <section id="bookkeeping" class="section answer-section" aria-labelledby="bookkeeping-title">
+      <section id="work" class="section seamless-section" aria-labelledby="work-title">
         <div class="section-heading">
-          <p class="eyebrow">Det Aqanto säljer</p>
-          <h2 id="bookkeeping-title">Ett AI-baserat bokföringsbolag som gör jobbet billigare.</h2>
+          <p class="eyebrow">Vad Aqanto gör</p>
+          <h2 id="work-title">AI tar repetitivt bokföringsarbete. Människor tar kontrollpunkterna.</h2>
           <p>
-            Aqanto är inte ännu ett verktyg som ekonomiansvarig måste mata. Aqanto är en tjänst där AI gör mycket av det repetitiva bokföringsarbetet och människor finns där när något behöver kontrolleras.
+            Aqanto samlar underlag, tolkar fakturor och kvitton, föreslår kontering, matchar bankrader
+            och flaggar avvikelser som behöver review.
           </p>
         </div>
-
-        <div class="answer-grid">
+        <div class="flow-grid">
           <article>
-            <span class="role-tag">1. Bokföring</span>
-            <h3>Hur hjälper Aqanto dig med bokföringen?</h3>
-            <p>
-              Aqanto tar hand om löpande bokföring: tolkar kvitton och fakturor, föreslår kontering,
-              matchar betalningar, stämmer av konton och flaggar när något saknas eller ser fel ut.
-            </p>
+            <span class="icon ai">AI</span>
+            <h3>Underlag in</h3>
+            <p>Fakturor, kvitton, e-faktura och bankhändelser fångas upp i ett gemensamt arbetsflöde.</p>
           </article>
           <article>
-            <span class="role-tag">2. Lönekostnader</span>
-            <h3>Varför sparar bolag pengar?</h3>
-            <p>
-              Mycket ekonomiadmin är repetitivt. När AI gör första arbetet behövs färre manuella timmar
-              från ekonomiassistenter, intern personal eller dyra externa konsulter.
-            </p>
+            <span class="icon qr">01</span>
+            <h3>Förslag</h3>
+            <p>AI föreslår kontering, periodisering och matchning mot tidigare mönster.</p>
           </article>
           <article>
-            <span class="role-tag">3. Prischeck</span>
-            <h3>Betalar du för mycket idag?</h3>
-            <p>
-              Aqanto kan jämföra din nuvarande bokföringskostnad mot mängden fakturor, kvitton, transaktioner
-              och rapporter. Då ser du snabbt om din leverantör tar betalt för arbete som AI kan göra billigare.
-            </p>
+            <span class="icon euro">02</span>
+            <h3>Avvikelse</h3>
+            <p>Osäkra poster, policybrott och saknade underlag hamnar i mänsklig review.</p>
+          </article>
+          <article>
+            <span class="icon split">OK</span>
+            <h3>Rapport</h3>
+            <p>Underlaget blir redo för kundrapport, audit trail och nästa månads förbättring.</p>
           </article>
         </div>
       </section>
 
-      <section id="team" class="founder-band" aria-labelledby="founder-title">
-        <div class="founder-heading">
-          <p class="eyebrow">Teamet bakom Aqanto</p>
-          <h2 id="founder-title">En ovanligt stark match: kommersiell kraft + djup erfarenhet av ekonomiflöden.</h2>
-        </div>
-        <div class="founder-grid">
-          <article>
-            <span class="role-tag">Grundare</span>
-            <h3>Emil Henriksson</h3>
-            <p>
-              Emil Henriksson är grundare av Aqanto. Bolaget ägs till majoritet av Sweden Buyersclub AB,
-              vilket ger Aqanto en stark kommersiell bas, verklig kundförståelse och förmåga att driva marknad snabbt.
-            </p>
-          </article>
-          <article>
-            <span class="role-tag">Storägare och vd</span>
-            <h3>Joakim Hahne</h3>
-            <p>
-              Joakim Hahne är storägare och vd. Med bakgrund från Pagero och ekonomiadministrativa flöden
-              förstår han exakt hur fakturor, bokföring, betalningar och företagens ekonomiprocesser fungerar i verkligheten.
-            </p>
-          </article>
-          <article class="match-card">
-            <span class="role-tag">Perfekt match</span>
-            <h3>Rätt produkt, rätt marknad, rätt trovärdighet.</h3>
-            <p>
-              Emil bidrar med distribution, affärsdriv och kundnära försäljning. Joakim bidrar med ledarskap,
-              bokföringsnära systemförståelse och operativ tyngd. Tillsammans gör de Aqanto till mer än en AI-demo:
-              ett AI-baserat bokföringsbolag som kan säljas, levereras och skala.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <section class="impact-strip" aria-label="Aqanto i en mening">
-        <div>
-          <strong>Bokföringen</strong>
-          <span>hanteras snabbare med AI som gör grundjobbet.</span>
-        </div>
-        <div>
-          <strong>Lägre kostnad</strong>
-          <span>10 000 kr/mån kan ersätta många manuella timmar.</span>
-        </div>
-        <div>
-          <strong>Prischeck</strong>
-          <span>se om din nuvarande leverantör tar för mycket betalt.</span>
-        </div>
-      </section>
-
-      <section id="savings" class="section savings-section" aria-labelledby="savings-title">
+      <section id="savings" class="section math-section" aria-labelledby="savings-title">
         <div class="section-heading">
-          <p class="eyebrow">Lönekostnader</p>
-          <h2 id="savings-title">Bokföring blir dyrt när varje liten uppgift kräver en människa.</h2>
+          <p class="eyebrow">Besparing</p>
+          <h2 id="savings-title">Se om ni betalar för mycket för manuell bokföring.</h2>
           <p>
-            Aqanto sänker kostnaden genom att låta AI göra det tunga repetitiva arbetet:
-            sortera underlag, föreslå kontering, stämma av, leta fel och förbereda rapporter.
-            Människor används där de gör störst skillnad.
+            Kalkylerna är lokala och skickar inget data. De hjälper bara till att skapa ett första
+            prischeck-underlag.
           </p>
         </div>
 
-        <div class="calculator" aria-label="Exempel på besparing">
-          <div class="calc-panel">
-            <label for="salaryInput">Månadskostnad för intern eller extern ekonomitid</label>
-            <div class="input-wrap">
-              <input id="salaryInput" type="range" min="35000" max="85000" step="5000" value="55000" />
-              <strong id="salaryValue">55 000 kr</strong>
-            </div>
-            <label for="rolesInput">Hur många arbetsmängder kan Aqanto avlasta?</label>
-            <div class="input-wrap">
-              <input id="rolesInput" type="range" min="1" max="8" step="1" value="3" />
-              <strong id="rolesValue">3</strong>
-            </div>
+        <div class="calculator" aria-label="Lönekostnadskalkyl">
+          <div class="calc-controls">
+            <label>
+              <span>Månadslön per intern roll</span>
+              <strong id="salaryValue">45 000 kr</strong>
+              <input id="salaryInput" type="range" min="25000" max="90000" step="1000" value="45000" />
+            </label>
+            <label>
+              <span>Antal interna roller</span>
+              <strong id="rolesValue">1</strong>
+              <input id="rolesInput" type="range" min="1" max="5" step="1" value="1" />
+            </label>
           </div>
-          <div class="result-panel">
-            <span class="result-label">Exempelbesparing efter Aqanto</span>
-            <strong id="monthlySaving">155 000 kr/mån</strong>
-            <p id="yearlySaving">Det motsvarar 1 860 000 kr per år före andra effektvinster.</p>
+          <div class="calc-result">
+            <span class="result-kicker">Mot Aqanto från 10 000 kr/mån</span>
+            <div class="result-grid">
+              <div>
+                <span>Möjlig månadsbesparing</span>
+                <strong id="monthlySaving">0 kr/mån</strong>
+              </div>
+              <div>
+                <span>Möjlig årsbesparing</span>
+                <strong id="yearlySaving">0 kr</strong>
+              </div>
+            </div>
+            <p>Räkningen använder ungefärlig arbetsgivarkostnad och ska verifieras med riktig rollmix.</p>
           </div>
         </div>
 
-        <div class="money-grid">
-          <article>
-            <span class="metric">10k</span>
-            <h3>Fast låg kostnad</h3>
-            <p>Priset är 10 000 kr per månad. En tydlig kostnad för AI-baserad bokföring med support.</p>
-          </article>
-          <article>
-            <span class="metric">24/7</span>
-            <h3>Support med människa</h3>
-            <p>När AI:n behöver hjälp finns människor tillgängliga dygnet runt. Det gör bokföringen trygg i drift.</p>
-          </article>
-          <article>
-            <span class="metric">ROI</span>
-            <h3>Snabbt att motivera</h3>
-            <p>Om Aqanto ersätter återkommande bokföringstimmar blir kostnaden lätt att räkna hem.</p>
-          </article>
-        </div>
-      </section>
-
-      <section id="agent" class="section agent-section" aria-labelledby="agent-title">
-        <div class="section-heading left">
-          <p class="eyebrow">Bokföringsuppgifter</p>
-          <h2 id="agent-title">Aqanto tar bokföringsjobbet som annars äter tid varje vecka.</h2>
-          <p>
-            AI:n jobbar i flödet: från underlag till avstämning, rapportering och tydliga frågor när något saknas.
-          </p>
-        </div>
-
-        <div class="task-board" aria-label="Exempel på uppgifter">
-          <article class="task-card active">
-            <span>01</span>
-            <h3>Fakturor och kvitton</h3>
-            <p>Läser underlag, tolkar belopp, datum och moms, föreslår kontering och markerar osäkra poster.</p>
-          </article>
-          <article class="task-card">
-            <span>02</span>
-            <h3>Avstämning</h3>
-            <p>Matchar betalningar mot fakturor och kontoutdrag, hittar avvikelser och visar vad som behöver rättas.</p>
-          </article>
-          <article class="task-card">
-            <span>03</span>
-            <h3>Löpande bokföring</h3>
-            <p>Förbereder bokföringsposter och håller ordning på det återkommande arbetet månad för månad.</p>
-          </article>
-          <article class="task-card">
-            <span>04</span>
-            <h3>Frågor till kunden</h3>
-            <p>Ber om saknade kvitton, förklaringar eller godkännanden i stället för att arbetet fastnar.</p>
-          </article>
-          <article class="task-card">
-            <span>05</span>
-            <h3>Bokslutsunderlag</h3>
-            <p>Samlar underlag, listar öppna frågor och förbereder material som gör bokslutet snabbare.</p>
-          </article>
-          <article class="task-card">
-            <span>06</span>
-            <h3>Rapporter</h3>
-            <p>Ger ledningen tydliga sammanfattningar om kostnader, avvikelser, likviditet och nästa åtgärd.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="section pitch-section" aria-labelledby="pitch-title">
-        <div class="pitch-layout">
-          <div>
-            <p class="eyebrow">Pitch till köparen</p>
-            <h2 id="pitch-title">Du ska inte betala konsultpris för arbete som AI kan göra.</h2>
-            <p class="big-text">
-              Traditionell bokföring bygger ofta på timmar. Aqanto bygger på automation:
-              AI gör grundarbetet, människor kvalitetssäkrar och företaget får en lägre, tydligare kostnad.
-            </p>
+        <div class="calculator" aria-label="Leverantörsprischeck">
+          <div class="calc-controls">
+            <label>
+              <span>Nuvarande kostnad per månad</span>
+              <strong id="currentCostValue">25 000 kr</strong>
+              <input id="currentCostInput" type="range" min="8000" max="90000" step="1000" value="25000" />
+            </label>
+            <label>
+              <span>Poster per månad</span>
+              <strong id="volumeValue">350</strong>
+              <input id="volumeInput" type="range" min="50" max="2000" step="25" value="350" />
+            </label>
           </div>
-          <div class="pitch-points">
-            <div>
-              <strong>Mindre manuellt arbete</strong>
-              <span>Färre timmar går åt till att sortera, kontrollera och stämma av samma typ av underlag.</span>
+          <div class="calc-result">
+            <span class="result-kicker">Leverantörscheck</span>
+            <div class="result-grid">
+              <div>
+                <span>Differens mot Aqanto</span>
+                <strong id="supplierSaving">0 kr/mån</strong>
+              </div>
+              <div>
+                <span>Kostnad per post</span>
+                <strong id="supplierInsight">0 kr/post</strong>
+              </div>
             </div>
-            <div>
-              <strong>Fast pris i stället för osäker timkostnad</strong>
-              <span>10 000 kr/mån gör kostnaden enkel att förstå och jämföra med dagens leverantör.</span>
-            </div>
-            <div>
-              <strong>Människa när det behövs</strong>
-              <span>AI gör volymen. Support med människa 24/7 finns när något behöver bedömas.</span>
-            </div>
+            <p><strong id="supplierDecision">Bra kandidat</strong> för vidare kontroll av materialmix och review-nivå.</p>
           </div>
         </div>
       </section>
 
-      <section id="supplier-check" class="section supplier-section" aria-labelledby="supplier-title">
-        <div class="section-heading left">
-          <p class="eyebrow">Prischeck</p>
-          <h2 id="supplier-title">Se om du betalar för mycket för bokföringen idag.</h2>
-          <p>
-            Aqanto kan hjälpa dig jämföra din nuvarande bokföringsleverantör med vad arbetet faktiskt består av.
-            Frågan är enkel: betalar du för kvalificerad rådgivning, eller för manuella timmar som AI kan ersätta?
-          </p>
-        </div>
-
-        <div class="supplier-grid">
-          <article>
-            <span class="module-tag">Steg 1</span>
-            <h3>Samla kostnaden</h3>
-            <p>Lägg in vad du betalar per månad för bokföring, rådgivning, löneadmin och extra timmar.</p>
-          </article>
-          <article>
-            <span class="module-tag">Steg 2</span>
-            <h3>Mät volymen</h3>
-            <p>Räkna fakturor, kvitton, banktransaktioner, rapporter och hur många frågor som brukar uppstå.</p>
-          </article>
-          <article>
-            <span class="module-tag">Steg 3</span>
-            <h3>Jämför mot Aqanto</h3>
-            <p>Om mycket av kostnaden är repetitiv hantering kan Aqantos fasta pris på 10 000 kr/mån vara brutalt mycket billigare.</p>
-          </article>
-        </div>
-      </section>
-
-      <section id="architecture" class="section architecture-section" aria-labelledby="architecture-title">
+      <section class="section payment-section" aria-labelledby="demo-title">
         <div class="section-heading">
-          <p class="eyebrow">Arkitektur</p>
-          <h2 id="architecture-title">Byggd ovanpå de ekonomiflöden bolag redan använder.</h2>
+          <p class="eyebrow">Demo</p>
+          <h2 id="demo-title">Skapa ett enkelt prischeck-underlag.</h2>
+          <p>Formuläret är bara lokalt i webbläsaren och fungerar som stöd inför ett säljsamtal.</p>
+        </div>
+        <form id="demoRequestForm" class="calculator" aria-label="Prischeck-underlag">
+          <div class="calc-controls">
+            <label>
+              <span>Bolag</span>
+              <input id="companyName" type="text" value="Exempelbolaget AB" />
+            </label>
+            <label>
+              <span>Nuvarande månadskostnad</span>
+              <input id="monthlyCost" type="number" min="0" value="28000" />
+            </label>
+            <label>
+              <span>Poster per månad</span>
+              <input id="monthlyVolume" type="number" min="1" value="420" />
+            </label>
+            <label>
+              <span>System</span>
+              <input id="accountingSystem" type="text" value="Fortnox" />
+            </label>
+            <button class="button primary" type="submit">Uppdatera underlag</button>
+          </div>
+          <output id="demoOutput" class="calc-result" aria-live="polite"></output>
+        </form>
+      </section>
+
+      <section id="trust" class="section why-section" aria-labelledby="trust-title">
+        <div class="section-heading">
+          <p class="eyebrow">Kontroll</p>
+          <h2 id="trust-title">Byggt för review, audit och tydliga gränser.</h2>
           <p>
-            Aqanto ska inte vara ännu ett system som personalen måste mata. Tjänsten kopplas till underlag,
-            fakturor, bankflöden och rapportering, och använder AI plus mänsklig eskalering för att leverera bokföring.
+            Aqanto ska inte gömma automatiseringen. Varje beslut behöver kunna spåras till underlag,
+            regel, AI-förslag, mänsklig ändring och kundgodkännande.
           </p>
         </div>
-
-        <div class="architecture-map">
+        <div class="why-grid">
           <article>
-            <span class="module-tag">Agent Core</span>
-            <h3>Bokföringsmotorn</h3>
-            <p>Tolkar underlag, föreslår kontering och håller ihop arbetet från transaktion till rapport.</p>
+            <h3>Human review</h3>
+            <p>Osäkra poster och högriskhändelser kräver mänsklig kontroll före bokföring eller extern åtgärd.</p>
           </article>
           <article>
-            <span class="module-tag">Connectors</span>
-            <h3>Ekonomikopplingar</h3>
-            <p>Fakturor, bank, kvitton, mail, dokument och ekonomisystem kopplas in där bokföringen redan sker.</p>
+            <h3>Provider-oberoende flöden</h3>
+            <p>Integrationslagret ska kunna bytas utan att kundflöden, audit eller produktlogik låses in.</p>
           </article>
           <article>
-            <span class="module-tag">Workflow</span>
-            <h3>Regler och kontroll</h3>
-            <p>Checklistor, godkännanden och avvikelser gör AI-bokföringen styrbar för riktiga bolag.</p>
+            <h3>Audit trail</h3>
+            <p>All tolkning, matchning och review kopplas till händelser som går att söka och exportera.</p>
           </article>
           <article>
-            <span class="module-tag">Human Loop</span>
-            <h3>Mänsklig kontroll</h3>
-            <p>Osäkra, dyra eller känsliga bokföringsfrågor eskaleras till människa istället för att AI:n chansar.</p>
-          </article>
-          <article>
-            <span class="module-tag">Audit</span>
-            <h3>Spårbarhet</h3>
-            <p>Varje beslut, källa och åtgärd kan följas upp. Det gör bokföringen begriplig och möjlig att kontrollera.</p>
-          </article>
-          <article>
-            <span class="module-tag">Support</span>
-            <h3>24/7</h3>
-            <p>Kunder får inte bara mjukvara. De får en fungerande driftspartner med människor bakom lösningen.</p>
+            <h3>Mänsklig support</h3>
+            <p>Kunden ska kunna få hjälp när underlag saknas, integrationsproblem uppstår eller beslut behöver förklaras.</p>
           </article>
         </div>
       </section>
     </main>
-
-    <footer class="footer">
-      <strong>Aqanto</strong>
-      <span>AI-baserad bokföring, lägre kostnad och mänsklig support 24/7.</span>
-    </footer>
 
     <script src="script.js"></script>
   </body>
