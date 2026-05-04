@@ -21,3 +21,8 @@ node --check script.js
 ```
 
 Sidan är avsiktligt fristående och innehåller bara publik Aqanto-copy, frontendkod och publika bildassets.
+
+## Livevyer
+
+- `index.html`: publik Aqanto-sida.
+- `operational-views.html`: delningsbar Operational Views-sida med rapporter, filter, sparade vyer, export-preview och evidence-drilldown.

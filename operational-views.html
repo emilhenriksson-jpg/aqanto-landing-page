@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aqanto Universal Operational Views</title>
+  <link rel="stylesheet" href="./operational-views.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="mark">A</span>Aqanto</div>
+      <section class="nav-group">
+        <p class="nav-label">Rapporter</p>
+        <button class="nav-button active" type="button" data-view="income">Resultatrapport <span class="count">v1</span></button>
+        <button class="nav-button" type="button" data-view="balance">Balansrapport <span class="count">v1</span></button>
+      </section>
+      <section class="nav-group">
+        <p class="nav-label">Arbetsköer</p>
+        <button class="nav-button" type="button" data-view="suppliers">Leverantörsreskontra <span class="count">323</span></button>
+        <button class="nav-button" type="button" data-view="exceptions">Human Exceptions <span class="count">2</span></button>
+        <button class="nav-button" type="button" data-view="activity">Activity & Audit <span class="count">84</span></button>
+      </section>
+      <section class="nav-group">
+        <p class="nav-label">Kommande standardvyer</p>
+        <button class="nav-button" type="button">Kundfakturor <span class="count">0</span></button>
+        <button class="nav-button" type="button">Bankhändelser <span class="count">18</span></button>
+        <button class="nav-button" type="button">Compliance Calendar <span class="count">5</span></button>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div class="company-context">
+          <span class="pill">Sweden BuyersClub AB</span>
+          <span class="pill">2026-01-01 - 2026-12-31</span>
+          <span id="view-context" class="pill">Rapporter</span>
+        </div>
+        <input class="global-search" type="search" placeholder="Sök i Aqanto">
+      </header>
+
+      <section class="view-head">
+        <div>
+          <h1 id="view-title">Resultatrapport</h1>
+          <p id="view-summary" class="view-summary">Jan-maj 2026 · SEK · jämför med samma period föregående år</p>
+        </div>
+        <div id="export-actions" class="export-actions">
+          <button id="open-drawer" class="ghost-action" type="button">Evidence</button>
+        </div>
+      </section>
+
+      <nav id="view-tabs" class="view-tabs" aria-label="Vyfilter"></nav>
+
+      <section class="filter-panel" aria-label="Filter">
+        <div id="filter-grid" class="filter-grid"></div>
+        <div id="chips-row" class="chips-row"></div>
+        <div id="saved-views" class="saved-views"></div>
+      </section>
+
+      <section id="summary-strip" class="summary-strip" aria-label="Summering"></section>
+
+      <div class="toolbar">
+        <input class="table-search" type="search" placeholder="Sök i aktuell vy">
+        <div class="export-actions">
+          <div id="column-menu" class="column-menu">
+            <button id="column-menu-button" class="ghost-action" type="button">Kolumner</button>
+            <div id="column-menu-panel" class="column-menu-panel"></div>
+          </div>
+          <button class="primary-action" type="button">Uppdatera vy</button>
+        </div>
+      </div>
+
+      <section class="table-wrap" aria-label="Resultattabell">
+        <table id="data-table"></table>
+      </section>
+    </main>
+  </div>
+
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <section class="drawer-panel">
+      <div class="drawer-head">
+        <div>
+          <h2 id="drawer-title">Evidence</h2>
+          <p id="drawer-copy"></p>
+        </div>
+        <button id="close-drawer" class="icon-action" type="button">Stäng</button>
+      </div>
+      <ul id="drawer-list" class="evidence-list"></ul>
+    </section>
+  </aside>
+
+  <script src="./operational-views.js"></script>
+</body>
+</html>

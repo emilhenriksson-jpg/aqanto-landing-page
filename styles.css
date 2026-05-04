@@ -283,6 +283,64 @@ p {
     #fffaf0;
 }
 
+.live-view-section {
+  background:
+    linear-gradient(135deg, rgba(244, 201, 93, 0.24), rgba(242, 92, 122, 0.12)),
+    #fffaf0;
+}
+
+.live-view-preview {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: clamp(20px, 4vw, 34px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow);
+}
+
+.preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.preview-grid div {
+  min-height: 112px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.preview-grid strong,
+.preview-grid span {
+  display: block;
+}
+
+.preview-grid strong {
+  margin-bottom: 8px;
+  font-size: clamp(28px, 4vw, 46px);
+  line-height: 1;
+}
+
+.preview-grid span {
+  color: var(--muted);
+  font-weight: 850;
+}
+
 .journey-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -833,6 +891,7 @@ input[type="range"] {
   .flow-grid,
   .calculator,
   .scenario-strip,
+  .preview-grid,
   .qr-layout,
   .journey-grid,
   .payment-grid,
