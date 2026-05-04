@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aqanto AI Cockpit</title>
+  <link rel="stylesheet" href="./cockpit.css">
+</head>
+<body>
+  <main class="shell">
+    <nav class="site-nav" aria-label="Aqanto pages">
+      <a class="site-brand" href="index.html"><span>A</span>Aqanto</a>
+      <div>
+        <a class="active" href="aqanto-cockpit.html">AI-chatten</a>
+        <a href="operational-views.html">Operational Views</a>
+        <a href="index.html">Startsida</a>
+      </div>
+    </nav>
+
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Acme AB · Maj 2026</p>
+        <h1 id="page-title">Bokföringen behöver din blick på 2 saker</h1>
+      </div>
+      <div class="top-actions" aria-label="Snabbåtgärder">
+        <button class="icon-button" title="Pausa automation" aria-label="Pausa automation">⏸</button>
+        <button class="icon-button" title="Öppna inställningar" aria-label="Öppna inställningar">⚙</button>
+      </div>
+    </header>
+
+    <nav class="state-switcher" aria-label="Cockpit state">
+      <button class="state-button" data-state="green">On track</button>
+      <button class="state-button active" data-state="review">Needs review</button>
+      <button class="state-button" data-state="blocked">Blocked</button>
+    </nav>
+
+    <section class="status-grid" aria-label="Bolagsstatus">
+      <article class="metric attention" id="status-card">
+        <span class="metric-label">Status</span>
+        <strong id="status-label">Needs review</strong>
+        <small id="status-copy">2 godkännanden innan månaden kan stängas</small>
+      </article>
+      <article class="metric">
+        <span class="metric-label">Autonomi</span>
+        <strong>Låg-risk auto</strong>
+        <small>Kända lågriskhändelser hanteras automatiskt</small>
+      </article>
+      <article class="metric">
+        <span class="metric-label">Close readiness</span>
+        <strong id="close-percent">72%</strong>
+        <small id="close-copy">3 blockers kvar</small>
+      </article>
+      <article class="metric">
+        <span class="metric-label">Nästa deadline</span>
+        <strong>12 juni</strong>
+        <small>Moms-readiness bevakas</small>
+      </article>
+    </section>
+
+    <section class="layout">
+      <div class="main-column">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Behöver dig</h2>
+            <button class="text-button">Visa alla</button>
+          </div>
+        <div class="attention-list" id="attention-list">
+            <article class="attention-card high">
+              <div>
+                <span class="badge">Godkännande</span>
+                <h3>Ny leverantör: Nordic Hardware</h3>
+                <p>Aqanto har inte sett leverantören tidigare och beloppet är över pilotgränsen.</p>
+              </div>
+              <div class="card-actions">
+                <button data-open-exception>Godkänn en gång</button>
+                <button class="secondary" data-open-exception>Fråga Aqanto</button>
+              </div>
+            </article>
+
+            <article class="attention-card">
+              <div>
+                <span class="badge soft">Underlag</span>
+                <h3>Kvitto saknas för kortköp</h3>
+                <p>En bankhändelse på 320 kr saknar underlag och blockerar close-checklistan.</p>
+              </div>
+              <div class="card-actions">
+                <button>Ladda upp</button>
+                <button class="secondary">Sök igen</button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Agentteam</h2>
+            <span class="muted">Aqanto koordinerar arbetet</span>
+          </div>
+          <div class="agent-row">
+            <article class="agent active">
+              <span>Klassificering</span>
+              <strong>Arbetar</strong>
+              <small>4 händelser</small>
+            </article>
+            <article class="agent">
+              <span>Controller</span>
+              <strong>Väntar</strong>
+              <small>Riskkontroller</small>
+            </article>
+            <article class="agent">
+              <span>Compliance</span>
+              <strong>Bevakar</strong>
+              <small>Deadline 12 juni</small>
+            </article>
+            <article class="agent">
+              <span>Close</span>
+              <strong>Blockerad</strong>
+              <small>3 items kvar</small>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel split-panel">
+          <div>
+            <div class="panel-head">
+              <h2>Månadens close</h2>
+              <span class="muted">Maj 2026</span>
+            </div>
+            <div class="progress">
+              <span id="progress-bar" style="width:72%"></span>
+            </div>
+            <ul class="checklist" id="checklist">
+              <li class="done">Bankhändelser importerade</li>
+              <li class="done">Adobe bokfört som programvara</li>
+              <li class="waiting">Ny leverantör väntar på godkännande</li>
+              <li class="blocked">2 underlag saknas</li>
+            </ul>
+          </div>
+          <div class="close-summary">
+            <span class="metric-label">Nästa bästa steg</span>
+            <strong id="next-step-title">Godkänn Nordic Hardware</strong>
+            <p id="next-step-copy">Då kan Aqanto fortsätta med avstämning och uppdatera close-readiness.</p>
+          </div>
+        </section>
+      </div>
+
+      <aside class="side-column">
+        <section class="panel ask-panel">
+          <div class="agent-avatar">A</div>
+          <h2>Fråga Aqanto</h2>
+          <div class="messages" aria-label="Konversation">
+            <p class="message user">Kan månaden stängas?</p>
+            <p class="message aqanto" id="aqanto-message">Inte riktigt än. Maj är 72% redo. Jag behöver ett godkännande och två underlag innan jag kan stänga tryggt.</p>
+          </div>
+          <div class="prompt-row">
+            <button>Vad behöver du?</button>
+            <button>Varför detta?</button>
+            <button>Pausa auto</button>
+          </div>
+          <label class="input-wrap">
+            <span>Skriv till Aqanto</span>
+            <input placeholder="Fråga eller ge ett uppdrag">
+          </label>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Senaste arbetet</h2>
+          </div>
+          <ol class="activity" id="activity-list">
+            <li>
+              <strong>Adobe matchad</strong>
+              <span>Kvitto + bankhändelse · låg risk</span>
+            </li>
+            <li>
+              <strong>Preflight stoppade filing</strong>
+              <span>Restricted i pilot</span>
+            </li>
+            <li>
+              <strong>Close uppdaterad</strong>
+              <span>Readiness 72%</span>
+            </li>
+          </ol>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <aside class="drawer-backdrop" id="exception-drawer" aria-hidden="true">
+    <section class="exception-drawer" role="dialog" aria-modal="true" aria-labelledby="exception-title">
+      <div class="drawer-head">
+        <div>
+          <p class="eyebrow">Human exception · Nordic Hardware</p>
+          <h2 id="exception-title">Aqanto behöver ditt godkännande</h2>
+        </div>
+        <button class="icon-button" id="close-exception" title="Stäng" aria-label="Stäng">×</button>
+      </div>
+
+      <div class="drawer-section confidence-band">
+        <span>Beslut</span>
+        <strong>Approval required</strong>
+        <small>Confidence 0.61 · Aqanto stoppar sig själv eftersom risken är över pilotgränsen.</small>
+      </div>
+
+      <div class="drawer-section">
+        <h3>Varför stoppades detta?</h3>
+        <ul class="reason-list">
+          <li><strong>Ny motpart</strong><span>Aqanto har inte bokfört Nordic Hardware för Acme AB tidigare.</span></li>
+          <li><strong>Belopp över gräns</strong><span>18 900 kr är över bolagets autonoma pilotgräns.</span></li>
+          <li><strong>Bankdetalj saknar historik</strong><span>Första betalningen till detta konto kräver mänsklig bekräftelse.</span></li>
+        </ul>
+      </div>
+
+      <div class="drawer-section evidence-grid">
+        <article>
+          <span>Underlag</span>
+          <strong>Faktura hittad</strong>
+          <small>PDF · matchar OCR till 97%</small>
+        </article>
+        <article>
+          <span>Föreslagen bokning</span>
+          <strong>5410 · Förbrukningsinventarier</strong>
+          <small>Moms 25% · utkast, ej postat</small>
+        </article>
+      </div>
+
+      <div class="drawer-section">
+        <h3>Vad händer om du godkänner?</h3>
+        <ol class="approval-steps">
+          <li>Aqanto bokför utkastet och sparar beslutsorsakerna.</li>
+          <li>Leverantören markeras som godkänd för framtida låg-riskkontroller.</li>
+          <li>Close-readiness räknas om och Controller-agenten fortsätter.</li>
+        </ol>
+      </div>
+
+      <div class="drawer-chat">
+        <p class="message aqanto">Jag kan godkänna en gång, godkänna leverantören framåt, eller skicka detta till expertgranskning.</p>
+        <label class="input-wrap">
+          <span>Skriv till Aqanto</span>
+          <input placeholder="Ex. godkänn bara den här gången">
+        </label>
+      </div>
+
+      <div class="drawer-actions">
+        <button>Godkänn en gång</button>
+        <button class="secondary">Skicka till granskning</button>
+        <button class="secondary">Avvisa</button>
+      </div>
+    </section>
+  </aside>
+  <script src="./state.js"></script>
+</body>
+</html>

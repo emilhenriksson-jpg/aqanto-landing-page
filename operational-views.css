@@ -100,6 +100,22 @@ button {
   font-weight: 800;
 }
 
+.nav-link {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  border-radius: 7px;
+  padding: 9px 10px;
+  color: var(--muted);
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  background: #f4f0f7;
+  color: var(--purple);
+}
+
 .count {
   color: var(--muted);
   font-weight: 700;
