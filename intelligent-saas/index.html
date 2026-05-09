@@ -457,7 +457,7 @@
     }
 
     section {
-      padding: 70px 7vw;
+      padding: 78px 7vw;
       scroll-margin-top: 88px;
     }
 
@@ -486,7 +486,7 @@
       align-items: end;
       justify-content: space-between;
       gap: 30px;
-      margin-bottom: 22px;
+      margin-bottom: 26px;
     }
 
     h2 {
@@ -674,7 +674,7 @@
 
     .economics-wrap {
       display: grid;
-      grid-template-columns: 0.86fr 1.14fr;
+      grid-template-columns: 1.08fr 0.92fr;
       gap: 18px;
       align-items: stretch;
     }
@@ -689,8 +689,11 @@
     .price-contrast {
       border: 1px solid rgba(255,255,255,0.16);
       border-radius: var(--radius);
-      background: rgba(255,255,255,0.075);
-      padding: 24px;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.1), rgba(255,255,255,0.045)),
+        radial-gradient(circle at 100% 0%, rgba(142,197,255,0.24), transparent 34%);
+      padding: 26px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.22);
     }
 
     .price-kicker {
@@ -712,7 +715,7 @@
       grid-template-columns: minmax(0, 1fr) max-content;
       gap: 16px;
       align-items: end;
-      padding: 16px 0;
+      padding: 18px 0;
       border-bottom: 1px solid rgba(255,255,255,0.12);
     }
 
@@ -740,12 +743,13 @@
     .price-row b {
       display: block;
       width: 100%;
-      font-size: 22px;
+      font-size: clamp(18px, 1.7vw, 24px);
+      line-height: 1.08;
     }
 
     .price-row strong {
       display: block;
-      font-size: clamp(30px, 3vw, 44px);
+      font-size: clamp(34px, 4vw, 62px);
       line-height: 0.95;
       color: var(--white);
       text-align: right;
@@ -757,6 +761,7 @@
 
     .price-row.margin strong {
       color: #ffffff;
+      text-shadow: 0 0 28px rgba(142,197,255,0.34);
     }
 
     .margin-bar {
@@ -777,13 +782,14 @@
 
     .margin-note {
       margin-top: 18px;
-      padding: 16px;
+      padding: 18px;
       border: 1px solid rgba(255,255,255,0.12);
       border-radius: var(--radius);
-      background: rgba(0,0,0,0.16);
-      color: rgba(255,255,255,0.74);
-      line-height: 1.5;
-      font-weight: 720;
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.78);
+      line-height: 1.42;
+      font-weight: 740;
+      font-size: 17px;
     }
 
     .margin-note b {
@@ -801,9 +807,9 @@
       min-width: 0;
       border: 1px solid rgba(255,255,255,0.14);
       border-radius: var(--radius);
-      background: rgba(255,255,255,0.055);
+      background: rgba(255,255,255,0.07);
       padding: 17px;
-      min-height: 136px;
+      min-height: 122px;
     }
 
     .cost-card b {
@@ -950,13 +956,19 @@
     .started-card {
       width: 100%;
       min-width: 0;
-      min-height: 142px;
+      min-height: 126px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.92)),
-        linear-gradient(135deg, rgba(41,151,255,0.1), rgba(142,197,255,0.08));
+      background: rgba(255,255,255,0.82);
       padding: 16px;
+      box-shadow: 0 10px 34px rgba(10,13,18,0.045);
+      transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+    }
+
+    .started-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(41,151,255,0.3);
+      box-shadow: 0 18px 48px rgba(10,13,18,0.08);
     }
 
     .started-card h3 {
@@ -976,15 +988,15 @@
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin: 12px 0 0;
+      margin: 14px 0 0;
     }
 
     .started-meta span {
       display: inline-flex;
       border-radius: 999px;
-      background: var(--soft-accent);
+      background: #eef6ff;
       color: #0958b8;
-      padding: 7px 10px;
+      padding: 6px 10px;
       font-size: 13px;
       font-weight: 850;
     }
@@ -1036,9 +1048,11 @@
       min-width: 0;
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      background: var(--white);
-      min-height: 265px;
-      padding: 22px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,255,255,0.9)),
+        radial-gradient(circle at 16% 0%, rgba(41,151,255,0.12), transparent 32%);
+      min-height: 238px;
+      padding: 20px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -1046,7 +1060,7 @@
       cursor: pointer;
       position: relative;
       overflow: hidden;
-      transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+      transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
     }
 
     .card::after {
@@ -1063,7 +1077,7 @@
     .card:hover {
       transform: translateY(-3px);
       box-shadow: var(--shadow);
-      border-color: rgba(142,197,255,0.75);
+      border-color: rgba(41,151,255,0.42);
     }
 
     .card:hover::after {
@@ -1087,20 +1101,20 @@
     }
 
     .icon {
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
       border-radius: 8px;
       display: grid;
       place-items: center;
-      background: var(--ink);
-      color: var(--white);
+      background: #f2f7ff;
+      color: var(--blue);
       font-weight: 900;
-      box-shadow: 0 10px 26px rgba(10,13,18,0.16);
+      box-shadow: inset 0 0 0 1px rgba(41,151,255,0.12);
     }
 
     .card h3 {
-      margin: 18px 0 8px;
-      font-size: 21px;
+      margin: 16px 0 8px;
+      font-size: 20px;
       letter-spacing: 0;
     }
 
@@ -1419,7 +1433,9 @@
     }
 
     .cta {
-      background: linear-gradient(135deg, #050507, #10131a 62%, #141b26);
+      background:
+        linear-gradient(135deg, rgba(5,5,7,0.98), rgba(16,19,26,0.96) 62%, rgba(20,27,38,0.98)),
+        radial-gradient(circle at 70% 0%, rgba(142,197,255,0.22), transparent 30%);
       color: var(--white);
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
@@ -1441,12 +1457,13 @@
     }
 
     .cta-box {
-      background: rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.09);
       border: 1px solid rgba(255,255,255,0.24);
       border-radius: var(--radius);
       padding: 22px;
       min-width: 0;
       width: 100%;
+      box-shadow: 0 22px 70px rgba(0,0,0,0.22);
     }
 
     .cta-box b {
@@ -1904,19 +1921,19 @@
         <div class="price-contrast">
           <div class="price-kicker">Exempel: feed- och kanalhantering</div>
           <div class="price-row">
-            <div><span>Marknaden idag</span><b>Exempel: Channable för Buyersclub</b></div>
+            <div><span>Marknaden idag</span><b>Affärskritiskt flöde hos etablerad leverantör</b></div>
             <strong>25 000 kr</strong>
           </div>
           <div class="price-row highlight">
-            <div><span>Vårt kostnadsgolv</span><b>Arkitekt, plattform och AI-agenter</b></div>
+            <div><span>Vårt kostnadsgolv</span><b>Arkitekt, gemensam plattform och AI-agenter</b></div>
             <strong>ca 1 000 kr</strong>
           </div>
           <div class="price-row margin">
-            <div><span>Möjlig marginal</span><b>Bruttoedge</b></div>
+            <div><span>Möjlig marginal</span><b>Varje krona över golvet blir edge</b></div>
             <strong>+24 000 kr</strong>
           </div>
           <div class="margin-bar" aria-hidden="true"><span></span></div>
-          <div class="margin-note"><b>Poängen:</b> kostnadsgolvet ger frihet i pris och tempo.</div>
+          <div class="margin-note"><b>Poängen:</b> vi behöver inte vara billigast. Kostnadsgolvet ger frihet att vinna på produkt, pris och marginal.</div>
         </div>
         <div class="cost-grid">
           <div class="cost-card"><b>Ingen overhead</b><span>Inga lokaler, chefsled eller tung organisation.</span></div>
@@ -1969,12 +1986,12 @@
 
     <section class="cta">
       <div>
-        <h2>Enkelt, konkret och stort nog att bli farligt.</h2>
+        <h2>Vi bygger inte en SaaS-produkt. Vi bygger modellen för att skapa många.</h2>
         <p>Businessförståelse, kundförståelse och byggförmåga i samma team.</p>
       </div>
       <div class="cta-box">
-        <b>Målet</b>
-        <span>Lönsamma SaaS-produkter som förbättrar vardag och nyckeltal.</span>
+        <b>Slutsats</b>
+        <span>Enkelt, konkret och stort nog att bli farligt.</span>
       </div>
     </section>
 
@@ -2271,7 +2288,6 @@
       ".price-row span",
       ".price-row b",
       ".price-row strong",
-      ".margin-note",
       ".cost-card b",
       ".edge-intro b",
       ".edge-card b",
