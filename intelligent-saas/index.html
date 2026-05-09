@@ -5,23 +5,2370 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Den Intelligenta SAAS-fabriken</title>
   <style>
-    :root{--ink:#050507;--paper:#f5f5f7;--white:#fff;--muted:#707783;--line:#e1e4ea;--blue:#2997ff;--soft:#e8f2ff;--radius:8px}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:var(--paper);letter-spacing:0}.nav{position:fixed;top:14px;left:7vw;right:7vw;height:56px;display:flex;align-items:center;justify-content:space-between;z-index:10;padding:0 10px 0 12px;border:1px solid rgba(255,255,255,.14);border-radius:999px;background:rgba(9,12,18,.72);backdrop-filter:blur(18px);color:#fff}.brand{display:flex;align-items:center;gap:10px;font-weight:850;white-space:nowrap}.mark{width:34px;height:34px;border-radius:8px;background:#fff;color:#050507;display:grid;place-items:center;font-weight:950}.nav a{color:rgba(255,255,255,.72);text-decoration:none;font-size:13px;font-weight:800;margin-left:18px;white-space:nowrap}.hero{min-height:78vh;display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,.9fr);align-items:end;gap:clamp(26px,4vw,56px);padding:86px 7vw 34px;color:#fff;background:linear-gradient(115deg,rgba(5,5,7,.96),rgba(14,17,23,.9) 52%,rgba(24,31,42,.62)),url("https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1800&q=82") center/cover;overflow:hidden;position:relative}.hero:before,.dark:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(142,197,255,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px);background-size:46px 46px;opacity:.46;pointer-events:none}.hero>*{position:relative}.eyebrow{display:inline-flex;align-items:center;gap:10px;color:#8ec5ff;font-weight:850;font-size:clamp(17px,2.2vw,30px);white-space:nowrap}.eyebrow:before{content:"";width:76px;height:3px;background:#2997ff;border-radius:99px}h1,h2,h3,.fit{white-space:nowrap;line-height:1.06;margin:0}h1{font-size:clamp(28px,5vw,72px);padding:.04em 0}.lead{margin:18px 0 0;font-size:clamp(16px,1.5vw,20px);color:rgba(255,255,255,.8);white-space:nowrap}.line{margin-top:12px;padding-left:16px;border-left:3px solid #2997ff;font-weight:850;white-space:nowrap}.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;max-width:620px;margin-top:20px}.stat,.panel,.card,.price,.team-card{border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(255,255,255,.075);padding:12px}.stat b,.chip b{display:block;font-size:clamp(18px,1.5vw,22px);white-space:nowrap}.stat span,.chip span{display:block;margin-top:5px;color:rgba(255,255,255,.62);font-size:13px;white-space:nowrap}.actions{display:flex;gap:12px;margin-top:22px}.btn{display:inline-flex;align-items:center;min-height:46px;padding:0 18px;border-radius:8px;background:#fff;color:#050507;text-decoration:none;font-weight:850;white-space:nowrap}.btn.secondary{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#fff}.panel{background:rgba(9,12,18,.78);backdrop-filter:blur(18px);padding:18px}.panel-head{display:flex;justify-content:space-between;color:rgba(255,255,255,.65);font-weight:850;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.14);white-space:nowrap}.machine{display:grid;grid-template-columns:minmax(0,1fr) 46px minmax(0,1fr);gap:12px;align-items:center;padding-top:18px}.stack{display:grid;gap:10px;min-width:0}.chip{min-width:0;min-height:58px;border:1px solid rgba(255,255,255,.13);border-left:3px solid #8ec5ff;border-radius:8px;background:linear-gradient(135deg,rgba(255,255,255,.1),rgba(255,255,255,.04));padding:10px 12px}.arrow{width:46px;height:46px;border-radius:8px;background:#fff;color:#050507;display:grid;place-items:center;font-size:26px;font-weight:950}.conclusion{display:flex;justify-content:space-between;gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.14);font-weight:900}.pill{display:inline-flex;align-items:center;border-radius:999px;padding:7px 10px;color:#a7d2ff;background:rgba(142,197,255,.12);border:1px solid rgba(142,197,255,.22);font-size:13px;white-space:nowrap}.statement{padding:28px 7vw;background:#050507;color:#fff;text-align:center}.statement p{margin:0;font-size:clamp(20px,2.6vw,36px);font-weight:900;white-space:nowrap}.statement span{color:#8ec5ff}section{padding:70px 7vw}.head{display:flex;align-items:end;justify-content:space-between;gap:30px;margin-bottom:22px}.head p{margin:0;color:var(--muted);font-weight:650;white-space:nowrap}h2{font-size:clamp(34px,4.2vw,56px)}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{background:#fff;border-color:var(--line);min-height:112px}.card b{display:block;font-size:20px;white-space:nowrap}.card span,.card p{display:block;color:var(--muted);margin:6px 0 0;line-height:1.42;white-space:nowrap}.products .card{min-height:210px;display:flex;flex-direction:column;justify-content:space-between}.tag{display:inline-flex;border-radius:999px;background:var(--soft);color:#0958b8;font-size:13px;font-weight:850;padding:7px 10px;margin-top:12px;white-space:nowrap}.dark{position:relative;background:#050507;color:#fff;overflow:hidden}.dark>*{position:relative}.price{background:rgba(255,255,255,.075);padding:22px}.price-row{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:16px;align-items:end;padding:15px 0;border-bottom:1px solid rgba(255,255,255,.12)}.price-row:last-child{border-bottom:0}.price-row span{display:block;color:rgba(255,255,255,.6);font-weight:850;white-space:nowrap}.price-row b{display:block;font-size:20px;white-space:nowrap}.price-row strong{font-size:clamp(30px,3vw,44px);line-height:1;color:#fff;white-space:nowrap}.price-row.highlight strong{color:#8ec5ff}.note{margin-top:16px;padding:14px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(0,0,0,.18);color:rgba(255,255,255,.78);font-weight:800;white-space:nowrap}.cost{border:1px solid rgba(255,255,255,.14);border-radius:8px;background:rgba(255,255,255,.055);padding:17px;min-height:118px}.cost b{display:block;color:#fff;font-size:19px;white-space:nowrap}.cost span{display:block;margin-top:8px;color:rgba(255,255,255,.72);white-space:nowrap}.team{display:grid;grid-template-columns:.75fr 1.25fr;gap:16px}.team-intro{border-radius:8px;background:#050507;color:#fff;padding:22px}.team-intro b{display:block;font-size:32px;white-space:nowrap}.team-intro span{display:block;margin-top:12px;color:rgba(255,255,255,.72);white-space:nowrap}.team-card{background:#f5f5f7;border-color:var(--line);color:#050507;min-height:112px}.vision h2{font-size:clamp(42px,6vw,84px)}.vision p{color:rgba(255,255,255,.74);font-size:18px;white-space:nowrap}.cta{display:grid;grid-template-columns:1fr .8fr;gap:28px;align-items:center;background:linear-gradient(135deg,#050507,#10131a 62%,#141b26);color:#fff}.cta p,.cta span{color:rgba(255,255,255,.74);white-space:nowrap}.cta-box{border:1px solid rgba(255,255,255,.24);border-radius:8px;background:rgba(255,255,255,.1);padding:22px}.sources{font-size:13px;color:#707783;white-space:normal}.modal{position:fixed;inset:0;display:none;place-items:center;padding:20px;background:rgba(0,0,0,.56);z-index:20}.modal.open{display:grid}.dialog{width:min(720px,100%);max-height:88vh;overflow:auto;background:#fff;border-radius:8px;padding:24px}.close{width:40px;height:40px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:22px}.dialog-head{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:18px}.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0}.fact{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:14px}.fact span{font-size:12px;color:var(--muted);font-weight:850;text-transform:uppercase;white-space:nowrap}.fact b{display:block;margin-top:6px;white-space:nowrap}@media(max-width:980px){.hero,.team,.cta,.grid3,.grid2{grid-template-columns:1fr}.hero{min-height:auto;padding:92px 20px 26px}.nav{left:20px;right:20px}.nav-links{display:none}section{padding:42px 20px}.statement{padding:26px 20px}.stats{grid-template-columns:1fr}.machine{grid-template-columns:1fr}.arrow{transform:rotate(90deg);justify-self:center}.head{display:block}.head p{margin-top:10px}.price-row{grid-template-columns:1fr}.price-row strong{text-align:left}.conclusion{display:grid}.conclusion span:last-child{text-align:left}.sources{white-space:normal}}</style>
+    :root {
+      color-scheme: light;
+      --ink: #050507;
+      --muted: #6e737d;
+      --line: #e1e4ea;
+      --paper: #f5f5f7;
+      --white: #ffffff;
+      --green: #0071e3;
+      --lime: #2997ff;
+      --blue: #0071e3;
+      --coral: #ff725e;
+      --yellow: #ffd95a;
+      --cyan: #8ec5ff;
+      --violet: #5e5ce6;
+      --soft-accent: #e8f2ff;
+      --shadow: 0 24px 80px rgba(5, 5, 7, 0.11);
+      --deep-shadow: 0 28px 90px rgba(0, 0, 0, 0.34);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      letter-spacing: 0;
+      scroll-behavior: smooth;
+    }
+
+    button, a { font: inherit; }
+
+    h1, h2, h3,
+    .brand span,
+    .eyebrow,
+    .hero-stat b,
+    .chip strong,
+    .chip small,
+    .factory-head span,
+    .factory-conclusion p,
+    .section-head p,
+    .why-card b,
+    .edge-card b,
+    .factory-step b,
+    .role-card b,
+    .cost-card b,
+    .started-card h3,
+    .started-meta span,
+    .card-ref,
+    .card h3,
+    .tag,
+    .card-foot b,
+    .price-row b,
+    .price-row strong,
+    .agent-core h3,
+    .agent-pill,
+    .agent-card b,
+    .upgrade span,
+    .vision-kicker,
+    .cta-box b,
+    .fact b {
+      white-space: nowrap;
+      word-break: keep-all;
+      overflow-wrap: normal;
+      hyphens: none;
+    }
+
+    .fit-line {
+      white-space: nowrap !important;
+      word-break: keep-all;
+      overflow-wrap: normal;
+      hyphens: none;
+      overflow: visible;
+      text-overflow: initial;
+    }
+
+    .page {
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .hero {
+      position: relative;
+      min-height: 78vh;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(360px, 0.86fr);
+      gap: clamp(26px, 4vw, 56px);
+      align-items: end;
+      padding: 86px 7vw 34px;
+      background:
+        linear-gradient(115deg, rgba(5, 5, 7, 0.96) 0%, rgba(14, 17, 23, 0.9) 52%, rgba(24, 31, 42, 0.62) 100%),
+        url("https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1800&q=82") center / cover;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--white);
+      isolation: isolate;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background-image:
+        linear-gradient(rgba(142,197,255,0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px);
+      background-size: 46px 46px;
+      mask-image: linear-gradient(90deg, black, transparent 78%);
+      opacity: 0.52;
+      animation: gridDrift 18s linear infinite;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto 7vw 34px 7vw;
+      height: 1px;
+      z-index: -1;
+      background: linear-gradient(90deg, transparent, rgba(41,151,255,0.72), rgba(255,255,255,0.42), transparent);
+      animation: lineScan 5.6s ease-in-out infinite;
+    }
+
+    .nav {
+      position: fixed;
+      top: 14px;
+      left: 7vw;
+      right: 7vw;
+      height: 56px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 10px 0 12px;
+      color: var(--white);
+      z-index: 30;
+      border: 1px solid rgba(255,255,255,0.13);
+      border-radius: 999px;
+      background: rgba(9, 12, 18, 0.68);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 18px 46px rgba(0,0,0,0.18);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+    }
+
+    .mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.92);
+      color: var(--ink);
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+      box-shadow: 0 0 0 0 rgba(41,151,255,0.32);
+      animation: markPulse 3.8s ease-in-out infinite;
+    }
+
+    .nav > span:last-child {
+      color: rgba(255, 255, 255, 0.68);
+      font-weight: 650;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+    }
+
+    .nav-links a {
+      color: rgba(255,255,255,0.72);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 800;
+      padding: 7px 10px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .nav-links a:hover {
+      color: var(--white);
+      background: rgba(255,255,255,0.1);
+    }
+
+    .hero-copy {
+      padding-top: 28px;
+      max-width: 760px;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: clamp(6px, 1.8vw, 10px);
+      color: var(--cyan);
+      font-weight: 760;
+      margin-bottom: 14px;
+      max-width: 100%;
+      white-space: nowrap;
+      font-size: min(32px, calc((100vw - 34px) / 16));
+      line-height: 1;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: min(76px, 12vw);
+      min-width: 0;
+      height: 3px;
+      flex: 0 1 auto;
+      background: linear-gradient(90deg, var(--blue), var(--cyan));
+      border-radius: 99px;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 100%;
+      font-size: clamp(50px, 6.4vw, 92px);
+      line-height: 1.04;
+      letter-spacing: 0;
+      padding-bottom: 0.04em;
+    }
+
+    .hero h1 span {
+      color: transparent;
+      background: linear-gradient(90deg, #ffffff, #a7d2ff 42%, #ffffff 74%);
+      background-size: 220% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      animation: textFlow 10s ease-in-out infinite;
+    }
+
+    .lead {
+      max-width: 650px;
+      margin: 18px 0 0;
+      font-size: 20px;
+      line-height: 1.46;
+      color: rgba(255, 255, 255, 0.76);
+    }
+
+    .cto-line {
+      max-width: 650px;
+      margin-top: 12px;
+      padding-left: 16px;
+      border-left: 3px solid var(--blue);
+      color: rgba(255,255,255,0.88);
+      font-size: 18px;
+      line-height: 1.45;
+      font-weight: 760;
+    }
+
+    .hero-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      max-width: 620px;
+      margin-top: 20px;
+    }
+
+    .hero-stat {
+      position: relative;
+      min-height: 72px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: var(--radius);
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.075);
+      backdrop-filter: blur(12px);
+      overflow: hidden;
+    }
+
+    .hero-stat b {
+      display: block;
+      font-size: 22px;
+      color: var(--white);
+    }
+
+    .hero-stat span {
+      display: block;
+      margin-top: 6px;
+      color: rgba(255, 255, 255, 0.62);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .btn {
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 8px;
+      padding: 13px 18px;
+      background: var(--white);
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 760;
+      cursor: pointer;
+      box-shadow: 0 12px 30px rgba(5,5,7,0.12);
+      transition: transform 180ms ease, box-shadow 180ms ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 18px 38px rgba(5,5,7,0.16);
+    }
+
+    .btn.secondary {
+      background: rgba(255,255,255,0.08);
+      color: var(--white);
+    }
+
+    .factory-panel {
+      align-self: end;
+      margin-top: 0;
+      min-width: 0;
+      background: rgba(9, 12, 18, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: var(--radius);
+      box-shadow: var(--deep-shadow);
+      padding: 18px;
+      backdrop-filter: blur(18px);
+      color: var(--white);
+    }
+
+    .factory-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 4px 2px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.13);
+      color: rgba(255,255,255,0.62);
+      font-weight: 700;
+    }
+
+    .machine {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 46px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+      padding: 18px 0 0;
+    }
+
+    .stack {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .chip {
+      min-height: 58px;
+      position: relative;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 5px;
+      padding: 10px 12px 10px 16px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.04));
+      font-weight: 750;
+      overflow: hidden;
+    }
+
+    .chip::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-left: 3px solid rgba(142,197,255,0.9);
+      opacity: 0.82;
+    }
+
+    .chip strong {
+      display: block;
+      width: 100%;
+      color: var(--white);
+      font-size: 16px;
+      line-height: 1.05;
+    }
+
+    .chip small {
+      display: block;
+      width: 100%;
+      color: rgba(255,255,255,0.54);
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.25;
+    }
+
+    .arrow {
+      width: 46px;
+      height: 46px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #ffffff, #e9f4ff);
+      color: var(--ink);
+      display: grid;
+      place-items: center;
+      font-size: 26px;
+      font-weight: 900;
+    }
+
+    .factory-conclusion {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.13);
+    }
+
+    .factory-conclusion b {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      border-radius: 999px;
+      padding: 7px 10px;
+      color: #a7d2ff;
+      background: rgba(142,197,255,0.12);
+      border: 1px solid rgba(142,197,255,0.22);
+      font-size: 13px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .factory-conclusion p {
+      max-width: 600px;
+      margin: 0;
+      color: rgba(255,255,255,0.86);
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1.28;
+      text-align: right;
+    }
+
+    section {
+      padding: 70px 7vw;
+      scroll-margin-top: 88px;
+    }
+
+    @keyframes gridDrift {
+      from { background-position: 0 0, 0 0; }
+      to { background-position: 92px 46px, 46px 92px; }
+    }
+
+    @keyframes lineScan {
+      0%, 100% { opacity: 0.2; transform: scaleX(0.74); }
+      50% { opacity: 0.68; transform: scaleX(1); }
+    }
+
+    @keyframes markPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(41,151,255,0.18); }
+      50% { box-shadow: 0 0 0 7px rgba(41,151,255,0); }
+    }
+
+    @keyframes textFlow {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 30px;
+      margin-bottom: 22px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: clamp(34px, 4.2vw, 56px);
+      line-height: 1.06;
+      letter-spacing: 0;
+      max-width: 100%;
+      padding-bottom: 0.03em;
+    }
+
+    .statement {
+      padding: 28px 7vw;
+      background: var(--ink);
+      color: var(--white);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .statement p {
+      max-width: 1160px;
+      margin: 0 auto;
+      color: rgba(255,255,255,0.84);
+      font-size: clamp(22px, 2.6vw, 38px);
+      line-height: 1.18;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .statement span {
+      color: var(--cyan);
+    }
+
+    .section-head p {
+      max-width: 520px;
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 16px;
+    }
+
+    .promise {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .why-now {
+      background: var(--white);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .why-grid,
+    .edge-grid,
+    .factory-steps {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .why-card,
+    .edge-card,
+    .factory-step {
+      width: 100%;
+      min-width: 0;
+      min-height: 112px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      padding: 16px;
+    }
+
+    .why-card b,
+    .edge-card b,
+    .factory-step b {
+      display: block;
+      font-size: 20px;
+      margin-bottom: 6px;
+    }
+
+    .why-card span,
+    .edge-card span,
+    .factory-step span {
+      display: block;
+      color: var(--muted);
+      line-height: 1.42;
+    }
+
+    .edge {
+      padding-top: 36px;
+    }
+
+    .roles {
+      padding-top: 36px;
+    }
+
+    .roles-panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--white);
+      padding: 22px;
+    }
+
+    .roles-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 18px;
+    }
+
+    .roles-head h2 {
+      max-width: 760px;
+    }
+
+    .roles-head p {
+      max-width: 520px;
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 17px;
+    }
+
+    .role-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .role-card {
+      width: 100%;
+      min-width: 0;
+      min-height: 150px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      padding: 18px;
+    }
+
+    .role-card b {
+      display: block;
+      font-size: 22px;
+      margin-bottom: 10px;
+    }
+
+    .role-card span {
+      display: inline-flex;
+      border-radius: 999px;
+      background: var(--soft-accent);
+      color: #0958b8;
+      padding: 7px 10px;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .economics {
+      background: var(--ink);
+      color: var(--white);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .economics::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(142,197,255,0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+      background-size: 54px 54px;
+      opacity: 0.42;
+      pointer-events: none;
+    }
+
+    .economics > * {
+      position: relative;
+    }
+
+    .economics .section-head p {
+      color: rgba(255,255,255,0.68);
+    }
+
+    .economics-wrap {
+      display: grid;
+      grid-template-columns: 0.86fr 1.14fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .economics-wrap > *,
+    .edge-panel > *,
+    .agent-board > *,
+    .cta > * {
+      min-width: 0;
+    }
+
+    .price-contrast {
+      border: 1px solid rgba(255,255,255,0.16);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,0.075);
+      padding: 24px;
+    }
+
+    .price-kicker {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(142,197,255,0.12);
+      color: #a7d2ff;
+      border: 1px solid rgba(142,197,255,0.22);
+      font-size: 13px;
+      font-weight: 850;
+      margin-bottom: 18px;
+    }
+
+    .price-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) max-content;
+      gap: 16px;
+      align-items: end;
+      padding: 16px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .price-row > div {
+      min-width: 0;
+    }
+
+    .price-row:first-child {
+      padding-top: 0;
+    }
+
+    .price-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .price-row span {
+      display: block;
+      width: 100%;
+      color: rgba(255,255,255,0.58);
+      font-weight: 750;
+      margin-bottom: 6px;
+    }
+
+    .price-row b {
+      display: block;
+      width: 100%;
+      font-size: 22px;
+    }
+
+    .price-row strong {
+      display: block;
+      font-size: clamp(30px, 3vw, 44px);
+      line-height: 0.95;
+      color: var(--white);
+      text-align: right;
+    }
+
+    .price-row.highlight strong {
+      color: var(--cyan);
+    }
+
+    .price-row.margin strong {
+      color: #ffffff;
+    }
+
+    .margin-bar {
+      height: 8px;
+      margin-top: 18px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.12);
+      overflow: hidden;
+    }
+
+    .margin-bar span {
+      display: block;
+      width: 78%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #ffffff, #8ec5ff);
+    }
+
+    .margin-note {
+      margin-top: 18px;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius);
+      background: rgba(0,0,0,0.16);
+      color: rgba(255,255,255,0.74);
+      line-height: 1.5;
+      font-weight: 720;
+    }
+
+    .margin-note b {
+      color: var(--white);
+    }
+
+    .cost-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .cost-card {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,0.055);
+      padding: 17px;
+      min-height: 136px;
+    }
+
+    .cost-card b {
+      display: block;
+      color: var(--white);
+      font-size: 19px;
+      margin-bottom: 9px;
+    }
+
+    .cost-card span {
+      color: rgba(255,255,255,0.72);
+      line-height: 1.4;
+    }
+
+    .edge-panel {
+      display: grid;
+      grid-template-columns: 0.75fr 1.25fr;
+      gap: 16px;
+      align-items: stretch;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--white);
+      padding: 18px;
+    }
+
+    .edge-intro {
+      border-radius: var(--radius);
+      background: var(--ink);
+      color: var(--white);
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .edge-intro b {
+      display: block;
+      font-size: 32px;
+      line-height: 1;
+      margin-bottom: 14px;
+    }
+
+    .edge-intro span {
+      color: rgba(255,255,255,0.72);
+      line-height: 1.5;
+    }
+
+    .factory-section {
+      background: var(--paper);
+    }
+
+    .factory-section .agent-board {
+      margin-top: 28px;
+    }
+
+    .factory-step {
+      position: relative;
+      background: var(--white);
+    }
+
+    .factory-step em {
+      display: inline-grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--soft-accent);
+      color: #0958b8;
+      font-style: normal;
+      font-weight: 900;
+      margin-bottom: 16px;
+    }
+
+    .started {
+      background: var(--white);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .vision {
+      background: #07090d;
+      color: var(--white);
+      position: relative;
+      overflow: hidden;
+      padding-top: 124px;
+      padding-bottom: 124px;
+    }
+
+    .vision::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(142,197,255,0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+      background-size: 58px 58px;
+      opacity: 0.38;
+      pointer-events: none;
+    }
+
+    .vision > * {
+      position: relative;
+    }
+
+    .vision-kicker {
+      color: var(--cyan);
+      font-weight: 900;
+      margin-bottom: 16px;
+    }
+
+    .vision h2 {
+      max-width: 1120px;
+      font-size: clamp(46px, 6.2vw, 92px);
+      line-height: 1.06;
+      padding-bottom: 0.04em;
+    }
+
+    .vision-copy {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 26px;
+      max-width: 1040px;
+    }
+
+    .vision-copy > * {
+      min-width: 0;
+    }
+
+    .vision-copy p {
+      margin: 0;
+      color: rgba(255,255,255,0.74);
+      line-height: 1.58;
+      font-size: 19px;
+    }
+
+    .started-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .started-card {
+      width: 100%;
+      min-width: 0;
+      min-height: 232px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.92)),
+        linear-gradient(135deg, rgba(41,151,255,0.1), rgba(142,197,255,0.08));
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .started-card h3 {
+      margin: 0 0 10px;
+      font-size: 25px;
+      letter-spacing: 0;
+    }
+
+    .started-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.42;
+    }
+
+    .started-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0;
+    }
+
+    .started-meta span {
+      display: inline-flex;
+      border-radius: 999px;
+      background: var(--soft-accent);
+      color: #0958b8;
+      padding: 7px 10px;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .started-card small {
+      color: var(--muted);
+      line-height: 1.4;
+      font-weight: 700;
+    }
+
+    .metric {
+      position: relative;
+      min-height: 210px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.9)),
+        linear-gradient(135deg, rgba(41,151,255,0.1), rgba(142,197,255,0.08));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px;
+      box-shadow: 0 12px 34px rgba(10, 13, 18, 0.06);
+      overflow: hidden;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 52px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 14px;
+      color: var(--muted);
+      line-height: 1.48;
+      font-size: 17px;
+    }
+
+    .metric.accent {
+      background: linear-gradient(135deg, #050507, #111318);
+      color: var(--white);
+      border-color: rgba(142,197,255,0.24);
+    }
+
+    .metric.accent span { color: rgba(255,255,255,0.72); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--white);
+      min-height: 265px;
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      text-align: left;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+    }
+
+    .card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, transparent, rgba(41,151,255,0.08), transparent);
+      transform: translateX(-120%);
+      transition: transform 420ms ease;
+      pointer-events: none;
+    }
+
+    .card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow);
+      border-color: rgba(142,197,255,0.75);
+    }
+
+    .card:hover::after {
+      transform: translateX(120%);
+    }
+
+    .card-top {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card-ref {
+      color: var(--muted);
+      font-weight: 750;
+      font-size: 14px;
+      line-height: 1.25;
+      text-align: right;
+      max-width: 68%;
+    }
+
+    .icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: var(--ink);
+      color: var(--white);
+      font-weight: 900;
+      box-shadow: 0 10px 26px rgba(10,13,18,0.16);
+    }
+
+    .card h3 {
+      margin: 18px 0 8px;
+      font-size: 21px;
+      letter-spacing: 0;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.48;
+    }
+
+    .card-impact {
+      margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: var(--soft-accent);
+      color: #0958b8;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .tag.dark {
+      background: var(--ink);
+      color: var(--white);
+    }
+
+    .card-foot {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .card-foot span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 780;
+      text-transform: uppercase;
+    }
+
+    .card-foot b {
+      display: block;
+      margin-top: 4px;
+      font-size: 17px;
+    }
+
+    .ai-native {
+      background: linear-gradient(135deg, rgba(5,5,7,0.98), rgba(17,24,39,0.98));
+      color: var(--white);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .ai-native::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(120deg, rgba(142,197,255,0.08) 1px, transparent 1px),
+        linear-gradient(30deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+      background-size: 72px 72px;
+      opacity: 0.42;
+      pointer-events: none;
+    }
+
+    .ai-native > * {
+      position: relative;
+    }
+
+    .ai-native .section-head p { color: rgba(255,255,255,0.68); }
+
+    .native-wrap {
+      display: grid;
+      grid-template-columns: 0.85fr 1.15fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .native-main {
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: var(--radius);
+      padding: 24px;
+      background: rgba(255,255,255,0.07);
+      backdrop-filter: blur(16px);
+    }
+
+    .native-main h3 {
+      margin: 0 0 14px;
+      font-size: 32px;
+      letter-spacing: 0;
+    }
+
+    .native-main p {
+      margin: 0;
+      color: rgba(255,255,255,0.74);
+      line-height: 1.58;
+      font-size: 18px;
+    }
+
+    .native-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .native-item {
+      position: relative;
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: var(--radius);
+      padding: 18px;
+      background: rgba(255,255,255,0.07);
+      backdrop-filter: blur(16px);
+      overflow: hidden;
+    }
+
+    .native-item b {
+      color: var(--cyan);
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .native-item span {
+      color: rgba(255,255,255,0.72);
+      line-height: 1.45;
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .agent-section {
+      background: #ffffff;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .agent-board {
+      display: grid;
+      grid-template-columns: 0.78fr 1.22fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .agent-core {
+      background: var(--ink);
+      color: var(--white);
+      border-radius: var(--radius);
+      padding: 30px;
+      min-height: 430px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .agent-core::before {
+      content: "";
+      position: absolute;
+      inset: 20px;
+      border: 1px solid rgba(142,197,255,0.18);
+      border-radius: var(--radius);
+      background-image:
+        linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px);
+      background-size: 34px 34px;
+      pointer-events: none;
+    }
+
+    .agent-core > * { position: relative; }
+
+    .agent-core h3 {
+      margin: 0;
+      font-size: clamp(34px, 3.5vw, 46px);
+      line-height: 0.96;
+      letter-spacing: 0;
+    }
+
+    .agent-core-copy {
+      margin-top: 46px;
+    }
+
+    .agent-core p {
+      max-width: 430px;
+      color: rgba(255,255,255,0.72);
+      line-height: 1.45;
+      font-size: 17px;
+    }
+
+    .agent-pill {
+      display: inline-flex;
+      width: max-content;
+      align-items: center;
+      gap: 9px;
+      border: 1px solid rgba(142,197,255,0.28);
+      border-radius: 999px;
+      padding: 8px 12px;
+      color: var(--cyan);
+      background: rgba(41,151,255,0.12);
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .agent-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .agent-card {
+      width: 100%;
+      min-width: 0;
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px;
+      background: var(--paper);
+      min-height: 156px;
+      overflow: hidden;
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .agent-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(142,197,255,0.68);
+      box-shadow: 0 16px 44px rgba(10,13,18,0.08);
+    }
+
+    .agent-card b {
+      display: block;
+      font-size: 19px;
+      margin-bottom: 10px;
+    }
+
+    .agent-card span {
+      color: var(--muted);
+      line-height: 1.42;
+    }
+
+    .upgrade-strip {
+      display: grid;
+      gap: 0;
+      margin-top: 22px;
+      border-top: 1px solid rgba(255,255,255,0.14);
+    }
+
+    .upgrade {
+      display: grid;
+      grid-template-columns: 74px 1fr;
+      gap: 12px;
+      align-items: baseline;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.72);
+    }
+
+    .upgrade:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .upgrade b {
+      display: block;
+      color: var(--cyan);
+      font-size: 14px;
+      font-weight: 900;
+      margin: 0;
+    }
+
+    .upgrade span {
+      color: rgba(255,255,255,0.78);
+      font-size: 15px;
+      font-weight: 760;
+      line-height: 1.25;
+    }
+
+    .step {
+      position: relative;
+      min-height: 190px;
+      border-top: 5px solid var(--blue);
+      background: var(--white);
+      border-radius: 0 0 var(--radius) var(--radius);
+      padding: 18px;
+      border-left: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      overflow: hidden;
+    }
+
+    .step b {
+      color: var(--green);
+      display: block;
+      margin-bottom: 12px;
+    }
+
+    .step p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.48;
+    }
+
+    .cta {
+      background: linear-gradient(135deg, #050507, #10131a 62%, #141b26);
+      color: var(--white);
+      display: grid;
+      grid-template-columns: 1fr 0.8fr;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .cta h2 {
+      max-width: 850px;
+    }
+
+    .cta p {
+      margin: 18px 0 0;
+      color: rgba(255,255,255,0.76);
+      font-size: 19px;
+      line-height: 1.5;
+    }
+
+    .cta-box {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.24);
+      border-radius: var(--radius);
+      padding: 22px;
+      min-width: 0;
+    }
+
+    .cta-box b {
+      display: block;
+      font-size: 30px;
+      margin-bottom: 8px;
+    }
+
+    .cta-box span {
+      display: block;
+      color: rgba(255,255,255,0.74);
+      line-height: 1.45;
+    }
+
+    .sources {
+      padding-top: 44px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .sources a {
+      color: var(--muted);
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      place-items: center;
+      padding: 20px;
+      background: rgba(20, 20, 20, 0.54);
+      z-index: 20;
+    }
+
+    .modal.open { display: grid; }
+
+    .dialog {
+      width: min(720px, 100%);
+      max-height: min(760px, 88vh);
+      overflow: auto;
+      background: var(--white);
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+
+    .dialog-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 18px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+      margin-bottom: 18px;
+    }
+
+    .dialog h3 {
+      margin: 0;
+      font-size: 32px;
+      letter-spacing: 0;
+    }
+
+    .dialog p {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .close {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--white);
+      cursor: pointer;
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin: 18px 0;
+    }
+
+    .fact {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+
+    .fact span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+
+    .fact b {
+      display: block;
+      margin-top: 6px;
+      font-size: 18px;
+    }
+
+    .dialog ul {
+      margin: 0;
+      padding-left: 18px;
+      color: #34383b;
+      line-height: 1.65;
+    }
+
+    @media (max-width: 980px) {
+      .hero,
+      .native-wrap,
+      .economics-wrap,
+      .vision-copy,
+      .edge-panel,
+      .agent-board,
+      .cta {
+        grid-template-columns: 1fr;
+      }
+
+      .factory-panel {
+        margin-top: 0;
+        align-self: auto;
+      }
+
+      .section-head {
+        display: block;
+      }
+
+      .section-head p {
+        margin-top: 12px;
+      }
+
+      .promise,
+      .why-grid,
+      .edge-grid,
+      .factory-steps,
+      .cost-grid,
+      .started-grid,
+      .role-grid,
+      .grid,
+      .timeline,
+      .upgrade-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 1120px) {
+      .economics-wrap,
+      .edge-panel,
+      .agent-board,
+      .cta {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 860px) {
+      .nav-links {
+        display: none;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .nav {
+        height: 62px;
+        left: 20px;
+        right: 20px;
+        padding: 0 10px 0 12px;
+      }
+
+      .nav > span:last-child { display: none; }
+
+      .nav-links {
+        display: none;
+      }
+
+      .hero {
+        min-height: auto;
+        padding: 92px 20px 26px;
+      }
+
+      section { padding: 40px 20px; }
+
+      .lead {
+        font-size: 16px;
+      }
+
+      .cto-line {
+        font-size: 15px;
+        padding-left: 12px;
+      }
+
+      .brand {
+        min-width: 0;
+      }
+
+      .brand span:last-child {
+        min-width: 0;
+      }
+
+      .machine {
+        grid-template-columns: 1fr;
+      }
+
+      .arrow {
+        animation: none;
+        transform: rotate(90deg);
+        justify-self: center;
+      }
+
+      .promise,
+      .why-grid,
+      .edge-grid,
+      .factory-steps,
+      .cost-grid,
+      .started-grid,
+      .role-grid,
+      .grid,
+      .timeline,
+      .native-list,
+      .agent-grid,
+      .upgrade-strip,
+      .facts {
+        grid-template-columns: 1fr;
+      }
+
+      .factory-conclusion {
+        display: grid;
+      }
+
+      .factory-conclusion p {
+        text-align: left;
+      }
+
+      .hero-stats {
+        grid-template-columns: 1fr;
+      }
+
+      .section-head {
+        display: block;
+      }
+
+      .roles-head {
+        display: block;
+      }
+
+      .section-head p {
+        margin-top: 12px;
+      }
+
+      .metric {
+        min-height: 170px;
+      }
+
+      .price-row {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+
+      .price-row strong {
+        text-align: left;
+        font-size: 30px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.001ms !important;
+      }
+    }
+  </style>
 </head>
 <body>
-<nav class="nav"><div class="brand"><span class="mark">AI</span><span>Den Intelligenta SAAS-fabriken</span></div><div class="nav-links"><a href="#why">Varför nu</a><a href="#model">Modellen</a><a href="#products">Produkter</a><a href="#economics">Ekonomi</a><a href="#team">Team</a><a href="#vision">Vision</a></div></nav>
-<header class="hero"><div><div class="eyebrow">Affärsplan 2026-2027</div><h1><span>Den Intelligenta</span> SAAS-fabriken.</h1><p class="lead">Vi bygger bättre SaaS med intelligens i grunden.</p><p class="line">Varje ny tjänst ska bli snabbare att bygga än den förra.</p><div class="stats"><div class="stat"><b>Bättre UX</b><span>Smartare flöden.</span></div><div class="stat"><b>Bättre KPI</b><span>Mätbar effekt.</span></div><div class="stat"><b>Agenter</b><span>System som gör jobbet.</span></div></div><div class="actions"><a class="btn" href="#products">Se produkterna</a><a class="btn secondary" href="#model">Se modellen</a></div></div><aside class="panel"><div class="panel-head"><span>Dagens SaaS</span><span>SAAS-fabriken</span></div><div class="machine"><div class="stack"><div class="chip"><b>Manuellt jobb</b><span>Regler, exporter och admin</span></div><div class="chip"><b>Statiska system</b><span>Visar data, men agerar inte</span></div><div class="chip"><b>Lång onboarding</b><span>Kunden betalar innan värdet syns</span></div></div><div class="arrow">→</div><div class="stack"><div class="chip"><b>Agenter i kärnan</b><span>Systemet föreslår och utför</span></div><div class="chip"><b>KPI först</b><span>Byggt för mätbar effekt</span></div><div class="chip"><b>Gratis pilot</b><span>Betala när kunden är nöjd</span></div></div></div><div class="conclusion"><span class="pill">Slutsats</span><span>Bevisa värdet. Ta betalt.</span></div></aside></header>
-<section class="statement"><p>En <span>produktmotor</span> för bättre SaaS, kategori för kategori.</p></section>
-<section id="why"><div class="head"><h2>Varför nu</h2><p>Små team kan nu bygga som stora organisationer.</p></div><div class="grid3"><div class="card"><b>Byggkostnaden faller</b><span>Det som tog år kan byggas snabbare.</span></div><div class="card"><b>AI blir bättre varje månad</b><span>Produkterna förbättras i takt med modellerna.</span></div><div class="card"><b>Kunderna är redo</b><span>Bolag vill bort från statiska system.</span></div></div></section>
-<section id="model"><div class="head"><h2>Produktfabriken</h2><p>Hitta dyrt flöde. Bygg smartare. Bevisa effekt. Återanvänd grunden.</p></div><div class="grid3"><div class="card"><b>1. Hitta dyrt SaaS-flöde</b><span>Utgå från system som kunder redan betalar för.</span></div><div class="card"><b>2. Bygg intelligent version</b><span>Bättre UX, agenter i grunden och mätbar effekt.</span></div><div class="card"><b>3. Testa gratis hos kund</b><span>Kunden betalar först när värdet är tydligt.</span></div><div class="card"><b>4. Bevisa bättre KPI</b><span>Färre fel, snabbare flöden och bättre marginal.</span></div><div class="card"><b>5. Skala till fler kunder</b><span>Multi-tenant och superadmin från start.</span></div><div class="card"><b>6. Återanvänd plattformen</b><span>Samma grund gör nästa produkt snabbare.</span></div></div></section>
-<section id="products" class="products"><div class="head"><h2>Redan på väg</h2><p>Flera produkter kan bli de första bevisen för fabriken.</p></div><div class="grid2"><div class="card"><div><b>Feedstack</b><p>Produktfeeds med diff före publicering.</p><span class="tag">Feeds</span></div><span>Status: pilotdemo 2026-05-15.</span></div><div class="card"><div><b>Deliverypick</b><p>Multi-carrier delivery, byggt som multi-tenant SaaS.</p><span class="tag">Leverans</span></div><span>Status: v0 med auth och tenantmodell.</span></div><div class="card"><div><b>Helpy</b><p>Support OS för sök, chatt, feed-berikning och agents.</p><span class="tag">Agent OS</span></div><span>Status: repo med admin, widget och AI.</span></div><div class="card"><div><b>Hubby</b><p>Agentlager för company context, policy och actions.</p><span class="tag">Work OS</span></div><span>Status: arkitektur v1 för agents och actions.</span></div></div></section>
-<section><div class="head"><h2>Första vågen: e-handel</h2><p>Kända behov, byggda med intelligens från start.</p></div><div class="grid3"><button class="card open" data-title="Feed & kanalhantering" data-ref="Channable"><b>Feed & kanalhantering</b><span>Feeds optimeras automatiskt per kanal.</span><span class="tag">Feedagent</span></button><button class="card open" data-title="Sök & rekommendationer" data-ref="Loop54 / Klevu"><b>Sök & rekommendationer</b><span>Sök som förstår avsikt, lager och marginal.</span><span class="tag">Sökagent</span></button><button class="card open" data-title="Prisbevakning" data-ref="PriceShape"><b>Prisbevakning</b><span>Från konkurrentdata till konkreta prisbeslut.</span><span class="tag">Prisagent</span></button><button class="card open" data-title="Produktdata / PIM" data-ref="OneWorldSync / Plytix"><b>Produktdata / PIM</b><span>Produktdata som berikas per kanal.</span><span class="tag">PIM-agent</span></button><button class="card open" data-title="Frakt & leverans" data-ref="nShift"><b>Frakt & leverans</b><span>Frakt och tracking med bästa val per order.</span><span class="tag">Fraktagent</span></button><button class="card open" data-title="Kundchatt & support" data-ref="Imbox / Intercom"><b>Kundchatt & support</b><span>Support som förstår order och returer.</span><span class="tag">Supportagent</span></button></div></section>
-<section id="economics" class="dark"><div class="head"><h2>Marginal som vapen</h2><p>Vi vinner på produkt. Kostnadsbasen gör marginalen extrem.</p></div><div class="grid2"><div class="price"><div class="price-row"><div><span>Marknaden idag</span><b>Channable för Buyersclub</b></div><strong>25 000 kr</strong></div><div class="price-row highlight"><div><span>Vårt kostnadsgolv</span><b>Arkitekt, plattform och AI-agenter</b></div><strong>ca 1 000 kr</strong></div><div class="price-row"><div><span>Möjlig marginal</span><b>Bruttoedge</b></div><strong>+24 000 kr</strong></div><div class="note"><b>Poängen:</b> kostnadsgolvet ger frihet i pris och tempo.</div></div><div class="grid2"><div class="cost"><b>Ingen overhead</b><span>Inga lokaler, chefsled eller tung organisation.</span></div><div class="cost"><b>Byggt under Buyersclub</b><span>Verkliga behov. Verklig kundnytta.</span></div><div class="cost"><b>Agenter före supportmassa</b><span>Onboarding automatiseras från start.</span></div><div class="cost"><b>Arkitekt + tokens</b><span>Skicklig arkitekt, plattform och AI-kapacitet.</span></div></div></div></section>
-<section id="team"><div class="team"><div class="team-intro"><b>Teamets edge</b><span>Kundcase + businesscase + byggcase.</span></div><div class="grid3"><div class="team-card"><b>Business</b><span>Vi vet var kunder betalar.</span></div><div class="team-card"><b>Kundförståelse</b><span>Mindre admin. Bättre effekt.</span></div><div class="team-card"><b>Byggförmåga</b><span>Agenter och multi-tenant från start.</span></div></div></div></section>
-<section><div class="head"><h2>Ansvar</h2><p>Alla hjälps åt. Varje person har ett huvudansvar.</p></div><div class="grid3"><div class="card"><b>Joakim Berg</b><span>Arkitekt</span></div><div class="card"><b>Emil Henriksson</b><span>Försäljning</span></div><div class="card"><b>Jacob Wendel</b><span>Integrationer</span></div><div class="card"><b>Richard Carlsson</b><span>Design</span></div></div></section>
-<section id="vision" class="dark vision"><div class="pill">Kategori för kategori</div><h2>Vi bygger fabriken som gör SaaS-bolag.</h2><div class="grid2"><p>Gamla SaaS vann på kapital. Vi vinner på hastighet.</p><p>Först e-handel. Sedan varje kategori där mjukvara är långsam och dyr.</p></div></section>
-<section class="cta"><div><h2>Enkelt, konkret och stort nog att bli farligt.</h2><p>Businessförståelse, kundförståelse och byggförmåga i samma team.</p></div><div class="cta-box"><b>Målet</b><span>Lönsamma SaaS-produkter som förbättrar vardag och nyckeltal.</span></div></section>
-<section class="sources">Den Intelligenta SAAS-fabriken bygger på en enkel idé: mjukvara som redan är affärskritisk ska byggas om med intelligens i grunden. Först bevisar vi värdet. Sedan tar vi betalt.</section>
-<div class="modal" id="modal"><div class="dialog"><div class="dialog-head"><div><h3 id="modalTitle"></h3><p id="modalIntro">Testa gratis, betala när du är nöjd.</p></div><button class="close" id="close">×</button></div><div class="facts"><div class="fact"><span>Dagens system</span><b id="modalRef"></b></div><div class="fact"><span>Vårt löfte</span><b>Bättre UX</b></div><div class="fact"><span>Målet</span><b>Bättre KPI</b></div></div><p>Byggs med intelligens, agenter och superadmin från start.</p></div></div>
-<script>document.querySelectorAll('.open').forEach(b=>b.onclick=()=>{modal.classList.add('open');modalTitle.textContent=b.dataset.title;modalRef.textContent=b.dataset.ref});close.onclick=()=>modal.classList.remove('open');modal.onclick=e=>{if(e.target===modal)modal.classList.remove('open')};function fit(){document.querySelectorAll('h1,h2,h3,.fit,.brand span:last-child,.card b,.card span,.card p,.chip b,.chip span,.stat b,.stat span,.lead,.line,.price-row b,.price-row span,.price-row strong,.cost b,.cost span,.team-card b,.team-card span,.cta p,.cta span').forEach(el=>{el.style.fontSize='';let s=parseFloat(getComputedStyle(el).fontSize),min=el.matches('h1')?12:el.matches('h2')?16:8;let max=el.clientWidth||el.parentElement.clientWidth;for(let i=0;i<100&&el.scrollWidth>max+1&&s>min;i++){s=Math.max(min,s*(max/Math.max(el.scrollWidth,1))*.98);el.style.fontSize=s+'px'}})}window.addEventListener('resize',()=>setTimeout(fit,40));document.fonts&&document.fonts.ready.then(fit);setTimeout(fit,60)</script>
+  <main class="page">
+    <nav class="nav" aria-label="Huvudnavigation">
+      <div class="brand"><span class="mark">AI</span><span>Den Intelligenta SAAS-fabriken</span></div>
+      <div class="nav-links" aria-label="Sidmeny">
+        <a href="#start">Start</a>
+        <a href="#why">Varför nu</a>
+        <a href="#model">Modellen</a>
+        <a href="#products">Produkter</a>
+        <a href="#economics">Ekonomi</a>
+        <a href="#team">Team</a>
+        <a href="#vision">Vision</a>
+      </div>
+    </nav>
+
+    <header class="hero" id="start">
+      <div class="hero-copy">
+        <div class="eyebrow">Affärsplan 2026-2027</div>
+        <h1><span>Den Intelligenta</span> SAAS-fabriken.</h1>
+        <p class="lead">Vi bygger bättre SaaS med intelligens i grunden.</p>
+        <p class="cto-line">Varje ny tjänst ska bli snabbare att bygga än den förra.</p>
+        <div class="hero-stats" aria-label="Kärnlogik">
+          <div class="hero-stat"><b>Bättre UX</b><span>Smartare flöden.</span></div>
+          <div class="hero-stat"><b>Bättre KPI</b><span>Mätbar effekt.</span></div>
+          <div class="hero-stat"><b>Agenter</b><span>System som gör jobbet.</span></div>
+        </div>
+        <div class="hero-actions">
+          <a class="btn" href="#products">Se produkterna</a>
+          <a class="btn secondary" href="#model">Se modellen</a>
+        </div>
+      </div>
+
+      <aside class="factory-panel" aria-label="Intelligent SAAS modell">
+        <div class="factory-head">
+          <span>Dagens SaaS</span>
+          <span>SAAS-fabriken</span>
+        </div>
+        <div class="machine">
+          <div class="stack">
+            <div class="chip"><strong>Manuellt jobb</strong><small>Regler, exporter och admin</small></div>
+            <div class="chip"><strong>Statiska system</strong><small>Visar data, men agerar inte</small></div>
+            <div class="chip"><strong>Lång onboarding</strong><small>Kunden betalar innan värdet syns</small></div>
+          </div>
+          <div class="arrow">→</div>
+          <div class="stack">
+            <div class="chip"><strong>Agenter i kärnan</strong><small>Systemet föreslår och utför</small></div>
+            <div class="chip"><strong>KPI först</strong><small>Byggt för mätbar effekt</small></div>
+            <div class="chip"><strong>Gratis pilot</strong><small>Betala när kunden är nöjd</small></div>
+          </div>
+        </div>
+        <div class="factory-conclusion" aria-label="Slutsats">
+          <b>Slutsats</b>
+          <p>Bevisa värdet. Ta betalt.</p>
+        </div>
+      </aside>
+    </header>
+
+    <section class="statement">
+      <p>En <span>produktmotor</span> för bättre SaaS, kategori för kategori.</p>
+    </section>
+
+    <section class="why-now" id="why">
+      <div class="section-head">
+        <h2>Varför nu</h2>
+        <p>Små team kan nu bygga som stora organisationer.</p>
+      </div>
+      <div class="why-grid">
+        <div class="why-card"><b>Byggkostnaden faller</b><span>Det som tog år kan byggas snabbare.</span></div>
+        <div class="why-card"><b>AI blir bättre varje månad</b><span>Produkterna förbättras i takt med modellerna.</span></div>
+        <div class="why-card"><b>Kunderna är redo</b><span>Bolag vill bort från statiska system.</span></div>
+      </div>
+    </section>
+
+    <section class="factory-section" id="model">
+      <div class="section-head">
+        <h2>Produktfabriken</h2>
+        <p>Hitta dyrt flöde. Bygg smartare. Bevisa effekt. Återanvänd grunden.</p>
+      </div>
+      <div class="factory-steps">
+        <div class="factory-step"><em>1</em><b>Hitta dyrt SaaS-flöde</b><span>Utgå från system som kunder redan betalar för.</span></div>
+        <div class="factory-step"><em>2</em><b>Bygg intelligent version</b><span>Bättre UX, agenter i grunden och mätbar effekt.</span></div>
+        <div class="factory-step"><em>3</em><b>Testa gratis hos kund</b><span>Kunden betalar först när värdet är tydligt.</span></div>
+        <div class="factory-step"><em>4</em><b>Bevisa bättre KPI</b><span>Färre fel, snabbare flöden och bättre marginal.</span></div>
+        <div class="factory-step"><em>5</em><b>Skala till fler kunder</b><span>Multi-tenant och superadmin från start.</span></div>
+        <div class="factory-step"><em>6</em><b>Återanvänd plattformen</b><span>Samma grund gör nästa produkt snabbare.</span></div>
+      </div>
+      <div class="agent-board">
+        <div class="agent-core">
+          <span class="agent-pill">Den Intelligenta SAAS-fabriken</span>
+          <div class="agent-core-copy">
+            <h3>En gemensam grund för alla produkter.</h3>
+            <p>Tenants, billing, data, agenter och integrationer.</p>
+          </div>
+          <div class="upgrade-strip">
+            <div class="upgrade"><b>2026</b><span>Lansera första tjänsterna</span></div>
+            <div class="upgrade"><b>2027</b><span>Gå in i nya kategorier</span></div>
+            <div class="upgrade"><b>2028</b><span>Automatisera leveransen</span></div>
+            <div class="upgrade"><b>Alltid</b><span>Låt bättre AI lyfta produkterna</span></div>
+          </div>
+        </div>
+        <div class="agent-grid">
+          <div class="agent-card"><b>Prisagent</b><span>Bevakar och föreslår prisbeslut.</span></div>
+          <div class="agent-card"><b>Feedagent</b><span>Fixar data, titlar och kanalflöden.</span></div>
+          <div class="agent-card"><b>Supportagent</b><span>Löser enkla ärenden och eskalerar resten.</span></div>
+          <div class="agent-card"><b>Growthagent</b><span>Hittar förbättringar i checkout.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="started" id="products">
+      <div class="section-head">
+        <h2>Redan på väg</h2>
+        <p>Flera produkter kan bli de första bevisen för fabriken.</p>
+      </div>
+      <div class="started-grid">
+        <div class="started-card">
+          <div>
+            <h3>Feedstack</h3>
+            <p>Produktfeeds med diff före publicering.</p>
+            <div class="started-meta"><span>E-handel</span><span>Feeds</span></div>
+          </div>
+          <small>Status: pilotdemo 2026-05-15.</small>
+        </div>
+        <div class="started-card">
+          <div>
+            <h3>Deliverypick</h3>
+            <p>Multi-carrier delivery, byggt som multi-tenant SaaS.</p>
+            <div class="started-meta"><span>E-handel</span><span>Leverans</span></div>
+          </div>
+          <small>Status: v0 med auth och tenantmodell.</small>
+        </div>
+        <div class="started-card">
+          <div>
+            <h3>Helpy</h3>
+            <p>Support OS för sök, chatt, feed-berikning och agents.</p>
+            <div class="started-meta"><span>Support</span><span>Agent OS</span></div>
+          </div>
+          <small>Status: repo med admin, widget och AI.</small>
+        </div>
+        <div class="started-card">
+          <div>
+            <h3>Hubby</h3>
+            <p>Agentlager för company context, policy och actions.</p>
+            <div class="started-meta"><span>Work OS</span><span>Agentplattform</span></div>
+          </div>
+          <small>Status: arkitektur v1 för agents och actions.</small>
+        </div>
+      </div>
+    </section>
+
+    <section id="commerce-products">
+      <div class="section-head">
+        <h2>Första vågen: e-handel</h2>
+        <p>Kända behov, byggda med intelligens från start.</p>
+      </div>
+      <div class="grid" id="productGrid"></div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Expansion 2027</h2>
+        <p>Nästa steg: kategorier med stora AI-vinster.</p>
+      </div>
+      <div class="grid" id="expansionGrid"></div>
+    </section>
+
+    <section class="economics" id="economics">
+      <div class="section-head">
+        <h2>Marginal som vapen</h2>
+        <p>Vi vinner på produkt. Kostnadsbasen gör marginalen extrem.</p>
+      </div>
+      <div class="economics-wrap">
+        <div class="price-contrast">
+          <div class="price-kicker">Exempel: feed- och kanalhantering</div>
+          <div class="price-row">
+            <div><span>Marknaden idag</span><b>Exempel: Channable för Buyersclub</b></div>
+            <strong>25 000 kr</strong>
+          </div>
+          <div class="price-row highlight">
+            <div><span>Vårt kostnadsgolv</span><b>Arkitekt, plattform och AI-agenter</b></div>
+            <strong>ca 1 000 kr</strong>
+          </div>
+          <div class="price-row margin">
+            <div><span>Möjlig marginal</span><b>Bruttoedge</b></div>
+            <strong>+24 000 kr</strong>
+          </div>
+          <div class="margin-bar" aria-hidden="true"><span></span></div>
+          <div class="margin-note"><b>Poängen:</b> kostnadsgolvet ger frihet i pris och tempo.</div>
+        </div>
+        <div class="cost-grid">
+          <div class="cost-card"><b>Ingen overhead</b><span>Inga lokaler, chefsled eller tung organisation.</span></div>
+          <div class="cost-card"><b>Byggt under Buyersclub</b><span>Verkliga behov. Verklig kundnytta.</span></div>
+          <div class="cost-card"><b>Agenter före supportmassa</b><span>Onboarding automatiseras från start.</span></div>
+          <div class="cost-card"><b>Arkitekt + tokens</b><span>Skicklig arkitekt, plattform och AI-kapacitet.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="edge" id="team">
+      <div class="edge-panel">
+        <div class="edge-intro">
+          <div>
+            <b>Teamets edge</b>
+            <span>Kundcase + businesscase + byggcase.</span>
+          </div>
+        </div>
+        <div class="edge-grid">
+          <div class="edge-card"><b>Business</b><span>Vi vet var kunder betalar.</span></div>
+          <div class="edge-card"><b>Kundförståelse</b><span>Mindre admin. Bättre effekt.</span></div>
+          <div class="edge-card"><b>Byggförmåga</b><span>Agenter och multi-tenant från start.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="roles">
+      <div class="roles-panel">
+        <div class="roles-head">
+          <h2>Ansvar</h2>
+          <p>Alla hjälps åt. Varje person har ett huvudansvar.</p>
+        </div>
+        <div class="role-grid">
+          <div class="role-card"><b>Joakim Berg</b><span>Arkitekt</span></div>
+          <div class="role-card"><b>Emil Henriksson</b><span>Försäljning</span></div>
+          <div class="role-card"><b>Jacob Wendel</b><span>Integrationer</span></div>
+          <div class="role-card"><b>Richard Carlsson</b><span>Design</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="vision" id="vision">
+      <div class="vision-kicker">Kategori för kategori</div>
+      <h2>Vi bygger fabriken som gör SaaS-bolag.</h2>
+      <div class="vision-copy">
+        <p>Gamla SaaS vann på kapital. Vi vinner på hastighet.</p>
+        <p>Först e-handel. Sedan varje kategori där mjukvara är långsam och dyr.</p>
+      </div>
+    </section>
+
+    <section class="cta">
+      <div>
+        <h2>Enkelt, konkret och stort nog att bli farligt.</h2>
+        <p>Businessförståelse, kundförståelse och byggförmåga i samma team.</p>
+      </div>
+      <div class="cta-box">
+        <b>Målet</b>
+        <span>Lönsamma SaaS-produkter som förbättrar vardag och nyckeltal.</span>
+      </div>
+    </section>
+
+    <section class="sources">
+      Först bevisar vi värdet. Sedan tar vi betalt.
+    </section>
+  </main>
+
+  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="dialog">
+      <div class="dialog-head">
+        <div>
+          <h3 id="modalTitle"></h3>
+          <p id="modalIntro"></p>
+        </div>
+        <button class="close" id="closeModal" aria-label="Stäng">×</button>
+      </div>
+      <div class="facts">
+        <div class="fact"><span>Dagens system</span><b id="modalMarket"></b></div>
+        <div class="fact"><span>Vårt löfte</span><b id="modalPrice"></b></div>
+        <div class="fact"><span>Målet</span><b id="modalSave"></b></div>
+      </div>
+      <p><b>Varför vi kan vinna:</b></p>
+      <ul id="modalBullets"></ul>
+    </div>
+  </div>
+
+  <script>
+    const products = [
+      {
+        icon: "F",
+        title: "Feed & kanalhantering",
+        ref: "Channable",
+        agent: "Feedagent",
+        impact: "Färre avvisade produkter",
+        outcome: "Högre ROAS",
+        intro: "Feeds optimeras automatiskt per kanal.",
+        bullets: [
+          "Feedagenten skriver och förbättrar titlar, kategorier och attribut automatiskt.",
+          "Regler kan skapas med vanligt språk istället för tekniska filter.",
+          "Superadmin gör att samma motor kan köras för många e-handlare."
+        ]
+      },
+      {
+        icon: "S",
+        title: "Sök & rekommendationer",
+        ref: "Loop54 / Klevu",
+        agent: "Sökagent",
+        impact: "Fler relevanta träffar",
+        outcome: "Mer konvertering",
+        intro: "Sök som förstår avsikt, lager och marginal.",
+        bullets: [
+          "Sökagenten gör sök och rekommendationer till ett aktivt försäljningslager.",
+          "Sökagenten förstår synonymer, felstavningar, köpsignaler och lagerstatus.",
+          "Byggs för att koppla sökdata direkt till kampanj, sortering och marginal."
+        ]
+      },
+      {
+        icon: "P",
+        title: "Prisbevakning",
+        ref: "PriceShape",
+        agent: "Prisagent",
+        impact: "Mindre prisjakt",
+        outcome: "Bättre marginal",
+        intro: "Från konkurrentdata till konkreta prisbeslut.",
+        bullets: [
+          "Prisbevakning blir ett intelligent beslutssystem, inte bara en lista med konkurrentdata.",
+          "Prisagenten föreslår när vi ska följa, slå eller ignorera konkurrentpriser.",
+          "Fokus på bättre beslut, inte bara fler prisrader i en tabell."
+        ]
+      },
+      {
+        icon: "D",
+        title: "Produktdata / PIM",
+        ref: "OneWorldSync / Plytix",
+        agent: "PIM-agent",
+        impact: "Färre produktluckor",
+        outcome: "Snabbare katalog",
+        intro: "Produktdata som berikas och anpassas per kanal.",
+        bullets: [
+          "PIM blir ett intelligent produktdatalager som förbättrar katalogen löpande.",
+          "Produktagenten fyller luckor i produktdata och gör texterna säljbara per kanal.",
+          "Perfekt första produkt om egen katalogdata redan är stökig och dyr."
+        ]
+      },
+      {
+        icon: "L",
+        title: "Frakt & leverans",
+        ref: "nShift",
+        agent: "Fraktagent",
+        impact: "Färre leveransfel",
+        outcome: "Lägre friktion",
+        intro: "Frakt och tracking med bästa val per order.",
+        bullets: [
+          "Leveransagenten föreslår fraktval baserat på marginal, vikt, destination och kundlöfte.",
+          "Regelmotorn blir enklare att hantera än traditionella fraktplattformar.",
+          "Särskilt starkt för e-handlare med många transportörer och marknader."
+        ]
+      },
+      {
+        icon: "C",
+        title: "Kundchatt & support",
+        ref: "Imbox / Intercom",
+        agent: "Supportagent",
+        impact: "Färre tickets",
+        outcome: "Nöjdare kunder",
+        intro: "Support som förstår order, produkter och returer.",
+        bullets: [
+          "Support blir mer automatiserad, mer träffsäker och närmare kundens orderdata.",
+          "Supportagenten byggs direkt mot e-handlarens order-, produkt- och lagerdata.",
+          "Målet är färre tickets, snabbare svar och högre konvertering."
+        ]
+      },
+      {
+        icon: "M",
+        title: "E-post & automation",
+        ref: "Mailchimp",
+        agent: "Growthagent",
+        impact: "Mer relevanta flöden",
+        outcome: "Mer intäkt",
+        intro: "Segment och flöden från data.",
+        bullets: [
+          "Marketing automation blir smartare när den byggs direkt på e-handelsdata.",
+          "Growthagenten skapar segment, ämnesrader, kampanjer och produktblock.",
+          "E-handelsdata gör automationen mer relevant än generiska nyhetsbrevsverktyg."
+        ]
+      },
+      {
+        icon: "A",
+        title: "Webbanalys & beteende",
+        ref: "Hotjar",
+        agent: "Analysagent",
+        impact: "Färre tapp i checkout",
+        outcome: "Fler köp",
+        intro: "Analys som visar vad som stoppar köp.",
+        bullets: [
+          "Analysagenten sammanfattar problem per sida istället för att teamet tittar på inspelningar manuellt.",
+          "Fokus på checkout, produktsidor och kategorier där intäkten påverkas direkt.",
+          "Kan kopplas till backlog: varje insikt blir ett föreslaget förbättringsärende."
+        ]
+      },
+      {
+        icon: "B",
+        title: "Backoffice-moduler",
+        ref: "Geins / intern stack",
+        agent: "Adminagent",
+        impact: "Färre orderavvikelser",
+        outcome: "Mer kontroll",
+        intro: "Moduler som hittar fel och förenklar drift.",
+        bullets: [
+          "Byggs modulärt så kunden bara betalar för den del som ersätter ett dyrt problem.",
+          "Adminagenten kan hitta avvikelser i order, marginal, kampanj och produktdata.",
+          "Stark bas för att paketera flera produkter som en e-handelssvit."
+        ]
+      }
+    ];
+
+    const expansion = [
+      {
+        icon: "H",
+        title: "HR-system",
+        ref: "BambooHR",
+        agent: "HR-agent",
+        impact: "Färre HR-frågor",
+        outcome: "Mindre admin",
+        intro: "HR som svarar, guidar och minskar admin.",
+        bullets: [
+          "HR blir enklare när systemet förstår policy, människor och processer.",
+          "HR-agenten kan svara på policyfrågor, skapa onboardingplaner och föreslå HR-åtgärder.",
+          "Bra 2027-kategori eftersom många SMB-bolag vill ha enklare HR utan tung implementation."
+        ]
+      },
+      {
+        icon: "R",
+        title: "CRM",
+        ref: "HubSpot / Pipedrive",
+        agent: "Säljagent",
+        impact: "Färre tappade leads",
+        outcome: "Fler affärer",
+        intro: "CRM som driver nästa steg och prioriteringar.",
+        bullets: [
+          "CRM blir mer värdefullt när systemet aktivt hjälper säljaren framåt.",
+          "Säljagenten skriver uppföljningar, sammanfattar kundhistorik och prioriterar affärer.",
+          "Särskilt attraktivt för bolag som vuxit ur enkla CRM men inte vill in i HubSpot-komplexitet."
+        ]
+      },
+      {
+        icon: "B",
+        title: "Bokningssystem",
+        ref: "Calendly / Mindbody",
+        agent: "Bokningsagent",
+        impact: "Färre tomma tider",
+        outcome: "Bättre beläggning",
+        intro: "Bokning som fyller luckor i kalendern.",
+        bullets: [
+          "Bokningsagenten kan fylla luckor, föreslå bättre tider och hantera kunddialogen.",
+          "Passar salonger, kliniker, konsulter, servicebolag och aktiviteter.",
+          "Låg teknisk tröskel och tydlig nytta gör kategorin bra för snabb expansion."
+        ]
+      },
+      {
+        icon: "T",
+        title: "Projektledning",
+        ref: "Trello / Monday",
+        agent: "Projektagent",
+        impact: "Tydligare nästa steg",
+        outcome: "Mer framdrift",
+        intro: "Projektledning som fångar nästa steg.",
+        bullets: [
+          "Projektledning blir starkare när systemet själv fångar upp nästa steg.",
+          "Projektagenten skapar tasks från möten, föreslår prioritet och jagar blockerare.",
+          "Kan nischas mot specifika branscher istället för att vara ett generiskt board-verktyg."
+        ]
+      },
+      {
+        icon: "K",
+        title: "Intern kommunikation",
+        ref: "Slack",
+        agent: "Kommunikationsagent",
+        impact: "Färre missade beslut",
+        outcome: "Bättre beslut",
+        intro: "Trådar blir beslut, sammanfattningar och kunskap.",
+        bullets: [
+          "Intern kommunikation blir mer användbar när beslut och kunskap inte försvinner i trådar.",
+          "Kommunikationsagenten gör långa trådar användbara genom sammanfattningar och beslut.",
+          "Kan kombineras med dokument, uppgifter och intern kunskap."
+        ]
+      },
+      {
+        icon: "D",
+        title: "Dokument & kunskap",
+        ref: "Notion / Confluence",
+        agent: "Kunskapsagent",
+        impact: "Färre interna frågor",
+        outcome: "Snabbare svar",
+        intro: "Kunskap som hålls uppdaterad och användbar.",
+        bullets: [
+          "Kunskapsagenten kan skapa, städa, hitta och uppdatera dokument automatiskt.",
+          "Starkt när det kopplas till Slack-liknande kommunikation och projektledning.",
+          "Värdet är att kunskap blir aktiv, inte bara lagrad."
+        ]
+      }
+    ];
+
+    function renderCards(items, targetId) {
+      const target = document.getElementById(targetId);
+      target.innerHTML = items.map((item, index) => `
+        <button class="card" data-group="${targetId}" data-index="${index}" aria-label="Läs mer om ${item.title}">
+          <div>
+            <div class="card-top">
+              <div class="icon">${item.icon}</div>
+              <span class="card-ref">Ersätter ${item.ref}</span>
+            </div>
+            <h3>${item.title}</h3>
+            <p>${item.intro}</p>
+            <div class="card-impact">
+              <span class="tag dark">${item.agent}</span>
+              <span class="tag">${item.impact}</span>
+            </div>
+          </div>
+          <div class="card-foot">
+            <div><span>Pitch</span><b>Testa gratis</b></div>
+            <div><span>Mål</span><b>${item.outcome}</b></div>
+          </div>
+        </button>
+      `).join("");
+    }
+
+    const fitSelector = [
+      "h1", "h2", "h3",
+      ".brand span:last-child",
+      ".eyebrow",
+      ".lead",
+      ".cto-line",
+      ".hero-stat b",
+      ".hero-stat span",
+      ".factory-head span",
+      ".chip strong",
+      ".chip small",
+      ".factory-conclusion b",
+      ".factory-conclusion p",
+      ".statement p",
+      ".section-head p",
+      ".why-card b",
+      ".why-card span",
+      ".factory-step b",
+      ".factory-step span",
+      ".agent-pill",
+      ".agent-core p",
+      ".upgrade b",
+      ".upgrade span",
+      ".agent-card b",
+      ".agent-card span",
+      ".started-card p",
+      ".started-card small",
+      ".card-ref",
+      ".card p",
+      ".tag",
+      ".card-foot span",
+      ".card-foot b",
+      ".price-kicker",
+      ".price-row span",
+      ".price-row b",
+      ".price-row strong",
+      ".margin-note",
+      ".cost-card b",
+      ".cost-card span",
+      ".edge-intro b",
+      ".edge-intro span",
+      ".edge-card b",
+      ".edge-card span",
+      ".roles-head p",
+      ".role-card b",
+      ".role-card span",
+      ".vision-kicker",
+      ".vision-copy p",
+      ".cta p",
+      ".cta-box b",
+      ".cta-box span",
+      ".sources",
+      ".fact span",
+      ".fact b",
+      "#modalIntro",
+      "#modalBullets li"
+    ].join(",");
+
+    function fitSingleLines() {
+      document.querySelectorAll(fitSelector).forEach(element => {
+        element.classList.add("fit-line");
+        element.style.fontSize = "";
+        const style = window.getComputedStyle(element);
+        const baseSize = parseFloat(style.fontSize);
+        const minSize = element.matches("h1, h2") ? 10 : element.matches("h3") ? 9 : element.matches(".chip strong, .chip small") ? 7 : 8;
+        let size = baseSize;
+        const rect = element.getBoundingClientRect();
+        const parentRect = element.parentElement?.getBoundingClientRect();
+        const parentWidth = parentRect?.width || 0;
+        const ownWidth = element.clientWidth || 0;
+        const inline = style.display === "inline" || style.display === "inline-block" || style.display === "inline-flex";
+        const availableViewport = Math.max(0, document.documentElement.clientWidth - Math.max(0, rect.left));
+        const boxWidth = rect.width || ownWidth || parentWidth;
+        const maxWidth = Math.floor(Math.min(
+          inline ? parentWidth : boxWidth,
+          availableViewport || parentWidth || ownWidth
+        ));
+        if (!maxWidth) return;
+
+        for (let i = 0; i < 240 && element.scrollWidth > maxWidth + 1 && size > minSize; i += 1) {
+          const ratio = maxWidth / Math.max(element.scrollWidth, 1);
+          size = Math.max(minSize, Math.min(size - 0.5, size * ratio * 0.98));
+          element.style.fontSize = `${size}px`;
+          element.getBoundingClientRect();
+        }
+      });
+    }
+
+    let fitTimer;
+    function scheduleFit() {
+      window.clearTimeout(fitTimer);
+      fitTimer = window.setTimeout(fitSingleLines, 40);
+    }
+
+    function openModal(item) {
+      document.getElementById("modalTitle").textContent = item.title;
+      document.getElementById("modalIntro").textContent = item.intro;
+      document.getElementById("modalMarket").textContent = item.ref;
+      document.getElementById("modalPrice").textContent = "Testa gratis, betala när du är nöjd";
+      document.getElementById("modalSave").textContent = "Bättre UX + bättre nyckeltal";
+      document.getElementById("modalBullets").innerHTML = item.bullets.map(bullet => `<li>${bullet}</li>`).join("");
+      document.getElementById("modal").classList.add("open");
+      scheduleFit();
+    }
+
+    renderCards(products, "productGrid");
+    renderCards(expansion, "expansionGrid");
+    scheduleFit();
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(scheduleFit);
+    }
+    window.addEventListener("resize", scheduleFit);
+
+    document.addEventListener("click", event => {
+      const card = event.target.closest(".card");
+      if (card) {
+        const list = card.dataset.group === "productGrid" ? products : expansion;
+        openModal(list[Number(card.dataset.index)]);
+      }
+
+      if (event.target.id === "modal" || event.target.id === "closeModal") {
+        document.getElementById("modal").classList.remove("open");
+      }
+    });
+
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        document.getElementById("modal").classList.remove("open");
+      }
+    });
+  </script>
 </body>
 </html>
