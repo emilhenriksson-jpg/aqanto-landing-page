@@ -944,22 +944,19 @@
     .started-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
+      gap: 12px;
     }
 
     .started-card {
       width: 100%;
       min-width: 0;
-      min-height: 232px;
+      min-height: 142px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background:
         linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.92)),
         linear-gradient(135deg, rgba(41,151,255,0.1), rgba(142,197,255,0.08));
-      padding: 18px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
+      padding: 16px;
     }
 
     .started-card h3 {
@@ -972,13 +969,14 @@
       margin: 0;
       color: var(--muted);
       line-height: 1.42;
+      max-width: 680px;
     }
 
     .started-meta {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin: 16px 0;
+      margin: 12px 0 0;
     }
 
     .started-meta span {
@@ -989,12 +987,6 @@
       padding: 7px 10px;
       font-size: 13px;
       font-weight: 850;
-    }
-
-    .started-card small {
-      color: var(--muted);
-      line-height: 1.4;
-      font-weight: 700;
     }
 
     .metric {
@@ -1862,7 +1854,6 @@
             <p>Produktfeeds med diff före publicering.</p>
             <div class="started-meta"><span>E-handel</span><span>Feeds</span></div>
           </div>
-          <small>Status: pilotdemo 2026-05-15.</small>
         </div>
         <div class="started-card">
           <div>
@@ -1870,7 +1861,6 @@
             <p>Multi-carrier delivery, byggt som multi-tenant SaaS.</p>
             <div class="started-meta"><span>E-handel</span><span>Leverans</span></div>
           </div>
-          <small>Status: v0 med auth och tenantmodell.</small>
         </div>
         <div class="started-card">
           <div>
@@ -1878,7 +1868,6 @@
             <p>Support OS för sök, chatt, feed-berikning och agents.</p>
             <div class="started-meta"><span>Support</span><span>Agent OS</span></div>
           </div>
-          <small>Status: repo med admin, widget och AI.</small>
         </div>
         <div class="started-card">
           <div>
@@ -1886,7 +1875,6 @@
             <p>Agentlager för company context, policy och actions.</p>
             <div class="started-meta"><span>Work OS</span><span>Agentplattform</span></div>
           </div>
-          <small>Status: arkitektur v1 för agents och actions.</small>
         </div>
       </div>
     </section>
@@ -2275,7 +2263,6 @@
       ".upgrade b",
       ".upgrade span",
       ".agent-card b",
-      ".started-card small",
       ".card-ref",
       ".tag",
       ".card-foot span",
