@@ -1,0 +1,26 @@
+{
+  "name": "@photographic/documents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --emitDeclarationOnly --outDir dist"
+  },
+  "dependencies": {
+    "@photographic/core": "workspace:*",
+    "aws4fetch": "^1.0.20",
+    "mammoth": "^1.12.3",
+    "node-html-parser": "^9.0.4",
+    "unpdf": "^1.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
