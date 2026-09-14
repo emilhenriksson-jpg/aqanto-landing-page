@@ -6,3 +6,4 @@ export * from './signup.js';
 export * from './verification.js';
 export * from './qr.js';
 export * from './routes.js';
+export * from './import.js';
