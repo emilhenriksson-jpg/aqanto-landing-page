@@ -65,6 +65,23 @@ Den som blir inbjuden till ett rum ser innehållet först, trycker gå med, skri
 och är inne. Personligt rum skapas tyst i bakgrunden. Hon möter aldrig en
 registreringsvägg, för det är där inbjudningsloopen annars dör.
 
+## Vill du se det direkt
+
+Skärmarna finns byggda och går att titta på utan backend:
+
+```
+cd photographic && pnpm install
+pnpm --filter @photographic/onboarding dev
+```
+
+Den öppnar en förhandsvisning på låtsasdata. Koden är `424242`. Alla sex
+kopplingskorten beter sig som de ska, och verifieringsskärmen väntar ett par sekunder
+och rapporterar sen Claude som ansluten, vilket är ungefär så lång tid en riktig
+handskakning tar.
+
+`?screen=invite` visar vad Jacob ser när du bjuder in honom. `?screen=connect` går
+direkt till kopplingsskärmen.
+
 ## Det jag är mest nöjd med
 
 Kopplingsskärmen säger aldrig "klart" bara för att konfigurationen skrevs. Det kan vi
@@ -93,6 +110,8 @@ Klart och testat:
   och verifierat mot Postgres 16 med pgvector.
 - `@photographic/connect`: registrering, installationslänkar, verifiering. 66 test, utan
   databas och utan nätverk.
+- `apps/onboarding`: de fyra skärmarna ovan. 18 test, och ett av dem kontrollerar just
+  att ett knapptryck aldrig räknas som lyckad koppling.
 
 Pågår: db, auth, rooms, ingest, projection, retrieval, documents, llm, rest, mcp, web,
 voice. Alla har kod på plats men ingen har rapporterat färdigt än.
