@@ -28,3 +28,10 @@ _Agents append here. Do not edit another package to unblock yourself._
   policy constants, `AGENTS.md`, `ARCHITECTURE.md`.
   Verified by hand: append-only trigger rejects UPDATE and DELETE on `app.event`; only
   one personal room per person; a non-member resolves to zero accessible rooms.
+
+- **orchestrator** — `@photographic/connect`: passwordless sign-up, the connect screen
+  as data, one-click install links, and delivery verification. 66 tests, no database
+  and no network. Decision recorded in `CONNECT.md`: one shared MCP URL for everyone,
+  identity from OAuth, never a per-person address.
+  Verified by decoding our own Cursor deeplink: the payload is the bare transport
+  config, with no `mcpServers` wrapper (the wrapper is what makes Cursor reject it).
