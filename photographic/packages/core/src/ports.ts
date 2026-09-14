@@ -1,0 +1,352 @@
+/**
+ * Ports: every interface an implementation package must satisfy.
+ *
+ * These exist so that consumers (REST, MCP, web, voice) can be built in parallel with
+ * the implementations behind them. If you are implementing a port, do not change its
+ * shape -- other packages are already compiling against it. Raise it as a blocker in
+ * STATUS.md instead.
+ *
+ * The rule that keeps rooms from leaking: every read takes `actor` as its first
+ * argument and resolves permission itself. A room id supplied by a model is a request,
+ * never a grant.
+ */
+
+import type {
+  ActiveRoomContext,
+  AgentClient,
+  Brief,
+  ChunkId,
+  ClientSession,
+  ContextBundle,
+  DeliveryMethod,
+  DocumentId,
+  Invite,
+  InviteId,
+  Item,
+  ItemId,
+  ItemKind,
+  MemberRole,
+  MemoryEvent,
+  Person,
+  PersonId,
+  Profile,
+  Proposal,
+  ProposalId,
+  Room,
+  RoomId,
+  RoomSummary,
+  SearchHit,
+  SessionId,
+  ShortId,
+  Transport,
+} from './domain.js';
+
+/**
+ * Who is acting, resolved from an OAuth token before any port is called.
+ * Never construct one of these from model-supplied input.
+ */
+export interface Actor {
+  personId: PersonId;
+  agentClient: AgentClient;
+  sessionId: SessionId | null;
+  /** Empty means "all rooms this person belongs to", resolved per request. */
+  roomScope: RoomId[];
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+export interface IdentityPort {
+  /** Creates the person and their personal room in one transaction. */
+  register(input: {
+    email?: string;
+    phone?: string;
+    displayName?: string;
+    locale?: string;
+  }): Promise<{ person: Person; personalRoom: Room }>;
+
+  findById(id: PersonId): Promise<Person | null>;
+  findByEmail(email: string): Promise<Person | null>;
+  findByPhone(phone: string): Promise<Person | null>;
+  personalRoomOf(id: PersonId): Promise<Room>;
+}
+
+// ---------------------------------------------------------------------------
+// Rooms, membership, invites
+// ---------------------------------------------------------------------------
+
+export interface RoomPort {
+  create(actor: Actor, input: { title: string; description?: string }): Promise<Room>;
+  get(actor: Actor, roomId: RoomId): Promise<Room | null>;
+  listForPerson(actor: Actor): Promise<RoomSummary[]>;
+  archive(actor: Actor, roomId: RoomId): Promise<void>;
+
+  /** Resolves a name a person spoke ("Buyersclub Ledning") to a room they can reach. */
+  resolveByName(actor: Actor, name: string): Promise<Room | null>;
+
+  members(actor: Actor, roomId: RoomId): Promise<Array<{ person: Person; role: MemberRole }>>;
+
+  markSeen(actor: Actor, roomId: RoomId): Promise<void>;
+}
+
+export interface InvitePort {
+  create(
+    actor: Actor,
+    input: {
+      roomId: RoomId;
+      channel: 'email' | 'sms';
+      destination: string;
+      role?: MemberRole;
+    },
+  ): Promise<{ invite: Invite; url: string }>;
+
+  /**
+   * Resolves an invite token for a recipient who may not have an account yet.
+   * Returns preview content when the invite allows it, because a signup wall as the
+   * first step is where the viral loop dies.
+   */
+  peek(token: string): Promise<{
+    invite: Invite;
+    room: Pick<Room, 'id' | 'title' | 'description'>;
+    invitedByName: string | null;
+    preview: string | null;
+  } | null>;
+
+  accept(token: string, personId: PersonId): Promise<{ room: Room; role: MemberRole }>;
+  revoke(actor: Actor, inviteId: InviteId): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Ingest: the write path
+// ---------------------------------------------------------------------------
+
+/**
+ * Three tiers, because "never let a model write garbage" and "let every model save
+ * small facts automatically" cannot share one rule.
+ *
+ *  - `auto`            small, concrete, non-contradicting fact. Written immediately,
+ *                      shown in the feed, undoable.
+ *  - `needs_approval`  contradicts existing state, or is an `instruction`. Instructions
+ *                      always need approval: they change every model's behaviour at once.
+ *  - `duplicate`       already known. Bumps salience instead of adding a row.
+ */
+export type WriteDecision =
+  | { outcome: 'auto'; item: Item }
+  | { outcome: 'needs_approval'; proposal: Proposal }
+  | { outcome: 'duplicate'; existing: Item };
+
+export interface IngestPort {
+  remember(
+    actor: Actor,
+    input: {
+      roomId: RoomId;
+      body: string;
+      kind?: ItemKind;
+      sensitivity?: 'normal' | 'sensitive';
+      /** Set by the caller when the human explicitly asked for this write. */
+      explicit?: boolean;
+    },
+  ): Promise<WriteDecision>;
+
+  update(actor: Actor, shortId: ShortId, roomId: RoomId, body: string): Promise<Item>;
+
+  /** Soft delete, always reversible. A model deleting the wrong memory loses the user. */
+  forget(actor: Actor, shortId: ShortId, roomId: RoomId): Promise<{ item: Item; undoToken: string }>;
+  undo(actor: Actor, undoToken: string): Promise<Item>;
+
+  listProposals(actor: Actor): Promise<Proposal[]>;
+  resolveProposal(actor: Actor, id: ProposalId, accept: boolean): Promise<Item | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Projection: profile, brief, bundle
+// ---------------------------------------------------------------------------
+
+export interface ProjectionPort {
+  /**
+   * The personal profile, always rendered whole and never searched. Hard ceiling at
+   * PROFILE_TOKEN_BUDGET; items beyond it are demoted to the searchable archive by
+   * salience, so the ceiling is a design constraint rather than a truncation bug.
+   */
+  buildProfile(personId: PersonId): Promise<Profile>;
+  getProfile(personId: PersonId): Promise<Profile>;
+
+  buildBrief(roomId: RoomId): Promise<Brief>;
+  getBrief(actor: Actor, roomId: RoomId): Promise<Brief>;
+
+  /** Marks derived state stale. Called from the write path; rebuilds happen in jobs. */
+  invalidate(input: { personId?: PersonId; roomId?: RoomId }): Promise<void>;
+
+  activeRoomContext(actor: Actor, roomId: RoomId): Promise<ActiveRoomContext>;
+}
+
+export interface BundlePort {
+  /**
+   * What every connected model receives at session start. Cached and versioned;
+   * building this synchronously from raw items makes voice latency impossible.
+   */
+  build(
+    actor: Actor,
+    input?: { activeRoomId?: RoomId; budgetTokens?: number },
+  ): Promise<ContextBundle>;
+
+  /** The bundle rendered for a system prompt or MCP `instructions` string. */
+  render(bundle: ContextBundle): string;
+}
+
+// ---------------------------------------------------------------------------
+// Retrieval
+// ---------------------------------------------------------------------------
+
+export interface RetrievalPort {
+  /**
+   * Hybrid lexical + vector search fused with RRF, scoped to rooms the actor can read.
+   * The scope is applied inside the SQL, never as a filter over results.
+   */
+  search(
+    actor: Actor,
+    input: { query: string; roomIds?: RoomId[]; limit?: number },
+  ): Promise<SearchHit[]>;
+}
+
+// ---------------------------------------------------------------------------
+// Documents
+// ---------------------------------------------------------------------------
+
+export interface DocumentPort {
+  upload(
+    actor: Actor,
+    input: { roomId: RoomId; filename: string; mimeType: string; bytes: Uint8Array },
+  ): Promise<{ documentId: DocumentId }>;
+
+  get(actor: Actor, documentId: DocumentId): Promise<{ filename: string; summary: string | null } | null>;
+  listForRoom(actor: Actor, roomId: RoomId): Promise<Array<{ id: DocumentId; filename: string }>>;
+  chunksFor(actor: Actor, documentId: DocumentId): Promise<Array<{ id: ChunkId; ord: number; text: string }>>;
+}
+
+// ---------------------------------------------------------------------------
+// Event log
+// ---------------------------------------------------------------------------
+
+export interface EventPort {
+  append(input: {
+    roomId: RoomId;
+    eventType: string;
+    payload: Record<string, unknown>;
+    actorPersonId?: PersonId;
+    agentClient?: AgentClient;
+    sessionRef?: string;
+    approvedBy?: PersonId;
+  }): Promise<MemoryEvent>;
+
+  /** Replaying this is how every projection gets rebuilt when its format changes. */
+  replay(input: { roomId?: RoomId; fromSeq?: number; limit?: number }): Promise<MemoryEvent[]>;
+
+  since(actor: Actor, roomId: RoomId, seq: number): Promise<MemoryEvent[]>;
+}
+
+// ---------------------------------------------------------------------------
+// Sessions and the delivery health signal
+// ---------------------------------------------------------------------------
+
+export interface SessionPort {
+  start(input: {
+    personId: PersonId;
+    agentClient: AgentClient;
+    transport: Transport;
+  }): Promise<ClientSession>;
+
+  /**
+   * Records that the profile actually reached the model, and how. We cannot force
+   * every client to read the personal room, so we measure it and show the user a green
+   * or red light per client. Transparency is the only honest promise available.
+   */
+  recordDelivery(
+    sessionId: SessionId,
+    method: DeliveryMethod,
+    profileVersion: number,
+  ): Promise<void>;
+
+  health(actor: Actor): Promise<
+    Array<{
+      agentClient: AgentClient;
+      lastSeenAt: Date;
+      profileDelivered: boolean;
+      deliveryMethod: DeliveryMethod | null;
+    }>
+  >;
+}
+
+// ---------------------------------------------------------------------------
+// Outbound effects
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything that costs money or calls a model sits behind this. The fake in
+ * `@photographic/core/testing` is deterministic so the whole suite runs offline
+ * and free; only integration tests use the real one.
+ */
+export interface LlmPort {
+  embed(texts: string[]): Promise<number[][]>;
+
+  /** Pulls durable, reusable facts out of a passage. Returns [] when there are none. */
+  extractFacts(input: { text: string; existing: string[] }): Promise<
+    Array<{ body: string; kind: ItemKind; confidence: number }>
+  >;
+
+  /** Decides whether a candidate restates, contradicts or is unrelated to an existing item. */
+  compare(a: string, b: string): Promise<'same' | 'contradicts' | 'unrelated'>;
+
+  summarise(input: { texts: string[]; budgetTokens: number }): Promise<string>;
+}
+
+export interface NotifyPort {
+  sendInvite(input: {
+    channel: 'email' | 'sms';
+    destination: string;
+    inviterName: string;
+    roomTitle: string;
+    url: string;
+  }): Promise<void>;
+}
+
+export interface JobPort {
+  enqueue(input: {
+    kind: string;
+    payload?: Record<string, unknown>;
+    dedupeKey?: string;
+    runAfter?: Date;
+  }): Promise<void>;
+
+  work(kind: string, handler: (payload: Record<string, unknown>) => Promise<void>): void;
+  runOnce(): Promise<number>;
+}
+
+export interface AuditPort {
+  record(input: {
+    actor: Actor;
+    roomId?: RoomId;
+    action: 'read' | 'search' | 'write' | 'delete' | 'bundle';
+    itemIds?: ItemId[];
+    detail?: Record<string, unknown>;
+  }): Promise<void>;
+}
+
+/** Everything wired together. Adapters receive exactly this and nothing else. */
+export interface Services {
+  identity: IdentityPort;
+  rooms: RoomPort;
+  invites: InvitePort;
+  ingest: IngestPort;
+  projection: ProjectionPort;
+  bundle: BundlePort;
+  retrieval: RetrievalPort;
+  documents: DocumentPort;
+  events: EventPort;
+  sessions: SessionPort;
+  llm: LlmPort;
+  notify: NotifyPort;
+  jobs: JobPort;
+  audit: AuditPort;
+}
