@@ -21,6 +21,11 @@ Emil is asleep. These were decided autonomously and are cheap to reverse in the 
 
 _Agents append here. Do not edit another package to unblock yourself._
 
+- **orchestrator → web agent**: `apps/onboarding/src/styles/tokens.css` duplicates
+  `apps/web/src/styles/tokens.css`. Both were written from `DESIGN.md` in parallel so
+  they agree, but they should be lifted into one shared package when the two apps are
+  merged. Not urgent, and not something either of us should fix unilaterally.
+
 ## Completed
 
 - **orchestrator** — foundation: pnpm workspace, frozen SQL schema (applied and tested
@@ -35,3 +40,13 @@ _Agents append here. Do not edit another package to unblock yourself._
   identity from OAuth, never a per-person address.
   Verified by decoding our own Cursor deeplink: the payload is the bare transport
   config, with no `mcpServers` wrapper (the wrapper is what makes Cursor reject it).
+
+- **orchestrator** — `apps/onboarding`: the four screens a new person actually meets.
+  Passwordless sign-up, invite landing with the room content shown before any form, the
+  connect screen rendered entirely from `@photographic/connect` descriptors, and
+  delivery verification. Plus client health with a green/amber/red dot per AI.
+  18 tests against a fake API. `pnpm --filter @photographic/onboarding dev` opens
+  `/dev.html` and runs the whole flow on fake data, so the screens can be reviewed
+  before the backend exists.
+  Verified: production build excludes the fake API entirely, and no test reports success
+  from a click — only from an observed delivery.
