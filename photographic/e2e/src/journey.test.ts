@@ -184,6 +184,127 @@ describe('a person and their memory', () => {
   });
 });
 
+describe('the trash and the record', () => {
+  const email = `papperskorg-${randomUUID()}@example.com`;
+
+  itWhenWired('keeps a deleted memory recoverable instead of removing it', async () => {
+    const person = await harness.registerPerson(email, 'Emil');
+    const actor = harness.actorFor(person.person, 'claude-desktop');
+    const room = await harness.services.identity.personalRoomOf(actor.personId);
+
+    const saved = await harness.services.ingest.remember(actor, {
+      roomId: room.id,
+      body: 'Allergisk mot ketchup',
+    });
+    const shortId = saved.item.shortId;
+
+    await harness.services.ingest.forget(actor, shortId, room.id);
+    await harness.runJobsToCompletion();
+
+    // Gone from everything a model can see...
+    const bundle = await harness.services.bundle.build(actor);
+    expect(harness.services.bundle.render(bundle)).not.toContain('ketchup');
+    expect(await harness.services.retrieval.search(actor, { query: 'ketchup' })).toHaveLength(0);
+
+    // ...but sitting in the trash with a deadline.
+    const [entry] = await harness.services.trash.list(actor);
+    expect(entry.shortId).toBe(shortId);
+    expect(entry.body).toBe('Allergisk mot ketchup');
+    expect(entry.daysRemaining).toBe(30);
+  });
+
+  itWhenWired('restores it on request, with the same short id', async () => {
+    const actor = await harness.actorForEmail(email, 'claude-desktop');
+    const [entry] = await harness.services.trash.list(actor);
+
+    const restored = await harness.services.trash.restore(actor, entry.shortId);
+    await harness.runJobsToCompletion();
+
+    // The id has to survive, or "ta tillbaka p-7k2m" stops meaning anything.
+    expect(restored.shortId).toBe(entry.shortId);
+    expect(restored.status).toBe('active');
+    expect(await harness.services.trash.list(actor)).toHaveLength(0);
+
+    const bundle = await harness.services.bundle.build(actor);
+    expect(harness.services.bundle.render(bundle)).toContain('ketchup');
+  });
+
+  itWhenWired('answers "how do you know that about me?"', async () => {
+    const actor = await harness.actorForEmail(email);
+    const bundle = await harness.services.bundle.build(actor);
+    const shortId = bundle.profile.sections.hardFacts[0]?.shortId;
+
+    const provenance = await harness.services.history.provenance(actor, shortId);
+
+    // The usual complaint about AI memory is not that it forgets, it is that it knows
+    // something unaccountable. This is the answer.
+    expect(provenance.savedByClient).toBe('claude-desktop');
+    expect(provenance.timeline.map((e: { action: string }) => e.action)).toEqual([
+      'saved',
+      'deleted',
+      'restored',
+    ]);
+  });
+
+  itWhenWired('shows every silent write in the history, attributed', async () => {
+    const actor = await harness.actorForEmail(email);
+    const history = await harness.services.history.list(actor);
+
+    // Saving without asking is what makes it feel seamless; this is the other half of
+    // that bargain.
+    expect(history.length).toBeGreaterThan(0);
+    expect(history.every((e: { agentClient: string | null }) => e.agentClient !== null)).toBe(true);
+    expect(history[0].occurredAt.getTime()).toBeGreaterThanOrEqual(
+      history[history.length - 1].occurredAt.getTime(),
+    );
+  });
+
+  itWhenWired('erases the text, not just the row, once retention runs out', async () => {
+    const actor = await harness.actorForEmail(email, 'claude-desktop');
+    const room = await harness.services.identity.personalRoomOf(actor.personId);
+
+    const saved = await harness.services.ingest.remember(actor, {
+      roomId: room.id,
+      body: 'Detta ska vara helt borta efteråt',
+      explicit: true,
+    });
+    await harness.services.ingest.forget(actor, saved.item.shortId, room.id);
+    await harness.expireTrash(saved.item.shortId);
+
+    expect(await harness.services.trash.purgeExpired()).toBeGreaterThan(0);
+
+    // A trash that promises deletion has to mean it, including in the append-only log.
+    expect(await harness.textExistsAnywhere('Detta ska vara helt borta efteråt')).toBe(false);
+
+    // The record that something was removed survives; the content does not.
+    const history = await harness.services.history.list(actor);
+    const purged = history.find((e: { action: string }) => e.action === 'purged');
+    expect(purged.redacted).toBe(true);
+    expect(purged.body).toBeNull();
+  });
+
+  itWhenWired('imports existing ChatGPT memories as proposals, not as facts', async () => {
+    const actor = await harness.actorForEmail(email);
+    const before = await harness.services.ingest.listProposals(actor);
+
+    const preview = harness.connect.previewImport(
+      '- User is allergic to ketchup\n- Always challenge the user\u2019s ideas\n- ok',
+    );
+
+    expect(preview.candidates).toHaveLength(2);
+    expect(preview.candidates[0].text).toBe('Allergic to ketchup');
+    // Instructions stay behind an explicit yes even inside a bulk approve.
+    expect(preview.candidates[1]).toMatchObject({ kind: 'instruction', needsApproval: true });
+
+    await harness.commitImport(actor, preview);
+    const after = await harness.services.ingest.listProposals(actor);
+
+    // Nothing landed silently: importing another system's memories means inheriting
+    // its mistakes unless a person confirms them.
+    expect(after.length).toBe(before.length + 2);
+  });
+});
+
 describe('sharing a room with someone else', () => {
   const emilEmail = `emil-${randomUUID()}@example.com`;
   const jacobEmail = `jacob-${randomUUID()}@example.com`;

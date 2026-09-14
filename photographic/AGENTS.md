@@ -28,7 +28,8 @@ contract is genuinely wrong, raise a blocker; do not edit it.
 | `packages/retrieval` | hybrid search, RRF fusion | `retrieval` agent |
 | `packages/documents` | upload, extraction, chunking | `documents` agent |
 | `packages/llm` | real `LlmPort` (OpenAI) + deterministic fake | `llm` agent |
-| `packages/connect` | sign-up, install links, connect verification | orchestrator (done) |
+| `packages/connect` | sign-up, install links, connect verification, import | orchestrator (done) |
+| `packages/agent` | tool definitions and session instructions | orchestrator (done) |
 | `apps/rest` | HTTP API | `rest` agent |
 | `apps/mcp` | MCP server | `mcp` agent |
 | `apps/web` | web app | `web` agent |
@@ -62,7 +63,20 @@ the tests pass.
 
 7. **Soft delete only, always with undo.**
 
-8. **Sign-up and connecting an AI already exist.** `@photographic/connect` is finished
+8. **The tool surface and the instructions are defined, once.** `apps/mcp` and
+   `apps/rest` expose `TOOLS` from `@photographic/agent` and render session context with
+   `renderInstructions`. Do not write your own tool descriptions: they are decision
+   prompts that took real thought, and two divergent copies means two different products
+   depending on which client you connect from. Anything reaching a model that came from
+   another person goes through `wrapRoomContent`.
+
+9. **Deleting is always reversible for 30 days.** `IngestPort.forget` sets
+   `deleted_at` and `purge_after` and leaves the row in place; `TrashPort` reads and
+   reverses it. A restore must keep the original `short_id`, or "ta tillbaka p-7k2m"
+   stops meaning anything. Only `app.purge_expired_items` may hard-delete, and it is the
+   only code permitted to mutate `app.event`.
+
+10. **Sign-up and connecting an AI already exist.** `@photographic/connect` is finished
    and tested. `apps/web` renders its `ClientDescriptor` data and `apps/rest` mounts its
    handlers from `routes.ts`; neither invents its own install instructions, because the
    per-client quirks live in one place on purpose. `packages/connect/README.md` shows

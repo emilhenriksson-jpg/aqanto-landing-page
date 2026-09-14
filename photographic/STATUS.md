@@ -50,3 +50,13 @@ _Agents append here. Do not edit another package to unblock yourself._
   before the backend exists.
   Verified: production build excludes the fake API entirely, and no test reports success
   from a click — only from an observed delivery.
+
+- **orchestrator** — trash, history and the agent contract. Migration 0002 adds the
+  30-day trash, the purge function, and the activity view; `app.event` now permits
+  exactly one mutation, redaction from inside the purge, and still refuses DELETE.
+  `@photographic/agent` holds the eight tools and the session instructions (39 tests).
+  `previewImport` turns a pasted ChatGPT memory list into proposals (89 tests in
+  connect). `PROTOCOL.md` settles MCP-as-backbone plus four lower-friction surfaces.
+  Verified against Postgres: the redaction flag does not leak, DELETE is refused even
+  mid-purge, unrelated events survive intact, and text is gone from every referencing
+  event after a purge.
