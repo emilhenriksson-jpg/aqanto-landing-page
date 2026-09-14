@@ -8,7 +8,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@photographic/core": "workspace:*"
+    "@photographic/agent": "workspace:*",
+    "@photographic/connect": "workspace:*",
+    "@photographic/core": "workspace:*",
+    "@photographic/services-memory": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

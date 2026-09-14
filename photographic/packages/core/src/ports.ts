@@ -152,6 +152,25 @@ export interface IngestPort {
     },
   ): Promise<WriteDecision>;
 
+  /**
+   * Queues something for approval without attempting to write it.
+   *
+   * `remember` decides the tier itself, which is right for a model mid-conversation but
+   * wrong for a bulk import: memories carried over from ChatGPT arrive with no evidence
+   * that the person ever confirmed them, so inheriting them silently means inheriting
+   * another system's mistakes. This is the path that always ends in a proposal.
+   */
+  propose(
+    actor: Actor,
+    input: {
+      roomId: RoomId;
+      body: string;
+      kind?: ItemKind;
+      reason?: string;
+      source?: string;
+    },
+  ): Promise<Proposal>;
+
   update(actor: Actor, shortId: ShortId, roomId: RoomId, body: string): Promise<Item>;
 
   /** Soft delete, always reversible. A model deleting the wrong memory loses the user. */
