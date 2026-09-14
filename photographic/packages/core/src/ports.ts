@@ -26,12 +26,14 @@ import type {
   ItemId,
   ItemKind,
   MemberRole,
+  HistoryEntry,
   MemoryEvent,
   Person,
   PersonId,
   Profile,
   Proposal,
   ProposalId,
+  Provenance,
   Room,
   RoomId,
   RoomSummary,
@@ -39,6 +41,7 @@ import type {
   SessionId,
   ShortId,
   Transport,
+  TrashEntry,
 } from './domain.js';
 
 /**
@@ -226,6 +229,55 @@ export interface DocumentPort {
 }
 
 // ---------------------------------------------------------------------------
+// Trash
+// ---------------------------------------------------------------------------
+
+/**
+ * `IngestPort.forget` puts things here; this reads and reverses it.
+ *
+ * Separate from ingest because it has a different audience. Ingest is the write path a
+ * model drives; this is the safety net a person reaches for, and it has to keep working
+ * even when every other assumption about the write path turns out to be wrong.
+ */
+export interface TrashPort {
+  list(actor: Actor, input?: { roomId?: RoomId; limit?: number }): Promise<TrashEntry[]>;
+
+  /** By short id rather than undo token, for restoring something deleted long ago. */
+  restore(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<Item>;
+
+  /**
+   * Permanently deletes whatever is past its deadline, and redacts the text from the
+   * event log so the promise is actually kept. Called by the `purge_trash` job, never
+   * from a request, and never with a person's id: expiry is not an action anyone takes.
+   */
+  purgeExpired(limit?: number): Promise<number>;
+
+  /** Lets a person empty it early, which some people will want before they trust us. */
+  purgeNow(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// History
+// ---------------------------------------------------------------------------
+
+/**
+ * The visible half of "seamless".
+ *
+ * Saving silently is what makes the product feel effortless, and it is also what makes
+ * it feel uncontrollable if nothing records it. This port is the other side of that
+ * bargain: everything a model did without asking is here, attributed and reversible.
+ */
+export interface HistoryPort {
+  list(
+    actor: Actor,
+    input?: { roomId?: RoomId; since?: Date; limit?: number },
+  ): Promise<HistoryEntry[]>;
+
+  /** The answer to "how do you know that about me?". */
+  provenance(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<Provenance | null>;
+}
+
+// ---------------------------------------------------------------------------
 // Event log
 // ---------------------------------------------------------------------------
 
@@ -343,6 +395,8 @@ export interface Services {
   bundle: BundlePort;
   retrieval: RetrievalPort;
   documents: DocumentPort;
+  trash: TrashPort;
+  history: HistoryPort;
   events: EventPort;
   sessions: SessionPort;
   llm: LlmPort;

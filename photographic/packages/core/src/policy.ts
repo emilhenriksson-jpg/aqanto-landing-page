@@ -35,6 +35,28 @@ export const ROOM_LIST_TOKEN_BUDGET = 100;
 /** Cosine distance below which two items are treated as restating each other. */
 export const DEDUPE_DISTANCE_THRESHOLD = 0.12;
 
+/**
+ * How long a deleted memory stays recoverable.
+ *
+ * Nothing is ever removed on the spot. A model deleting the wrong memory is the failure
+ * that loses the user, and this window is what makes it survivable — which in turn is
+ * what lets `forget_memory` act on a clear request without asking twice. The friction
+ * we removed from deleting is paid for here.
+ *
+ * Thirty days because it has to outlast a holiday. Anything shorter and "I only noticed
+ * when I got back" becomes unrecoverable.
+ */
+export const TRASH_RETENTION_DAYS = 30;
+
+export function purgeDeadline(deletedAt: Date): Date {
+  return new Date(deletedAt.getTime() + TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+}
+
+/** Rounded up, so a person is never told "0 days left" about something still there. */
+export function daysRemaining(purgeAfter: Date, now: Date): number {
+  return Math.max(0, Math.ceil((purgeAfter.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
 /** Length above which a "small fact" is no longer small enough to auto-write. */
 export const AUTO_WRITE_MAX_CHARS = 240;
 

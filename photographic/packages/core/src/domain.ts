@@ -124,6 +124,82 @@ export interface Item {
   lastUsedAt: Date | null;
   useCount: number;
   createdAt: Date;
+
+  /** Set only while the item is in the trash. See `TRASH_RETENTION_DAYS`. */
+  deletedAt: Date | null;
+  deletedBy: PersonId | null;
+  deletedByClient: AgentClient | null;
+  purgeAfter: Date | null;
+  deleteReason: string | null;
+}
+
+/**
+ * One item in the trash. Carries `daysRemaining` pre-computed because every surface
+ * that shows the trash needs it, and a model asked "is it really gone" should not have
+ * to do date arithmetic to answer.
+ */
+export interface TrashEntry {
+  shortId: ShortId;
+  roomId: RoomId;
+  roomTitle: string;
+  kind: ItemKind;
+  body: string;
+  deletedAt: Date;
+  deletedBy: PersonId | null;
+  deletedByClient: AgentClient | null;
+  deleteReason: string | null;
+  purgeAfter: Date;
+  daysRemaining: number;
+}
+
+export type HistoryAction =
+  | 'saved'
+  | 'updated'
+  | 'superseded'
+  | 'deleted'
+  | 'restored'
+  | 'purged'
+  | 'proposed'
+  | 'approved'
+  | 'rejected'
+  | 'document_added'
+  | 'room_created'
+  | 'member_joined'
+  | 'member_left';
+
+/**
+ * One line of user-facing history.
+ *
+ * `body` is null once the memory has been purged: the entry survives so the feed can
+ * still show that something was removed, but the text is gone from the log as well as
+ * from the item. A trash that promises deletion has to mean it.
+ */
+export interface HistoryEntry {
+  seq: EventSeq;
+  action: HistoryAction;
+  occurredAt: Date;
+  roomId: RoomId;
+  roomTitle: string;
+  shortId: ShortId | null;
+  body: string | null;
+  /** Which AI did it, or `web`/`voice` when the person did it themselves. */
+  agentClient: AgentClient | null;
+  actorName: string | null;
+  /** True when this passed through an explicit approval rather than landing silently. */
+  wasApproved: boolean;
+  redacted: boolean;
+}
+
+/** The answer to "how do you know that about me?". */
+export interface Provenance {
+  shortId: ShortId;
+  body: string | null;
+  roomTitle: string;
+  savedAt: Date;
+  savedByClient: AgentClient | null;
+  approvedByName: string | null;
+  /** Everything that has happened to this one memory, oldest first. */
+  timeline: HistoryEntry[];
 }
 
 export interface MemoryEvent {
