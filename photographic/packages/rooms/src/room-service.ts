@@ -8,7 +8,7 @@ import {
   type Actor,
   type MemberRole,
   type Person,
-    10|  type Room,
+  type Room,
   type RoomId,
   type RoomPort,
   type RoomSummary,
@@ -18,7 +18,7 @@ import { createRoom } from './create-room.js';
 import type { RoomsDeps } from './deps.js';
 import { provenanceOf, requireAccess, requireRole, withinScope } from './permission.js';
 import { foldName } from './slug.js';
-    20|
+
 export class RoomService implements RoomPort {
   constructor(private readonly deps: RoomsDeps) {}
 
@@ -28,7 +28,7 @@ export class RoomService implements RoomPort {
         kind: 'shared',
         title: input.title,
         description: input.description ?? null,
-    30|        owner: actor.personId,
+        owner: actor.personId,
         provenance: provenanceOf(actor),
       }),
     );
@@ -39,7 +39,7 @@ export class RoomService implements RoomPort {
    * room which exists and a room which does not are indistinguishable from outside.
    */
   async get(actor: Actor, roomId: RoomId): Promise<Room | null> {
-    40|    const { room } = await requireAccess(this.deps.store, actor, roomId);
+    const { room } = await requireAccess(this.deps.store, actor, roomId);
     return room;
   }
 
@@ -49,7 +49,7 @@ export class RoomService implements RoomPort {
 
     const [unseen, oneLines] = await Promise.all([
       this.deps.store.readState.unseenCounts(actor.personId, roomIds),
-    50|      this.deps.text?.oneLineFor(roomIds) ?? Promise.resolve(new Map<RoomId, string>()),
+      this.deps.text?.oneLineFor(roomIds) ?? Promise.resolve(new Map<RoomId, string>()),
     ]);
 
     return rows
@@ -59,7 +59,7 @@ export class RoomService implements RoomPort {
         title: room.title,
         role,
         oneLine: oneLines.get(room.id)?.trim() || firstLine(room.description),
-    60|        unseenCount: unseen.get(room.id) ?? 0,
+        unseenCount: unseen.get(room.id) ?? 0,
       }))
       .sort(byPersonalThenTitle);
   }
@@ -69,7 +69,7 @@ export class RoomService implements RoomPort {
       this.deps.store,
       actor,
       roomId,
-    70|      'owner',
+      'owner',
       'bara rummets ägare kan arkivera det',
     );
 
@@ -79,7 +79,7 @@ export class RoomService implements RoomPort {
     if (room.archivedAt !== null) return;
 
     const now = this.now();
-    80|    await this.deps.store.rooms.archive(room.id, now);
+    await this.deps.store.rooms.archive(room.id, now);
     await this.deps.store.events.append({
       roomId: room.id,
       eventType: 'room.archived',
@@ -89,7 +89,7 @@ export class RoomService implements RoomPort {
   }
 
   /**
-    90|   * Resolves a name a person spoke to a room they can reach.
+   * Resolves a name a person spoke to a room they can reach.
    *
    * Exact matches on title or slug win; only when nothing matches exactly does a
    * contained match count, so "Ledning" never beats a room actually called "Ledning".
@@ -99,7 +99,7 @@ export class RoomService implements RoomPort {
   async resolveByName(actor: Actor, name: string): Promise<Room | null> {
     const wanted = foldName(name);
     if (wanted.length === 0) throw new ValidationError('ange ett rumsnamn');
-   100|
+
     const rows = withinScope(actor, await this.deps.store.rooms.accessibleRooms(actor.personId));
     const candidates = rows.map(({ room }) => ({
       room,
@@ -109,7 +109,7 @@ export class RoomService implements RoomPort {
 
     const exact = candidates.filter((c) => c.title === wanted || c.slug === wanted);
     if (exact.length > 0) return single(exact, name);
-   110|
+
     const contained = candidates.filter((c) => c.title.includes(wanted) || c.slug.includes(wanted));
     if (contained.length > 0) return single(contained, name);
 
@@ -119,7 +119,7 @@ export class RoomService implements RoomPort {
   async members(actor: Actor, roomId: RoomId): Promise<Array<{ person: Person; role: MemberRole }>> {
     await requireAccess(this.deps.store, actor, roomId);
     return this.deps.store.memberships.listForRoom(roomId);
-   120|  }
+  }
 
   /**
    * Read state is not memory: it carries no event. Appending one would make every
@@ -129,7 +129,7 @@ export class RoomService implements RoomPort {
     await requireAccess(this.deps.store, actor, roomId);
     await this.deps.store.readState.markSeen(actor.personId, roomId);
   }
-   130|
+
   private now(): Date {
     return this.deps.now?.() ?? new Date();
   }
@@ -139,7 +139,7 @@ function single(candidates: Array<{ room: Room }>, spoken: string): Room {
   const [first] = candidates;
   if (candidates.length === 1 && first) return first.room;
 
-   140|  const names = candidates
+  const names = candidates
     .map((c) => c.room.title)
     .sort((a, b) => a.localeCompare(b, 'sv'))
     .join(', ');
@@ -149,7 +149,7 @@ function single(candidates: Array<{ room: Room }>, spoken: string): Room {
 function firstLine(description: string | null): string {
   if (!description) return '';
   return description.split('\n')[0]?.trim() ?? '';
-   150|}
+}
 
 /** The personal room is always first: it is the room a person means by default. */
 function byPersonalThenTitle(a: RoomSummary, b: RoomSummary): number {

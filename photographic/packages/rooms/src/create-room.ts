@@ -8,7 +8,7 @@
 
 import { ValidationError, type AgentClient, type PersonId, type Room, type RoomKind } from '@photographic/core';
 
-    10|import type { RoomsStore } from './deps.js';
+import type { RoomsStore } from './deps.js';
 import { uniqueSlug } from './slug.js';
 
 const MAX_TITLE_LENGTH = 120;
@@ -18,7 +18,7 @@ export interface CreateRoomInput {
   kind: RoomKind;
   title: string;
   description?: string | null;
-    20|  /** Becomes the sole owner member. */
+  /** Becomes the sole owner member. */
   owner: PersonId;
   provenance: {
     actorPersonId: PersonId;
@@ -29,7 +29,7 @@ export interface CreateRoomInput {
 
 export async function createRoom(store: RoomsStore, input: CreateRoomInput): Promise<Room> {
   const title = input.title.trim().replace(/\s+/g, ' ');
-    30|  if (title.length === 0) throw new ValidationError('rummet måste ha ett namn');
+  if (title.length === 0) throw new ValidationError('rummet måste ha ett namn');
   if (title.length > MAX_TITLE_LENGTH) {
     throw new ValidationError(`rummets namn får vara högst ${MAX_TITLE_LENGTH} tecken`);
   }
@@ -39,7 +39,7 @@ export async function createRoom(store: RoomsStore, input: CreateRoomInput): Pro
     throw new ValidationError(`beskrivningen får vara högst ${MAX_DESCRIPTION_LENGTH} tecken`);
   }
 
-    40|  const slug = await uniqueSlug(title, (candidate) => store.rooms.slugTaken(candidate));
+  const slug = await uniqueSlug(title, (candidate) => store.rooms.slugTaken(candidate));
 
   const room = await store.rooms.create({
     kind: input.kind,
@@ -50,7 +50,7 @@ export async function createRoom(store: RoomsStore, input: CreateRoomInput): Pro
     createdBy: input.owner,
   });
 
-    50|  await store.memberships.add({
+  await store.memberships.add({
     personId: input.owner,
     roomId: room.id,
     role: 'owner',
@@ -60,7 +60,7 @@ export async function createRoom(store: RoomsStore, input: CreateRoomInput): Pro
   await store.events.append({
     roomId: room.id,
     eventType: 'room.created',
-    60|    payload: { kind: room.kind, slug: room.slug, title: room.title, ownerPersonId: input.owner },
+    payload: { kind: room.kind, slug: room.slug, title: room.title, ownerPersonId: input.owner },
     ...input.provenance,
   });
 

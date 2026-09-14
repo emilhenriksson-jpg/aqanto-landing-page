@@ -8,7 +8,7 @@ import {
   ValidationError,
   type IdentityPort,
   type Person,
-    10|  type PersonId,
+  type PersonId,
   type Room,
 } from '@photographic/core';
 
@@ -18,7 +18,7 @@ import type { RoomsDeps } from './deps.js';
 const DEFAULT_LOCALE = 'sv-SE';
 const FALLBACK_DISPLAY_NAME = 'Mitt minne';
 
-    20|export class IdentityService implements IdentityPort {
+export class IdentityService implements IdentityPort {
   constructor(private readonly deps: RoomsDeps) {}
 
   /**
@@ -28,7 +28,7 @@ const FALLBACK_DISPLAY_NAME = 'Mitt minne';
    */
   async register(input: {
     email?: string;
-    30|    phone?: string;
+    phone?: string;
     displayName?: string;
     locale?: string;
   }): Promise<{ person: Person; personalRoom: Room }> {
@@ -38,7 +38,7 @@ const FALLBACK_DISPLAY_NAME = 'Mitt minne';
 
     if (email === null && phone === null && displayName === null) {
       throw new ValidationError('ange e-post, telefonnummer eller namn');
-    40|    }
+    }
 
     // Checked here for a readable message; the store's unique indexes are what make it
     // safe under concurrency.
@@ -48,7 +48,7 @@ const FALLBACK_DISPLAY_NAME = 'Mitt minne';
     if (phone !== null && (await this.deps.store.people.findByPhone(phone)) !== null) {
       throw new ConflictError('det finns redan ett konto med det telefonnumret');
     }
-    50|
+
     const locale = input.locale?.trim() || this.deps.config.defaultLocale || DEFAULT_LOCALE;
     const title = displayName ?? nameFromContact(email, phone);
 
@@ -58,7 +58,7 @@ const FALLBACK_DISPLAY_NAME = 'Mitt minne';
       const personalRoom = await createRoom(tx, {
         kind: 'personal',
         title,
-    60|        owner: person.id,
+        owner: person.id,
         provenance: {
           actorPersonId: person.id,
           agentClient: this.deps.config.registrationClient ?? 'api',
@@ -69,7 +69,7 @@ const FALLBACK_DISPLAY_NAME = 'Mitt minne';
     });
   }
 
-    70|  async findById(id: PersonId): Promise<Person | null> {
+  async findById(id: PersonId): Promise<Person | null> {
     return this.deps.store.people.findById(id);
   }
 
@@ -79,7 +79,7 @@ const FALLBACK_DISPLAY_NAME = 'Mitt minne';
     return this.deps.store.people.findByEmail(normalised);
   }
 
-    80|  async findByPhone(phone: string): Promise<Person | null> {
+  async findByPhone(phone: string): Promise<Person | null> {
     const normalised = normalisePhone(phone);
     if (normalised === null) return null;
     return this.deps.store.people.findByPhone(normalised);
@@ -90,7 +90,7 @@ const FALLBACK_DISPLAY_NAME = 'Mitt minne';
     if (room === null) throw new NotFoundError('personligt rum saknas');
     return room;
   }
-    90|}
+}
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 
@@ -101,7 +101,7 @@ export function normaliseEmail(raw: string | undefined): string | null {
   return value;
 }
 
-   100|export function normalisePhone(raw: string | undefined): string | null {
+export function normalisePhone(raw: string | undefined): string | null {
   const value = raw?.trim();
   if (!value) return null;
   const digits = value.replace(/[\s()\-.]/g, '');
@@ -111,7 +111,7 @@ export function normaliseEmail(raw: string | undefined): string | null {
 
 /** A room needs a name before the person has told us theirs. */
 function nameFromContact(email: string | null, phone: string | null): string {
-   110|  const local = email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim();
+  const local = email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim();
   if (local) return local.replace(/\b\p{Ll}/gu, (c) => c.toUpperCase());
   if (phone) return phone;
   return FALLBACK_DISPLAY_NAME;

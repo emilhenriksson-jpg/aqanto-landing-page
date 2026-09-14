@@ -177,9 +177,10 @@ function visit(node: Node, sink: TextSink, preformatted: boolean): void {
 
 /** Ordered lists keep their numbers: "steg 3" is only meaningful if 3 survives. */
 function markerFor(item: HTMLElement): string {
-  const parentTag = (item.parentNode?.rawTagName ?? '').toLowerCase();
-  if (parentTag !== 'ol') return '- ';
-  const siblings = item.parentNode.childNodes.filter(
+  const parent = item.parentNode;
+  const parentTag = (parent?.rawTagName ?? '').toLowerCase();
+  if (!parent || parentTag !== 'ol') return '- ';
+  const siblings = parent.childNodes.filter(
     (n) => n.nodeType === NodeType.ELEMENT_NODE && (n as HTMLElement).rawTagName?.toLowerCase() === 'li',
   );
   const index = siblings.indexOf(item);

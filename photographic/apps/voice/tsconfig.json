@@ -1,7 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
+    // No `rootDir`: the vite and vitest configs live beside `src`, and constraining
+    // rootDir to `src` while including them is the contradiction tsc reports as TS6059.
+    // Nothing is emitted from here anyway.
     "outDir": "dist",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client"],

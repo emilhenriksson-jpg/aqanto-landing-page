@@ -106,9 +106,18 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.17(hono@4.13.7)
+      '@photographic/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
+      '@photographic/connect':
+        specifier: workspace:*
+        version: link:../../packages/connect
       '@photographic/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@photographic/services-memory':
+        specifier: workspace:*
+        version: link:../../packages/services-memory
       hono:
         specifier: ^4.6.14
         version: 4.13.7

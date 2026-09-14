@@ -8,7 +8,7 @@
 
 /**
  * Folds text to lowercase ASCII. Swedish å/ä become `a` and ö becomes `o`, which is
-    10| * the convention Swedish readers expect from a URL; NFD decomposition then strips any
+ * the convention Swedish readers expect from a URL; NFD decomposition then strips any
  * remaining combining marks, so é and ü fold too.
  */
 export function fold(input: string): string {
@@ -18,7 +18,7 @@ export function fold(input: string): string {
     .replace(/æ/g, 'ae')
     .replace(/œ/g, 'oe')
     .replace(/ø/g, 'o')
-    20|    .replace(/[ðđ]/g, 'd')
+    .replace(/[ðđ]/g, 'd')
     .replace(/þ/g, 'th')
     .replace(/ł/g, 'l')
     .normalize('NFD')
@@ -28,7 +28,7 @@ export function fold(input: string): string {
 const MAX_SLUG_LENGTH = 60;
 
 /** `Buyersclub Ledning` -> `buyersclub-ledning`, `Åsa Öberg` -> `asa-oberg`. */
-    30|export function slugify(input: string): string {
+export function slugify(input: string): string {
   return fold(input)
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
@@ -38,7 +38,7 @@ const MAX_SLUG_LENGTH = 60;
 
 /**
  * Comparison form for a spoken room name. Punctuation and the dashes in a slug all
-    40| * collapse to single spaces, so a title and its own slug fold to the same string.
+ * collapse to single spaces, so a title and its own slug fold to the same string.
  */
 export function foldName(input: string): string {
   return fold(input)
@@ -49,7 +49,7 @@ export function foldName(input: string): string {
 const FALLBACK_SLUG = 'rum';
 
 /**
-    50| * First free slug for a title. Two people called Åsa Öberg both get a personal room,
+ * First free slug for a title. Two people called Åsa Öberg both get a personal room,
  * and neither of them should see `asa-oberg-1`, so the first one is unsuffixed.
  */
 export async function uniqueSlug(
@@ -59,7 +59,7 @@ export async function uniqueSlug(
   const base = slugify(title) || FALLBACK_SLUG;
   if (!(await isTaken(base))) return base;
 
-    60|  for (let n = 2; n <= 50; n += 1) {
+  for (let n = 2; n <= 50; n += 1) {
     const candidate = `${base}-${n}`;
     if (!(await isTaken(candidate))) return candidate;
   }
@@ -69,7 +69,7 @@ export async function uniqueSlug(
     const candidate = `${base}-${randomTail()}`;
     if (!(await isTaken(candidate))) return candidate;
   }
-    70|  throw new Error(`could not find a free slug for ${JSON.stringify(title)}`);
+  throw new Error(`could not find a free slug for ${JSON.stringify(title)}`);
 }
 
 function randomTail(): string {
