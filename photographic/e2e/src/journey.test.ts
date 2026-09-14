@@ -40,6 +40,51 @@ const itWhenWired = (name: string, fn: () => Promise<void>) =>
     await fn();
   });
 
+describe('getting started', () => {
+  const email = `ny-${randomUUID()}@example.com`;
+
+  itWhenWired('signs a person up with a code and sends them straight to connecting', async () => {
+    const requested = await harness.connect.requestCode({ email });
+    expect(requested.destinationHint).not.toBe(email);
+
+    const verified = await harness.connect.verifyCode({
+      requestId: requested.requestId,
+      code: harness.connect.lastCode(),
+    });
+
+    expect(verified.created).toBe(true);
+    expect(verified.personalRoom.kind).toBe('personal');
+    // Creating an account and connecting an AI are one flow, not two chores.
+    expect(verified.next).toBe('connect');
+  });
+
+  itWhenWired('offers the same connect URL to everyone, with no per-person address', async () => {
+    const payload = await harness.connect.connectPayload();
+
+    expect(payload.mcpUrl).toBe(harness.mcpUrl);
+    expect(payload.mcpUrl).not.toContain(email);
+
+    // Nothing on this screen may be a secret: it gets screenshotted and pasted around.
+    const serialised = JSON.stringify(payload.clients);
+    expect(serialised).not.toMatch(/token=/);
+  });
+
+  itWhenWired('confirms a connection only once context reaches the model', async () => {
+    const actor = await harness.actorForEmail(email, 'claude-desktop');
+    const handle = await harness.connect.startVerification(actor, 'claude');
+
+    // Configuration existing is not success. Only a delivery is.
+    expect((await harness.connect.pollVerification(actor, handle)).status).toBe('waiting');
+
+    await harness.connectMcpClient(await harness.tokenFor(email));
+
+    const state = await harness.connect.pollVerification(actor, handle);
+    expect(state.status).toBe('connected');
+    expect(state.agentClient).toBe('claude-desktop');
+    expect(state.deliveryMethod).toBeTruthy();
+  });
+});
+
 describe('a person and their memory', () => {
   const email = `emil-${randomUUID()}@example.com`;
 
@@ -169,6 +214,32 @@ describe('sharing a room with someone else', () => {
     expect(preview).not.toBeNull();
     expect(preview.room.title).toBe('Buyersclub Ledning');
     expect(preview.preview).toContain('förvärvet');
+  });
+
+  itWhenWired('lets an invited person join without a separate signup step', async () => {
+    const annaEmail = `anna-${randomUUID()}@example.com`;
+    const emil = await harness.personByEmail(emilEmail);
+    const room = await harness.roomByTitle(harness.actorFor(emil), 'Buyersclub Ledning');
+
+    const { url } = await harness.services.invites.create(harness.actorFor(emil), {
+      roomId: room.id,
+      channel: 'email',
+      destination: annaEmail,
+    });
+
+    const requested = await harness.connect.requestCode({
+      email: annaEmail,
+      inviteToken: harness.tokenFromUrl(url),
+    });
+    const verified = await harness.connect.verifyCode({
+      requestId: requested.requestId,
+      code: harness.connect.lastCode(),
+    });
+
+    // One code, and she is both registered and inside the room, with a personal room
+    // of her own already waiting.
+    expect(verified.personalRoom.kind).toBe('personal');
+    expect(verified.joinedRoom.title).toBe('Buyersclub Ledning');
   });
 
   itWhenWired("gives the invited person's own AI the room context", async () => {

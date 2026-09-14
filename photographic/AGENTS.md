@@ -28,6 +28,7 @@ contract is genuinely wrong, raise a blocker; do not edit it.
 | `packages/retrieval` | hybrid search, RRF fusion | `retrieval` agent |
 | `packages/documents` | upload, extraction, chunking | `documents` agent |
 | `packages/llm` | real `LlmPort` (OpenAI) + deterministic fake | `llm` agent |
+| `packages/connect` | sign-up, install links, connect verification | orchestrator (done) |
 | `apps/rest` | HTTP API | `rest` agent |
 | `apps/mcp` | MCP server | `mcp` agent |
 | `apps/web` | web app | `web` agent |
@@ -60,6 +61,15 @@ the tests pass.
    `PROFILE_TOKEN_BUDGET`. Retrieval applies to shared rooms and documents.
 
 7. **Soft delete only, always with undo.**
+
+8. **Sign-up and connecting an AI already exist.** `@photographic/connect` is finished
+   and tested. `apps/web` renders its `ClientDescriptor` data and `apps/rest` mounts its
+   handlers from `routes.ts`; neither invents its own install instructions, because the
+   per-client quirks live in one place on purpose. `packages/connect/README.md` shows
+   the exact shapes. Two things there are load-bearing: every person uses the same MCP
+   URL with identity from OAuth rather than a per-person address, and a connection is
+   only reported as working once a profile delivery is observed — never because config
+   was written.
 
 ## Conventions
 
