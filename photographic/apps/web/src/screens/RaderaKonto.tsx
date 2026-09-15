@@ -147,6 +147,19 @@ function RaderaKontoReady({ initial }: { initial: DeletionStateDto }) {
         Efter raderingen finns ingenting att exportera.
       </p>
 
+      {/*
+        The consent wording is served by the API, so in the design harness there is none to
+        show. Said out loud rather than left as gaps: an empty line here would otherwise read
+        as missing copy, and inventing the text is exactly what must not happen on the one
+        screen whose wording is a promise.
+      */}
+      {demo ? (
+        <p className="meta radera-first">
+          Demoläge: texterna om vad en radering innebär hämtas från API:et och visas därför inte
+          här. Ingen radering begärs härifrån.
+        </p>
+      ) : null}
+
       {pending ? (
         <section className="card radera-panel" aria-labelledby="sec-pagaende">
           <h2 id="sec-pagaende" className="section-block__title">
