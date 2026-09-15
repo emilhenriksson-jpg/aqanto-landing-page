@@ -475,6 +475,59 @@ describe('rooms and who can see them', () => {
     expect((await (await f.get('/v1/search?q=ketchup', emil.token)).json()).hits.length).toBeGreaterThan(0);
   });
 
+  it('lists active items in a room the caller belongs to', async () => {
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    const created = await (
+      await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)
+    ).json();
+
+    await f.post(
+      '/v1/memory',
+      {
+        roomId: created.room.id,
+        body: 'Vi beslutade att skjuta förvärvet till Q3',
+        kind: 'decision',
+        explicit: true,
+      },
+      emil.token,
+    );
+    await f.post(
+      '/v1/memory',
+      {
+        roomId: created.room.id,
+        body: 'Anna äger due diligence',
+        kind: 'fact',
+        explicit: true,
+      },
+      emil.token,
+    );
+
+    const res = await f.get(`/v1/rooms/${created.room.id}/items`, emil.token);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'decision',
+          body: 'Vi beslutade att skjuta förvärvet till Q3',
+          shortId: expect.stringMatching(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4}$/),
+        }),
+        expect.objectContaining({
+          kind: 'fact',
+          body: 'Anna äger due diligence',
+          shortId: expect.stringMatching(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4}$/),
+        }),
+      ]),
+    );
+    expect(body.items).toHaveLength(2);
+    for (const item of body.items) {
+      expect(Object.keys(item).sort()).toEqual(['body', 'kind', 'shortId']);
+    }
+
+    const jacob = await register(f, 'jacob@example.com', 'Jacob');
+    expect((await f.get(`/v1/rooms/${created.room.id}/items`, jacob.token)).status).toBe(404);
+  });
+
   it('refuses to let a room id in the body decide what a write reaches', async () => {
     const emil = await register(f, 'emil@example.com', 'Emil');
     const created = await (await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)).json();

@@ -35,6 +35,13 @@ export interface RoomMemberDto {
   role: string;
 }
 
+/** GET /v1/rooms/:id/items — active memories for the shared-room screen. */
+export interface RoomItemDto {
+  shortId: string;
+  kind: string;
+  body: string;
+}
+
 export interface RenderedItemDto {
   shortId: string;
   body: string;

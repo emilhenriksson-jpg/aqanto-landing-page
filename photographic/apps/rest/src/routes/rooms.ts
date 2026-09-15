@@ -61,6 +61,27 @@ export function roomRoutes(): Hono<AppEnv> {
   });
 
   /**
+   * Active memories in a room, for the room screen.
+   *
+   * The room GET returns brief + members only — a rendered summary is not a list the UI
+   * can soft-delete against. Search needs a query. This is the plain list: shortId, kind,
+   * body. Membership is enforced inside retrieval; unreachable rooms are 404.
+   */
+  routes.get('/rooms/:roomId/items', async (c) => {
+    const actor = getActor(c);
+    const { roomId } = parseParams(c, roomIdParam);
+
+    const items = await getServices(c).retrieval.listForRoom(actor, roomId as RoomId);
+    return c.json({
+      items: items.map((item) => ({
+        shortId: item.shortId,
+        kind: item.kind,
+        body: item.body,
+      })),
+    });
+  });
+
+  /**
    * The room's short context, which is the sentence every connected model reads about
    * this room. Kept as its own endpoint rather than a general room update: this is the
    * one field a person edits after naming a room, and the only one that changes what

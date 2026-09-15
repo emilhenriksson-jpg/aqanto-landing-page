@@ -13,13 +13,14 @@
 
 import type {
   Actor,
+  ItemKind,
   LlmPort,
   RetrievalPort,
   RoomId,
   SearchHit,
   ShortId,
 } from '@photographic/core';
-import { dedupeHash } from '@photographic/core';
+import { dedupeHash, NotPermittedError } from '@photographic/core';
 
 import { MemoryStore } from './store.js';
 
@@ -91,6 +92,19 @@ export class MemoryRetrieval implements RetrievalPort {
         score,
         documentId: candidate.documentId,
       }));
+  }
+
+  async listForRoom(
+    actor: Actor,
+    roomId: RoomId,
+  ): Promise<Array<{ shortId: ShortId; kind: ItemKind; body: string }>> {
+    if (!this.store.canRead(actor.personId, roomId)) throw new NotPermittedError();
+
+    return this.store
+      .itemsInRoom(roomId)
+      .filter((item) => item.status === 'active')
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((item) => ({ shortId: item.shortId, kind: item.kind, body: item.body }));
   }
 
   /**

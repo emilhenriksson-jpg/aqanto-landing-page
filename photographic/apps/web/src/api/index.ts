@@ -11,7 +11,7 @@ export { getInvite } from './invites.js';
 export { forgetMemory, undoMemory } from './memory.js';
 export { getProfile } from './profile.js';
 export { listProposals, resolveProposal } from './proposals.js';
-export { getRoom, listRooms } from './rooms.js';
+export { getRoom, listRoomItems, listRooms } from './rooms.js';
 export type {
   BriefDto,
   ClientHealthDto,
@@ -23,6 +23,7 @@ export type {
   ProposalDto,
   RenderedItemDto,
   RoomDto,
+  RoomItemDto,
   RoomMemberDto,
   RoomSummaryDto,
 } from './types.js';

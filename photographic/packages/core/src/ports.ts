@@ -275,6 +275,18 @@ export interface RetrievalPort {
     actor: Actor,
     input: { query: string; roomIds?: RoomId[]; limit?: number },
   ): Promise<SearchHit[]>;
+
+  /**
+   * Active items in one room, for the room UI.
+   *
+   * Search needs a query and returns ranked hits (including chunks). The web client needs
+   * the room's memories as a plain list — short id, kind, body — without inventing a
+   * scrape of search. Membership is checked here; unreachable rooms fail closed.
+   */
+  listForRoom(
+    actor: Actor,
+    roomId: RoomId,
+  ): Promise<Array<{ shortId: ShortId; kind: ItemKind; body: string }>>;
 }
 
 // ---------------------------------------------------------------------------

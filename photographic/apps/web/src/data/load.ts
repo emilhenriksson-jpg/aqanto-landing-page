@@ -2,9 +2,8 @@
  * Load room UI shapes from the REST API.
  *
  * Screens keep using the demo types in `demo.ts`; this file is the only place that
- * knows about wire DTOs. Shared-room item lists are not a REST endpoint yet — the
- * room GET returns brief + members — so memories stay empty and the UI shows its
- * calm empty copy rather than inventing a search scrape.
+ * knows about wire DTOs. Shared-room memories come from `GET /v1/rooms/:id/items`
+ * (room GET is brief + members only).
  */
 
 import { PROFILE_TOKEN_BUDGET } from '@photographic/core';
@@ -16,12 +15,14 @@ import {
   getRoom,
   listClients,
   listProposals,
+  listRoomItems,
   listRooms,
 } from '../api/index.js';
 import type {
   ClientHealthDto,
   ProfileSectionsDto,
   ProposalDto,
+  RoomItemDto,
   RoomMemberDto,
   RoomSummaryDto,
 } from '../api/index.js';
@@ -78,7 +79,10 @@ export async function loadPersonalRoomFromApi(): Promise<RoomDetail> {
 
 export async function loadSharedRoomFromApi(roomId: string): Promise<RoomDetail | null> {
   try {
-    const { room, brief, members } = await getRoom(roomId);
+    const [{ room, brief, members }, { items }] = await Promise.all([
+      getRoom(roomId),
+      listRoomItems(roomId),
+    ]);
     if (room.kind === 'personal') return null;
 
     const memberNames = members
@@ -94,7 +98,7 @@ export async function loadSharedRoomFromApi(roomId: string): Promise<RoomDetail 
       memberNames,
       unseenCount: 0,
       brief: brief.rendered || room.description || null,
-      memories: [],
+      memories: items.map(mapRoomItem),
       tokenCount: brief.tokenCount,
       tokenCeiling: 0,
     };
@@ -102,6 +106,14 @@ export async function loadSharedRoomFromApi(roomId: string): Promise<RoomDetail 
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   }
+}
+
+function mapRoomItem(item: RoomItemDto): MemoryLine {
+  return {
+    shortId: item.shortId,
+    kind: mapItemKind(item.kind),
+    body: item.body,
+  };
 }
 
 function memoriesFromProfile(sections: ProfileSectionsDto): MemoryLine[] {

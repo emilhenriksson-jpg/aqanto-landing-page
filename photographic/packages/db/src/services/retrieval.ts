@@ -12,12 +12,20 @@
  * additive to this method; behaviour visible to a caller does not change.
  */
 
-import type { Actor, LlmPort, RetrievalPort, RoomId, SearchHit, ShortId } from '@photographic/core';
-import { dedupeHash } from '@photographic/core';
+import type {
+  Actor,
+  ItemKind,
+  LlmPort,
+  RetrievalPort,
+  RoomId,
+  SearchHit,
+  ShortId,
+} from '@photographic/core';
+import { dedupeHash, NotPermittedError } from '@photographic/core';
 import type { Pool } from 'pg';
 
 import { queryRows } from '../pool.js';
-import { accessibleRoomIds } from './permissions.js';
+import { accessibleRoomIds, canRead } from './permissions.js';
 
 export const DEFAULT_SEARCH_LIMIT = 10;
 
@@ -67,6 +75,27 @@ export class PgRetrieval implements RetrievalPort {
       text: candidate.text,
       score: 1 / (60 + index + 1),
       documentId: candidate.documentId as never,
+    }));
+  }
+
+  async listForRoom(
+    actor: Actor,
+    roomId: RoomId,
+  ): Promise<Array<{ shortId: ShortId; kind: ItemKind; body: string }>> {
+    if (!(await canRead(this.pool, actor.personId, roomId))) throw new NotPermittedError();
+
+    const rows = await queryRows<{ short_id: string; kind: ItemKind; body: string }>(
+      this.pool,
+      `SELECT short_id, kind, body FROM app.item
+       WHERE room_id = $1 AND status = 'active'
+       ORDER BY created_at DESC`,
+      [roomId],
+    );
+
+    return rows.map((row) => ({
+      shortId: row.short_id as ShortId,
+      kind: row.kind,
+      body: row.body,
     }));
   }
 

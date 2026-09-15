@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { mapClientHealth, mapInvitePreview, mapProposal, mapRoomSummary } from './load.js';
+import {
+  loadSharedRoomFromApi,
+  mapClientHealth,
+  mapInvitePreview,
+  mapProposal,
+  mapRoomSummary,
+} from './load.js';
 
 describe('API → UI mapping', () => {
   it('maps room summaries onto the card shape the screens already use', () => {
@@ -75,6 +81,61 @@ describe('API → UI mapping', () => {
       clientLabel: 'Claude',
       kind: 'instruction',
       body: 'utmana alltid mina idéer',
+    });
+  });
+});
+
+describe('loadSharedRoomFromApi', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('populates memories from GET /v1/rooms/:id/items', async () => {
+    const roomId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith(`/v1/rooms/${roomId}/items`)) {
+        return Response.json({
+          items: [{ shortId: 'd-7k2m', kind: 'decision', body: 'Skjuta till Q3' }],
+        });
+      }
+      if (url.endsWith(`/v1/rooms/${roomId}`)) {
+        return Response.json({
+          room: {
+            id: roomId,
+            kind: 'shared',
+            slug: 'ledning',
+            title: 'Buyersclub Ledning',
+            description: 'Ledningsgruppen',
+            createdAt: '2026-09-15T00:00:00.000Z',
+            archivedAt: null,
+          },
+          brief: {
+            roomId,
+            rendered: 'Beslut och underlag',
+            tokenCount: 4,
+            stale: false,
+            builtAt: '2026-09-15T00:00:00.000Z',
+          },
+          members: [
+            { personId: 'p1', displayName: 'Emil', role: 'owner' },
+            { personId: 'p2', displayName: 'Anna', role: 'member' },
+          ],
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const room = await loadSharedRoomFromApi(roomId);
+
+    expect(room).toMatchObject({
+      id: roomId,
+      kind: 'shared',
+      title: 'Buyersclub Ledning',
+      memberNames: ['Emil', 'Anna'],
+      memories: [{ shortId: 'd-7k2m', kind: 'decision', body: 'Skjuta till Q3' }],
     });
   });
 });
