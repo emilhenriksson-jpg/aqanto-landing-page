@@ -23,6 +23,18 @@ _Agents append here. Do not edit another package to unblock yourself._
 
 _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tokens.css`); apps/web, apps/onboarding and apps/voice import it._
 
+- **anslutning** — Fly deploy for `mcp.photographic.space` is designed and scripted but
+  not executed: no Fly account access from this agent. Needs someone with Emil's Fly
+  login + a payment method to run `fly deploy` / `fly certs add` / `fly certs setup`
+  (steps in `scripts/deploy.md`, Production section) — then
+  `./scripts/cloudflare-dns-record.sh` (already written and tested against a mock) can
+  add the DNS record `fly certs setup` prints. Also blocked on PR #2 for two things: the
+  Supabase `DATABASE_URL` (without it the deploy runs the in-memory reference, not real
+  storage) and moving `MemoryClientStore`/`MemoryTokenStore` (`apps/rest/src/wiring.ts`)
+  to Postgres — without that, a `fly deploy` or crash-restart still drops Claude's OAuth
+  registration even on a hostname that never moves, so "always works" is not true in
+  practice yet.
+
 ## In progress
 
 - **orchestrator** — deeper `VITE_USE_DEMO=0` wiring beyond curls. Design rounds 1–4 done
@@ -289,3 +301,31 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
 
 - **orchestrator** — Historik screen (footer link) with demo + live history loader;
   live Dokument shelf via room documents endpoint; web suite 37 green.
+
+- **anslutning** — named Cloudflare tunnel support added alongside the existing quick
+  tunnel in `scripts/public-mcp.sh` (opt-in via `TUNNEL_HOSTNAME` + `TUNNEL_TOKEN`, or
+  `TUNNEL_ID`+`TUNNEL_CREDENTIALS_FILE`; refuses to start rather than silently falling
+  back to a random hostname if credentials are missing), plus a new
+  `scripts/cloudflare-tunnel-setup.sh` that drives the Cloudflare API
+  (`CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`) to create/reuse the tunnel, its
+  ingress and the DNS record end to end. Then the goal moved: Emil decided the memory
+  needs to be reachable from any device, always — a tunnel from a laptop or a Cloud
+  Agent VM dies with the machine, so it cannot be the production answer.
+  **Production is now a real Fly deploy** serving `mcp.photographic.space`, using the
+  `Dockerfile`/`fly.toml` already in this repo: `fly.toml` updated so `PUBLIC_URL` is
+  fixed at the real hostname from the first deploy (not `*.fly.dev`) and
+  `auto_stop_machines = "off"` so it is never scaled to zero. Added
+  `scripts/cloudflare-dns-record.sh`, a generic idempotent single-DNS-record
+  create/update (whatever `fly certs setup` prints), for whoever completes the Fly
+  side. `scripts/deploy.md` rewritten: Production (Fly) first, quick tunnel as the local
+  default, named tunnel demoted to a development convenience — with the exact steps,
+  secrets, a requirements-vs-config checklist, honest cost (~$11–12/mo for the
+  configured machine, run continuously), and what still blocks a permanent endpoint (see
+  Blockers above). Not executed: any `fly` or live Cloudflare API command — no Fly
+  account access, and the DNS record deliberately was not created from this VM (nothing
+  real to point it at yet, and the zone is still propagating). All three shell scripts
+  syntax-checked and their control flow (idempotency, conflict refusal, credential
+  guards, error-body surfacing) exercised against a local mock of the Cloudflare API,
+  since the real `CLOUDFLARE_API_TOKEN` only reaches newly started agents. Typecheck
+  clean; e2e 22 memory + 22 postgres green (Postgres installed fresh in this sandbox to
+  run that suite).
