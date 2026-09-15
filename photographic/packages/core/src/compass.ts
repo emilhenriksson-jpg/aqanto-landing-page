@@ -130,3 +130,46 @@ export function compassEntriesFrom(
       : { key: def.key, text: def.defaultText, source: 'default' as const, shortId: null };
   });
 }
+
+/**
+ * The same six, rebuilt from a *cached* compass rather than from items.
+ *
+ * `app.profile.compass` is a cache of what `compassEntriesFrom` computed, and a profile
+ * row written before `0015_personal_compass.sql` holds the column default `'[]'`. Read
+ * back literally, that delivered a person no compass at all — so whether the whole
+ * block reached a model depended on when the account was created and whether anything
+ * had happened to rebuild the projection since. An account that never touched a
+ * principle must never look like it made a choice, and must never look blank either;
+ * both halves of that are properties of the code, not of a rebuild having run.
+ *
+ * So the fallback happens here, on every read, rather than by treating a short array as
+ * a cache miss and writing a fresh projection from inside a getter:
+ *
+ *  - a cached entry counts only when it says `personal`, names one of the six keys and
+ *    carries text. That is the only shape that represents a decision somebody made.
+ *  - every other slot renders the built-in default from `COMPASS_PRINCIPLES`, read live.
+ *    A cached `default` is deliberately ignored: it is not a choice, it is a copy of
+ *    code from the day the projection was last built, and rendering the stale copy is
+ *    how an edit to a default text silently fails to reach existing accounts.
+ *  - the result is always exactly six, in `COMPASS_PRINCIPLES` order, whatever the cache
+ *    holds — `[]`, a partial write, an unknown key from a future version, or all six.
+ */
+export function compassEntriesFromCache(
+  cached: ReadonlyArray<Partial<CompassEntry>> | null | undefined,
+): CompassEntry[] {
+  const personal = new Map<CompassPrincipleKey, { text: string; shortId: ShortId | null }>();
+
+  for (const entry of Array.isArray(cached) ? cached : []) {
+    const key = entry?.key;
+    const text = entry?.text?.trim();
+    if (entry?.source !== 'personal' || !isCompassPrincipleKey(key) || !text) continue;
+    if (!personal.has(key)) personal.set(key, { text, shortId: entry.shortId ?? null });
+  }
+
+  return COMPASS_PRINCIPLES.map((def) => {
+    const own = personal.get(def.key);
+    return own
+      ? { key: def.key, text: own.text, source: 'personal' as const, shortId: own.shortId }
+      : { key: def.key, text: def.defaultText, source: 'default' as const, shortId: null };
+  });
+}
