@@ -153,11 +153,6 @@
       "count": 1
     }
   },
-  "packages/db/src/postgres-services.test.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/db/src/services/account.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
