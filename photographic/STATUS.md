@@ -1206,13 +1206,32 @@ against a fake signer), `packages/export/src/near-limit.test.ts` (2),
 drivers. Monorepo typecheck clean; every
 package suite green; `e2e` 64 on `HARNESS=memory` and 64 on `HARNESS=postgres`.
 
+**Merged with `main` rather than rebased**, so the history stays honest about what was
+written against which tree. Three conflicts, all mechanical: `jobs.ts` keeps the write
+path's transactional `enqueueJob` alongside the lease and heartbeat here; `wiring.ts` hands
+`createApp` both the readiness probe and the queue source; `STATUS.md` keeps both sections.
+Two of my tests were written against interfaces `main` has since changed — the
+client-supplied `confirmed` flag is gone (a memory into the person's own room needs no
+approval anyway) and `AgentClient` no longer has a bare `'claude'`.
+
+One interaction worth checking rather than assuming, because CI cannot see it: `0016`'s
+least-privilege role does not exist in CI or in local development, so nothing in the
+pipeline proves my new tables and functions are reachable by it. Migrated a throwaway
+database with `photographic_app` present and asked the role directly — INSERT and DELETE on
+`app.blob_upload`, SELECT on `app.job_stats` and `app.export_stats`, EXECUTE on
+`app.reclaim_expired_jobs`, `app.blob_is_unreferenced` and `app.orphaned_storage_objects`
+all granted, and the views and function actually readable as that role. `ALTER DEFAULT
+PRIVILEGES` in `0016` covers later migrations, which is what makes that true.
+
 **Checked against a running process, not only in tests.** `tsx src/server.ts` against local
 Postgres: the four recurring rows are seeded exactly once with future deadlines,
-`GET /v1/ops/queue` answers 401 without a token and real numbers with one. An export
-requested over HTTP was built by the ten-second sweep, its link downloaded through the
-streaming route, `unzip -t` clean, and the `x-photographic-sha256` header matched
+`GET /v1/ops/queue` answers 401 without a token and real numbers with a signed session. An
+export requested over HTTP was built by the ten-second sweep, its link downloaded through
+the streaming route, `unzip -t` clean, and the `x-photographic-sha256` header matched
 `sha256sum` of the received file byte for byte — so the digest computed while streaming
 describes what the person actually gets. A second request for the same link answered 404.
+Re-driven after the merge on a real `SignedSessionIssuer` token rather than the old
+forgeable shape, so this is a check of the merged tree and not of the tree I wrote.
 Then the row was forced to `running` with a lapsed lease and a stray `pending_key`, as a
 dead machine leaves it: the next sweep logged `exports_reclaimed`, deleted the stray object,
 rebuilt the archive and returned it to `ready` at `attempts = 2`.
