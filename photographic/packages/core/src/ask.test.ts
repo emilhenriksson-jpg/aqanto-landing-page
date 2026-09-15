@@ -62,6 +62,7 @@ function historyEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
     roomTitle: 'Buyersclub Ledning',
     shortId: 'p-bbbb' as ShortId,
     body: 'Vi beslutade att skjuta förvärvet till Q3',
+    itemKind: 'decision',
     agentClient: 'claude-desktop',
     actorName: 'Emil',
     wasApproved: false,

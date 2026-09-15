@@ -13,15 +13,23 @@
  */
 
 import type {
+  ActiveRoomContext,
   CompassEntry,
   ContextBundle,
   HistoryAction,
   HistoryEntry,
+  OpenThread,
   Profile,
   RenderedItem,
   RoomSummary,
 } from '@photographic/core';
-import { RECENT_TOKEN_BUDGET, ROOM_LIST_TOKEN_BUDGET, estimateTokens } from '@photographic/core';
+import {
+  COMPASS_PRINCIPLES,
+  OPEN_THREAD_TOKEN_BUDGET,
+  RECENT_TOKEN_BUDGET,
+  ROOM_LIST_TOKEN_BUDGET,
+  estimateTokens,
+} from '@photographic/core';
 
 import { wrapRoomContent } from './boundary.js';
 import { DATA_BOUNDARY, HOW_TO_CONFIRM, LANGUAGE } from './policy-text.js';
@@ -37,10 +45,35 @@ export { estimateTokens };
  */
 export const INSTRUCTIONS_TOKEN_BUDGET = 1400;
 
-function section(heading: string, items: RenderedItem[]): string | null {
+/** See `MIN_HONOURABLE_BUDGET_TOKENS`, declared below `PREAMBLE` because it reads it. */
+
+function section(heading: string, items: RenderedItem[], now: Date): string | null {
   if (items.length === 0) return null;
-  const lines = items.map((item) => `- ${item.body} (${item.shortId})`);
+  const lines = items.map((item) => `- ${itemLabel(item, now)}${item.body} (${item.shortId})`);
   return `${heading}\n${lines.join('\n')}`;
+}
+
+/**
+ * The prefix on a profile line, which only `currentFocus` has.
+ *
+ * `Håller på med just nu` is fed by both `decision` and `note`, so a model saw a real
+ * decision and somebody's passing thought as identical bullets under a heading asserting
+ * both were current. That is the section most likely to make a model confidently wrong
+ * about a person's life — worse than clutter, because a wrong fact is annoying and a
+ * wrong claim about what someone is *doing* reads as not knowing them at all.
+ *
+ * So the line says which it is and when it was said, and nothing else in the profile
+ * does: a date on "Allergisk mot ketchup" is noise, and noise is exactly what stops a
+ * date meaning anything where it matters.
+ */
+function itemLabel(item: RenderedItem, now: Date): string {
+  if (!item.kind && !item.at) return '';
+
+  const parts: string[] = [];
+  if (item.kind) parts.push(item.kind === 'decision' ? 'beslut' : 'anteckning');
+  if (item.at) parts.push(relativeSwedishDay(item.at, now));
+
+  return parts.length > 0 ? `[${parts.join(' · ')}] ` : '';
 }
 
 type SectionName = keyof Profile['sections'];
@@ -52,7 +85,14 @@ const DISPLAY_ORDER: Array<{ name: SectionName; heading: string }> = [
   { name: 'preferences', heading: 'Preferenser' },
   { name: 'instructions', heading: 'Så vill personen att du arbetar — följ detta' },
   { name: 'never', heading: 'Gör aldrig detta' },
-  { name: 'currentFocus', heading: 'Håller på med just nu' },
+  {
+    name: 'currentFocus',
+    // Not "Håller på med just nu", which asserted currency for every line under it,
+    // including notes nobody has touched in a month. The heading now says what the
+    // section is and hands the judgement to the reader, which the dates make possible.
+    heading:
+      'På gång — beslut och anteckningar, daterade. Det äldsta kan ha slutat gälla; fråga hellre än att påstå',
+  },
 ];
 
 /**
@@ -115,14 +155,15 @@ export function renderCompass(compass: CompassEntry[]): string {
  * how a client ends up truncating mid-sentence, and then the person cannot tell which
  * half the model got.
  */
-export function renderProfile(profile: Profile, budgetTokens?: number): string {
+export function renderProfile(profile: Profile, budgetTokens?: number, now?: Date): string {
   const selected = budgetTokens === undefined
     ? profile.sections
     : selectWithinBudget(profile.sections, budgetTokens);
+  const asOf = now ?? profile.builtAt;
 
-  const parts = DISPLAY_ORDER.map(({ name, heading }) => section(heading, selected[name])).filter(
-    (part): part is string => part !== null,
-  );
+  const parts = DISPLAY_ORDER.map(({ name, heading }) =>
+    section(heading, selected[name], asOf),
+  ).filter((part): part is string => part !== null);
 
   if (parts.length === 0) {
     return `Photographic har ännu inget sparat om den här personen. Det är normalt för
@@ -331,7 +372,40 @@ const RECENT_LABEL: Partial<Record<HistoryAction, string>> = {
   member_left: 'lämnade',
 };
 
-const RECENT_PREAMBLE = `Det senaste som hände, utan att du behöver fråga (bara några rader — list_history ger mer):`;
+const RECENT_PREAMBLE = `Var ni var senast, utan att du behöver fråga (list_history ger hela historiken):`;
+
+/**
+ * Swedish relative time, because a date is a record and "i fredags" is a memory.
+ *
+ * The reason this exists at all: `recent` used to render as `- 2026-09-14: sparade —
+ * Emil: Allergisk mot ketchup`, four lines of it. That is a changelog. A model reading a
+ * changelog can recite it; what it cannot do is pick up where the conversation left off,
+ * because nothing in those four lines says *when* in the way a person thinks about when.
+ * Nobody says "on the fourteenth of September I mentioned"; they say "i fredags".
+ *
+ * Deterministic and offline — no model call on the session-start path, which is a voice
+ * turn. Weekday names only inside the last week, because "i tisdags" three weeks later
+ * is worse than a date: it sounds recent and is not.
+ */
+const WEEKDAYS = ['söndags', 'måndags', 'tisdags', 'onsdags', 'torsdags', 'fredags', 'lördags'];
+
+export function relativeSwedishDay(then: Date, now: Date): string {
+  const days = Math.floor((startOfDay(now).getTime() - startOfDay(then).getTime()) / 86_400_000);
+
+  if (days <= 0) return 'idag';
+  if (days === 1) return 'igår';
+  if (days < 7) return `i ${WEEKDAYS[then.getDay()]}`;
+  if (days < 14) return 'förra veckan';
+  if (days < 31) return `för ${Math.round(days / 7)} veckor sedan`;
+  if (days < 365) return `för ${Math.round(days / 30)} månader sedan`;
+  return then.toISOString().slice(0, 10);
+}
+
+function startOfDay(value: Date): Date {
+  const copy = new Date(value);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
 
 /**
  * An allowlist, not a denylist, for the same reason `ACTION_OF` in `HistoryPort` is one:
@@ -349,15 +423,29 @@ const RECENT_PREAMBLE = `Det senaste som hände, utan att du behöver fråga (ba
  */
 const RECENT_BODY_ALLOWED: ReadonlySet<HistoryAction> = new Set(['saved', 'updated', 'restored']);
 
-function recentLine(entry: HistoryEntry): string {
-  const date = entry.occurredAt.toISOString().slice(0, 10);
-  const verb = RECENT_LABEL[entry.action] ?? entry.action;
+/**
+ * One line, written as a person would say it rather than as the log recorded it.
+ *
+ * Three changes from the changelog it replaces, all of them about reading like a thread:
+ * the time is relative, the room comes before the verb (where the thing happened is what
+ * orients a reader, not what kind of operation it was), and a plain save drops the verb
+ * altogether — "sparade" on every line is noise, because saving is what this product
+ * does. The verb survives only where it changes the meaning: something was *changed*,
+ * *removed*, *replaced*.
+ */
+function recentLine(entry: HistoryEntry, now: Date): string {
+  const when = relativeSwedishDay(entry.occurredAt, now);
   const showBody = entry.body && RECENT_BODY_ALLOWED.has(entry.action);
   const preview = showBody ? `: ${truncatePreview(entry.body!)}` : '';
-  return `- ${date}: ${verb} — ${entry.roomTitle}${preview}`;
+
+  // `saved` is the default thing that happens here, so saying it adds nothing. Every
+  // other action is information.
+  const verb = entry.action === 'saved' ? '' : ` — ${RECENT_LABEL[entry.action] ?? entry.action}`;
+
+  return `- ${when}, ${entry.roomTitle}${verb}${preview}`;
 }
 
-function truncatePreview(body: string, maxChars = 60): string {
+function truncatePreview(body: string, maxChars = 70): string {
   const trimmed = body.trim();
   return trimmed.length > maxChars ? `${trimmed.slice(0, maxChars - 1)}…` : trimmed;
 }
@@ -367,14 +455,14 @@ function truncatePreview(body: string, maxChars = 60): string {
  * than trailing off with a "left out" note — unlike the room list, missing the tail of
  * "recent" costs nothing, because nothing here is the only place its subject is named.
  */
-function renderRecent(recent: HistoryEntry[]): string | null {
+function renderRecent(recent: HistoryEntry[], now: Date): string | null {
   if (recent.length === 0) return null;
 
   const lines: string[] = [];
   let used = estimateTokens(RECENT_PREAMBLE);
 
   for (const entry of recent) {
-    const line = recentLine(entry);
+    const line = recentLine(entry, now);
     const cost = estimateTokens(`${line}\n`);
     if (used + cost > RECENT_TOKEN_BUDGET) break;
     lines.push(line);
@@ -385,6 +473,79 @@ function renderRecent(recent: HistoryEntry[]): string | null {
 
   return `${RECENT_PREAMBLE}
 ${wrapRoomContent(lines.join('\n'), { label: 'senaste', notice: false })}`;
+}
+
+const OPEN_PREAMBLE = `Det här nämnde personen och sa inget mer om. Photographic har inte hört
+något sedan dess — det betyder inte att det är ogjort. Fråga hur det gick om det passar,
+i förbigående, och bara om ett:`;
+
+/**
+ * The loose ends. Two lines at most, and the most valuable two in the package.
+ *
+ * Every other block describes something settled, so a model reading them can only
+ * recite. This one is the only part that is *unfinished*, which is what gives a model
+ * somewhere to start a conversation rather than a list to read out — see `openThreadsFor`
+ * for what qualifies and `docs/agent-instruction-layer.md` for the design that asked for
+ * it.
+ *
+ * The preamble does the work that the data cannot. It says Photographic has heard nothing
+ * since, not that the thing is undone — the person may well have finished it and not
+ * mentioned it, so a model that says "har du hunnit med X?" is right either way while one
+ * that says "X är fortfarande öppet" is wrong half the time. And it says *one*: two loose
+ * ends raised at once is a standup, not a conversation.
+ *
+ * Inside `wrapRoomContent` like every other piece of memory text, because in a shared
+ * room these are decisions other people wrote.
+ */
+function renderOpen(open: OpenThread[], now: Date): string | null {
+  if (open.length === 0) return null;
+
+  const lines: string[] = [];
+  let used = estimateTokens(OPEN_PREAMBLE);
+
+  for (const thread of open) {
+    const when = relativeSwedishDay(thread.lastTouchedAt, now);
+    const line = `- ${thread.roomTitle}, ${when} (${thread.daysSince} dagar): ${truncatePreview(thread.body, 90)} (${thread.shortId})`;
+    const cost = estimateTokens(`${line}\n`);
+    if (used + cost > OPEN_THREAD_TOKEN_BUDGET) break;
+    lines.push(line);
+    used += cost;
+  }
+
+  if (lines.length === 0) return null;
+
+  return `${OPEN_PREAMBLE}
+${wrapRoomContent(lines.join('\n'), { label: 'öppna trådar', notice: false })}`;
+}
+
+const SINCE_LAST_SEEN_PREAMBLE = (roomTitle: string) =>
+  `Det här hände i ${roomTitle} medan personen var borta. Ta upp det om det är relevant, men berätta inte att du fick en lista:`;
+
+/**
+ * "While you were away", for the room the model asked for.
+ *
+ * `ActiveRoomContext.sinceLastSeen` has been computed on both implementations since the
+ * bundle existed — with its own token budget and its own query over every event past
+ * `room_read_state.last_seen_seq` — and had **no consumer anywhere in the repo**: this
+ * renderer printed `activeRoom.title` and `activeRoom.brief` and dropped the third
+ * field on the floor. So the one line in the whole package that sounds like a memory
+ * developing over time rather than a static dossier was being paid for and thrown away.
+ *
+ * Rendered inside `wrapRoomContent` for the same reason the brief is: in a shared room
+ * these lines describe what *other people* did, in text they wrote.
+ *
+ * Newest first, matching `recent`. The projection already packs the list to
+ * `SINCE_LAST_SEEN_TOKEN_BUDGET`; this trusts that rather than imposing a second
+ * ceiling, and the whole block gives way as a unit in `assembleBlocks` if the package
+ * does not fit — a catch-up missing the one thing that mattered, with no way to tell,
+ * is worse than no catch-up.
+ */
+function renderSinceLastSeen(activeRoom: ActiveRoomContext): string | null {
+  const lines = activeRoom.sinceLastSeen.filter((line) => line.trim() !== '');
+  if (lines.length === 0) return null;
+
+  return `${SINCE_LAST_SEEN_PREAMBLE(activeRoom.title)}
+${wrapRoomContent(lines.join('\n'), { label: `${activeRoom.title} — nytt`, notice: false })}`;
 }
 
 export interface RenderOptions {
@@ -433,7 +594,8 @@ på något om personen, och nämn inte det här för dem.`,
  * So things give way in the order of what it costs the person to lose them:
  *
  *   1. the room headlines, leaving the room names. One tool call to recover.
- *   2. the active room's brief, which the model asked for and can ask for again.
+ *   2. the active room's "while you were away", then its brief — in that order, because
+ *      a model that named a room asked for its contents. Both are one tool call away.
  *   3. profile items, by salience, down to a floor of one.
  *
  * The rules and the list of room names are never given up. A model missing a rule acts
@@ -462,6 +624,11 @@ function assembleBlocks(
   const compass = renderCompass(bundle.profile.compass);
   const compassBlock = compass ? [compass] : [];
 
+  // Two parts, in retention order: the brief first, the catch-up second, because `keep`
+  // below drops from the end. The brief is what the room is *about*, and a model that
+  // asked for this room by name asked for its contents; the catch-up is what changed
+  // while the person was away, which is the more evocative line and the more expendable
+  // one. Both are one `list_history` call away if they fall off.
   const active: string[] = [];
   if (bundle.activeRoom) {
     // No per-payload notice here: `DATA_BOUNDARY` is a few hundred tokens below in the
@@ -474,6 +641,9 @@ function assembleBlocks(
           notice: false,
         }),
     );
+
+    const catchUp = renderSinceLastSeen(bundle.activeRoom);
+    if (catchUp) active.push(catchUp);
   }
 
   let tightest: string[] | null = null;
@@ -488,7 +658,7 @@ function assembleBlocks(
       const reserved = estimateTokens(
         [PREAMBLE, ...compassBlock, ...context, ...rules].join(SEPARATOR),
       );
-      const profile = renderProfile(bundle.profile, Math.max(0, budget - reserved));
+      const profile = renderProfile(bundle.profile, Math.max(0, budget - reserved), bundle.builtAt);
       const blocks = [PREAMBLE, ...compassBlock, profile, ...context];
 
       if (estimateTokens([...blocks, ...rules].join(SEPARATOR)) <= budget) {
@@ -507,24 +677,87 @@ function assembleBlocks(
 
 export function renderInstructions(bundle: ContextBundle, options: RenderOptions = {}): string {
   const includeRules = options.includeRules ?? true;
-  const budget = options.budgetTokens ?? INSTRUCTIONS_TOKEN_BUDGET;
+  // The bundle's own budget before the constant. A bundle assembled against one ceiling
+  // and rendered against another is how `?budget=` came to be validated, documented and
+  // ignored, and how the same person got a different package through MCP than through
+  // REST. The constant stays as the floor for a caller that has neither.
+  const budget = options.budgetTokens ?? bundle.budgetTokens ?? INSTRUCTIONS_TOKEN_BUDGET;
   const rules = includeRules ? [HOW_TO_CONFIRM, DATA_BOUNDARY, LANGUAGE] : [];
 
   const { blocks, fits } = assembleBlocks(bundle, budget, rules);
-  const withoutRecent = [...blocks, ...rules].join(SEPARATOR);
+  const now = bundle.builtAt;
 
-  // Only ever attempted once the rest of the package already fits within budget on its
-  // own — see the note above `assembleBlocks`.
-  const recentBlock = fits ? renderRecent(bundle.recent) : null;
-  if (recentBlock) {
-    const withRecent = [...blocks, recentBlock, ...rules].join(SEPARATOR);
-    if (estimateTokens(withRecent) <= budget) return withRecent;
+  /**
+   * Two blocks spent from whatever slack is left, in order of what a person would miss.
+   *
+   * Loose ends first. Between "here are four things that happened" and "this one thing
+   * has been waiting three weeks", the second is the one that makes a model sound like it
+   * remembers rather than like it has read a file — so `recent` is what gives way when
+   * only one of them fits, and both still give way before anything above them.
+   *
+   * Each is attempted whole and dropped whole: a catch-up missing the line that mattered,
+   * with no way to tell, is worse than no catch-up.
+   */
+  const extras = fits
+    ? [renderOpen(bundle.open, now), renderRecent(bundle.recent, now)].filter(
+        (block): block is string => block !== null,
+      )
+    : [];
+
+  let kept: string[] = [];
+  for (const block of extras) {
+    const candidate = [...kept, block];
+    if (estimateTokens([...blocks, ...candidate, ...rules].join(SEPARATOR)) > budget) break;
+    kept = candidate;
   }
 
-  return withoutRecent;
+  return [...blocks, ...kept, ...rules].join(SEPARATOR);
 }
 
 const SEPARATOR = '\n\n---\n\n';
+
+/**
+ * What the never-dropped blocks cost, with nothing personal in them.
+ *
+ * Deliberately built from the same constants `assembleBlocks` reserves, so the two
+ * cannot disagree about what is un-droppable. The default Compass is used rather than a
+ * person's, because this is a floor: a customised principle can only make it higher, and
+ * an API refusing a budget should refuse the value that is impossible for everyone.
+ */
+/**
+ * The smallest budget this renderer can actually honour.
+ *
+ * `assembleBlocks` gives things up in order, but four things are reserved and never
+ * given up: the preamble, the Compass, the confirmation style and the data boundary. A
+ * caller asking for less than they cost gets a string over its budget — which is not a
+ * bug in the renderer, it is a request that cannot be met, and quietly returning
+ * something larger than asked for is how `?budget=500` came to be accepted, validated,
+ * documented and unhonourable all at once.
+ *
+ * Measured from the reserved text itself rather than written down as a number, so it
+ * cannot drift when the rules or a default Compass principle are edited. A personalised
+ * Compass can make the real floor slightly higher; this is the minimum, which is the
+ * right thing for an API to refuse below.
+ *
+ * Declared here rather than at the top of the file because it reads `PREAMBLE` and the
+ * rule texts, and a module-level const cannot be computed before them.
+ */
+export const MIN_HONOURABLE_BUDGET_TOKENS = instructionsFloor();
+
+function instructionsFloor(): number {
+  const defaultCompass = COMPASS_PRINCIPLES.map((principle) => ({
+    key: principle.key,
+    text: principle.defaultText,
+    source: 'default' as const,
+    shortId: null,
+  }));
+
+  return estimateTokens(
+    [PREAMBLE, renderCompass(defaultCompass), HOW_TO_CONFIRM, DATA_BOUNDARY, LANGUAGE].join(
+      SEPARATOR,
+    ),
+  );
+}
 
 /**
  * Kept for callers that already trim a rendered string.

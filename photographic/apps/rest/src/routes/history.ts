@@ -55,9 +55,29 @@ export function historyRoutes(): Hono<AppEnv> {
       // These are the other two — where the information came from before it was a
       // memory, and why it was stored where it was — and they were being computed and
       // then dropped here, which is why nothing outside the calendar could show them.
+      // (Both this branch and main found this independently; main's wording kept.)
       motivation: provenance.motivation,
       source: provenance.source,
       changed: provenance.changed,
+      /**
+       * Which model has seen this text.
+       *
+       * `external: true` means the memory's own words were sent to a third party to make
+       * it searchable by meaning. A person asking "hur vet du det om mig?" is entitled
+       * to reach that, and until `0021_embedding_provenance.sql` nothing recorded it.
+       * `null` means no vector was ever computed for this memory.
+       *
+       * The screen that shows this is another track's; what is owned here is that the
+       * fact exists and is served.
+       */
+      embedding: provenance.embedding
+        ? {
+            provider: provenance.embedding.provider,
+            model: provenance.embedding.model,
+            external: provenance.embedding.external,
+            at: provenance.embedding.at.toISOString(),
+          }
+        : null,
       timeline: provenance.timeline.map(serialiseHistoryEntry),
     });
   });

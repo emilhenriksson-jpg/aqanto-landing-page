@@ -8,7 +8,7 @@
  */
 
 import type { PlacementDecision, ProposalId, RoomId, ShortId } from '@photographic/core';
-import { askMemory } from '@photographic/core';
+import { askMemory, memoryChanges } from '@photographic/core';
 import { Hono } from 'hono';
 
 import type { AppContext, AppEnv } from '../context.js';
@@ -25,6 +25,7 @@ import {
 } from '../schemas.js';
 import {
   serialiseAskHit,
+  serialiseMemoryChange,
   serialiseDispute,
   serialiseItem,
   serialiseProposal,
@@ -291,6 +292,23 @@ export function memoryRoutes(): Hono<AppEnv> {
     const roomIds = input.room
       ? (Array.isArray(input.room) ? input.room : [input.room]).map((id) => id as never)
       : undefined;
+
+    // `?changes=1` asks a different question from `q` alone: not "what is true now" but
+    // "how did this get here". A correction writes a new memory and supersedes the old,
+    // so the previous wording lives on a row search excludes by design — see
+    // `packages/core/src/changes.ts`, which is where the composition lives for the same
+    // reason `askMemory` does.
+    if (input.changes) {
+      const chains = await memoryChanges(getServices(c), actor, {
+        ...(input.q ? { query: input.q } : {}),
+        ...(roomIds ? { roomIds } : {}),
+        ...(input.since ? { since: input.since } : {}),
+        ...(input.until ? { until: input.until } : {}),
+        ...(input.limit ? { limit: input.limit } : {}),
+      });
+
+      return c.json({ changes: chains.map(serialiseMemoryChange) });
+    }
 
     if (input.since || input.until || input.sort === 'oldest') {
       const hits = await askMemory(getServices(c), actor, {

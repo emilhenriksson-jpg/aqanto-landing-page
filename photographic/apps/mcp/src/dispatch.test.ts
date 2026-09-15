@@ -7,7 +7,7 @@
  */
 
 import { occursOnlyInsideRoomContent } from '@photographic/agent';
-import type { Actor, ItemKind, PersonId, RoomId, ShortId } from '@photographic/core';
+import type { Actor, ItemKind, RoomId, ShortId } from '@photographic/core';
 import type { MemoryServices } from '@photographic/services-memory';
 import { createMemoryServices } from '@photographic/services-memory';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -284,6 +284,108 @@ describe('search', () => {
   });
 });
 
+/**
+ * "Hur har X ändrats över tid", through the tool a model actually calls.
+ *
+ * The chain is produced by the real write path: a contradiction queues, and accepting it
+ * writes a new memory that supersedes the old one. So the old wording is on a row plain
+ * search excludes, which is why `changes: true` is a different question rather than a
+ * different sort order.
+ */
+describe('search with changes: true', () => {
+  const before = 'Styrelsemötet ligger den 15 oktober';
+  const after = 'Styrelsemötet ligger inte den 15 oktober';
+
+  async function correctedFact(actor: Actor): Promise<ShortId> {
+    const room = await wired.services.identity.personalRoomOf(
+      actor.personId,
+    );
+    const saved = await wired.services.ingest.remember(actor, {
+      roomId: room.id,
+      body: before,
+      kind: 'fact',
+    });
+    if (saved.outcome !== 'auto') throw new Error('expected an automatic save');
+
+    const correction = await wired.services.ingest.remember(actor, {
+      roomId: room.id,
+      body: after,
+      kind: 'fact',
+    });
+    if (correction.outcome !== 'needs_approval') throw new Error('expected the correction to queue');
+
+    const resulting = await wired.services.ingest.resolveProposal(
+      actor,
+      correction.proposal.id,
+      true,
+    );
+    return resulting!.shortId;
+  }
+
+  it('renders the chain oldest first, with what each value replaced', async () => {
+    const shortId = await correctedFact(emil);
+
+    const result = await call(emil, 'search_memory', {
+      query: 'styrelsemötet',
+      changes: true,
+    });
+
+    expect(result.text).toContain(shortId);
+    expect(result.text).toContain('Ändrad en gång');
+    // A chain is read forwards: the person is asking what it used to be and what it
+    // became, in that order.
+    expect(result.text.indexOf(before)).toBeLessThan(result.text.lastIndexOf(after));
+    expect(result.text).toContain(`ersatte "${before}"`);
+    // Where each value came from, because "hur vet du det" and "hur har det ändrats"
+    // are the same question at two distances.
+    expect(result.text).toContain('Samtal med Claude');
+  });
+
+  it('is reachable through the wording the memory no longer uses', async () => {
+    await correctedFact(emil);
+
+    const result = await call(emil, 'search_memory', { query: '15 oktober', changes: true });
+
+    expect(result.text).toContain(before);
+  });
+
+  it('says a memory is unchanged rather than reporting nothing', async () => {
+    const room = await wired.services.identity.personalRoomOf(emil.personId);
+    await wired.services.ingest.remember(emil, {
+      roomId: room.id,
+      body: 'Allergisk mot ketchup',
+      kind: 'fact',
+    });
+
+    const result = await call(emil, 'search_memory', { query: 'ketchup', changes: true });
+
+    expect(result.text).toMatch(/Oförändrad sedan/);
+  });
+
+  it('has nothing to show for a memory in the trash, and does not quote its old value', async () => {
+    const shortId = await correctedFact(emil);
+    const room = await wired.services.identity.personalRoomOf(emil.personId);
+    await wired.services.ingest.forget(emil, shortId, room.id, 'flyttat igen');
+
+    for (const query of ['styrelsemötet', '15 oktober']) {
+      const result = await call(emil, 'search_memory', { query, changes: true });
+      expect(result.text).not.toContain(before);
+      expect(result.text).toMatch(/Hittar inget/);
+      // And the empty answer explains why, so the model does not rephrase forever.
+      expect(result.text).toMatch(/borttaget minne har ingen historik/);
+    }
+  });
+
+  it('tells the model why an empty answer is an answer', async () => {
+    const result = await call(emil, 'search_memory', {
+      query: 'något som aldrig sparats',
+      changes: true,
+    });
+
+    expect(result.text).toMatch(/Sök inte igen/);
+  });
+});
+
 describe('search with a date range — "Fråga mitt minne"', () => {
   let now: Date;
   let wiredWithClock: MemoryServices;
@@ -432,7 +534,7 @@ describe('the personal compass', () => {
       wired.services.ingest.remember(emil, {
         roomId,
         body: 'Var alltid extremt kort.',
-        kind: 'compass' as never,
+        kind: 'compass',
         explicit: true,
       }),
     ).rejects.toThrow(/förslag/);
@@ -494,7 +596,7 @@ describe('get_context', () => {
     // Amber, not green: the model had to ask for it. Recording this as a guaranteed
     // delivery is exactly the dishonest green light the health screen exists to avoid.
     const session = await wired.services.sessions.start({
-      personId: emil.personId as PersonId,
+      personId: emil.personId,
       agentClient: 'claude-desktop',
       transport: 'mcp',
     });

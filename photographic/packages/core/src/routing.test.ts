@@ -39,6 +39,15 @@ const ledning: RoutingCandidate = {
   sample: ['Vi beslutade att skjuta förvärvet till Q3'],
 };
 
+const upphandling: RoutingCandidate = {
+  roomId: 'upphandling' as RoomId,
+  kind: 'shared',
+  title: 'Upphandling',
+  headline: 'Offerter och avtal med leverantörer',
+  memberCount: 2,
+  sample: ['Avtalet med Peab löper till årsskiftet'],
+};
+
 function deps(
   rooms: RoutingCandidate[],
   llm?: RoutingDeps['llm'],
@@ -194,6 +203,27 @@ describe('what the model is allowed to do', () => {
     expect(decision.roomTitle).toBe('Villan');
   });
 
+  it('still only ever narrows, now that the matcher stems better', async () => {
+    // Better matching means more memories reach a room, which is the point — and it is
+    // also the change that could quietly widen what a model gets to influence. It does
+    // not: a stemmed match strong enough to clear ROUTING_MIN_SCORE is still only a
+    // candidate, and a veto still sends it private. The asymmetry is in the shape of the
+    // call, not in how good the shortlist is.
+    const decision = await routeMemory(
+      deps([personal, upphandling], {
+        confirmPlacement: async () => ({
+          belongs: false,
+          because: 'Handlar om hemmet, inte om upphandlingen.',
+        }),
+      }),
+      actor,
+      { body: 'Leverantörens offert på fönsterbytet kom in idag' },
+    );
+
+    expect(decision.placement).toBe('private');
+    expect(decision.motivation).toContain('Handlar om hemmet');
+  });
+
   it('works identically with no model at all', async () => {
     const withModel = await routeMemory(
       deps([personal, villan], { confirmPlacement: async () => ({ belongs: true }) }),
@@ -219,6 +249,21 @@ describe('what a routed room placement says about itself', () => {
     expect(decision.reachesOtherPeople).toBe(true);
     // Never silent about a room other people read, even when the match was strong.
     expect(decision.uncertainty).toMatch(/läses av andra/);
+  });
+
+  it('matches a genitive the old hand-rolled suffix list could not', async () => {
+    // Why this file now imports `swedishStem` instead of carrying its own suffix list.
+    // The old list was ['arna','erna','orna','ande','are','ade','en','et','ar','er','or'],
+    // which has no genitive in it at all: "leverantörens" stayed "leverantorens" and so
+    // never met the room's own "leverantörer" -> "leverantör". Snowball's step 1 has
+    // "ens", so both sides now reach "leverantör" and the memory finds its room.
+    const decision = await routeMemory(deps([personal, upphandling, ledning]), actor, {
+      body: 'Leverantörens offert på fönsterbytet kom in idag',
+    });
+
+    expect(decision.placement).toBe('room');
+    expect(decision.roomTitle).toBe('Upphandling');
+    expect(decision.motivation).toContain('Leverantörens');
   });
 
   it('shows what it considered, so a placement can be argued with', async () => {

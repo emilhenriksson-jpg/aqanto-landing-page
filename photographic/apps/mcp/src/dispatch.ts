@@ -21,6 +21,7 @@ import {
   COMPASS_PRINCIPLES,
   compassPrincipleLabel,
   isCompassPrincipleKey,
+  memoryChanges,
   PhotographicError,
   resolveRoomRef,
   ValidationError,
@@ -31,6 +32,7 @@ import type { McpLog } from './deps.js';
 import { SILENT_LOG } from './deps.js';
 import {
   renderAsk,
+  renderChanges,
   renderForgotten,
   renderHistory,
   renderProposal,
@@ -97,6 +99,7 @@ const ARGS = {
       since: z.coerce.date().optional(),
       until: z.coerce.date().optional(),
       sort: z.enum(['relevance', 'oldest', 'newest']).optional(),
+      changes: z.boolean().optional(),
       limit: z.number().int().min(1).max(50).optional(),
     })
     .strict()
@@ -271,6 +274,24 @@ async function run<N extends ToolName>(
         action: 'search',
         detail: { query: input.query ?? null, since: input.since, until: input.until },
       });
+
+      // "Hur har X ändrats över tid" is a different question from "what is true now",
+      // and it cannot be answered by ranking current text: a correction writes a new
+      // memory and supersedes the old one, so the previous wording is on a row search
+      // deliberately excludes. See `memoryChanges`.
+      if (input.changes) {
+        const chains = await memoryChanges(services, actor, {
+          ...(input.query ? { query: input.query } : {}),
+          ...(roomIds ? { roomIds } : {}),
+          ...(input.since ? { since: input.since } : {}),
+          ...(input.until ? { until: input.until } : {}),
+          ...(input.limit ? { limit: input.limit } : {}),
+        });
+
+        return renderChanges(chains, {
+          ...(input.query ? { query: input.query } : {}),
+        });
+      }
 
       // A date-scoped or "when did this start" question needs the calendar as well as
       // the current state of a memory — see `askMemory`. Everything else keeps the

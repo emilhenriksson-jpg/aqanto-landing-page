@@ -38,6 +38,7 @@ import {
   ROUTING_MIN_SCORE,
   dedupeHash,
 } from './policy.js';
+import { swedishStem } from './swedish.js';
 
 /** A room the router may consider, and enough about it to tell what it is for. */
 export interface RoutingCandidate {
@@ -106,34 +107,9 @@ const FUNCTION_WORDS = new Set([
 ]);
 
 /**
- * Swedish inflection, handled crudely and on purpose.
- *
- * Without this the router cannot match "ledningen" to a room called "Ledning", or
- * "förvärvet" to "förvärv" — which in a Swedish product is most of the misses. Suffixes
- * are only stripped while the stem stays long enough to still mean something, so
- * "mars" and "kök" survive intact.
- *
- * Deliberately not a stemmer. Postgres has a real Swedish dictionary and the search index
- * is Track 3's; when that exists this should be replaced by it rather than grown.
- */
-function stem(word: string): string {
-  // Longest first, and no single-letter endings. Stripping a bare `t` or `n` turns
-  // "offert" into "offer" while "offerter" becomes "offert", so the two forms of the same
-  // word stop matching each other — worse than not stemming at all.
-  for (const suffix of ['arna', 'erna', 'orna', 'ande', 'are', 'ade', 'en', 'et', 'ar', 'er', 'or']) {
-    if (word.length - suffix.length >= 4 && word.endsWith(suffix)) {
-      return word.slice(0, -suffix.length);
-    }
-  }
-  return word;
-}
-
-/**
  * Words worth matching on.
  *
- * Short tokens carry no subject matter and Swedish is full of them. The same
- * normalisation as `dedupeHash`, so the router and the duplicate check agree about what a
- * word is before either of them starts counting.
+ * Short tokens carry no subject matter and Swedish is full of them.
  */
 function terms(text: string): Set<string> {
   return new Set(wordsByStem(text).keys());
@@ -142,22 +118,39 @@ function terms(text: string): Set<string> {
 /**
  * Stems mapped back to the word they came from.
  *
- * Matching happens on stems and explaining happens in words. Telling a person their
- * memory was filed somewhere "eftersom det nämner forvarv" shows them the inside of the
- * matcher — accent-stripped, truncated, lowercase — when the promise was a sentence
- * phrased for them. The first spelling wins, so the explanation quotes the memory as they
- * wrote it.
+ * Inflection is handled by `swedishStem` — the shared Snowball implementation in
+ * `swedish.ts`, the same one the lexical arms of search use and the same algorithm
+ * behind Postgres's `to_tsvector('swedish', …)`. This file used to carry its own
+ * eleven-suffix list with a note saying to replace it rather than grow it, precisely so
+ * a second hand-rolled Swedish suffix list would not take root; that list is now gone
+ * and there is one. It matters beyond tidiness: a room's own memories are ranked by
+ * search and matched by this router, and two different ideas of what "ledningen" reduces
+ * to means the router files a memory somewhere search will then rank differently.
+ *
+ * Tokenisation matches `swedishTerms` (anything that is not a letter or digit splits),
+ * so "due diligence-paketet" breaks the way a person would expect. Two things stay local
+ * because they are the router's own policy rather than the language's:
+ *
+ *  - `dedupeHash` still folds accents and case for the length and function-word filters,
+ *    because `FUNCTION_WORDS` is written accent-stripped and because a three-letter token
+ *    carries no subject matter whatever its diacritics. Stemming itself runs on the
+ *    accented word, so the router's stems are the same strings search produces.
+ *  - Matching happens on stems and explaining happens in words. Telling a person their
+ *    memory was filed somewhere "eftersom det nämner forvarv" shows them the inside of
+ *    the matcher when the promise was a sentence phrased for them. The first spelling
+ *    wins, so the explanation quotes the memory as they wrote it.
  */
 function wordsByStem(text: string): Map<string, string> {
   const out = new Map<string, string>();
 
-  for (const raw of text.split(/\s+/)) {
-    const normalised = dedupeHash(raw);
-    if (normalised.length <= 3 || FUNCTION_WORDS.has(normalised)) continue;
+  for (const raw of text.split(/[^\p{L}\p{N}]+/u)) {
+    if (!raw) continue;
 
-    const key = stem(normalised);
-    // Trailing punctuation the normaliser dropped would look wrong quoted back.
-    if (!out.has(key)) out.set(key, raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''));
+    const folded = dedupeHash(raw);
+    if (folded.length <= 3 || FUNCTION_WORDS.has(folded)) continue;
+
+    const key = swedishStem(raw);
+    if (key && !out.has(key)) out.set(key, raw);
   }
 
   return out;

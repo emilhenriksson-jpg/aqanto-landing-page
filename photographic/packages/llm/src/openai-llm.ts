@@ -50,6 +50,30 @@ export const EXTRACT_MODEL = 'gpt-4o-mini';
  */
 export const MAX_EMBED_BATCH = 128;
 
+/**
+ * Sent on every completion request: do not keep this.
+ *
+ * What this does and does not buy, stated precisely, because the difference is what a
+ * customer would be told:
+ *
+ *  - It opts the request out of OpenAI's own storage of the exchange — the thing that
+ *    otherwise makes prompts and completions retrievable from the platform afterwards.
+ *  - It does **not** make retention zero. OpenAI keeps API traffic for up to 30 days for
+ *    abuse monitoring regardless, and zero-data-retention is arranged with OpenAI as an
+ *    organisation-level agreement rather than granted by a key or a request flag.
+ *  - Training is separate again and is already the default: API data is not trained on
+ *    unless an organisation opts in, which this one has not.
+ *
+ * The embeddings endpoint takes no equivalent parameter, so what controls exposure there
+ * is what we send rather than what we ask them not to keep — see the note in
+ * `STATUS.md` on exactly which text leaves the server and when.
+ *
+ * No `user` field is ever sent either. It is meant for abuse-tracing and would attach a
+ * person id of ours to text on somebody else's infrastructure, which is a correlation we
+ * are not obliged to hand over and cannot take back.
+ */
+const NO_STORE = false;
+
 export interface OpenAiEmbeddingRequest {
   model: string;
   input: string[];
@@ -66,6 +90,10 @@ export interface OpenAiChatRequest {
   messages: Array<{ role: 'system' | 'user'; content: string }>;
   temperature?: number;
   max_tokens?: number;
+  /**
+   * `false` on every request this class makes. See `NO_STORE`.
+   */
+  store?: boolean;
   response_format?: {
     type: 'json_schema';
     json_schema: { name: string; strict: true; schema: JsonSchemaObject };
@@ -112,6 +140,17 @@ export class OpenAiLlm implements LlmPort {
     this.chatModel = options.chatModel ?? EXTRACT_MODEL;
     this.dimensions = options.dimensions ?? EMBEDDING_DIMENSIONS;
     this.maxBatchSize = Math.max(1, options.maxBatchSize ?? MAX_EMBED_BATCH);
+  }
+
+  /**
+   * What gets written next to every vector this class produces.
+   *
+   * `external: true` is the load-bearing part: it is how a memory can answer that its
+   * own text was sent to a third party at write time, which is a promise made to the
+   * person rather than an implementation note.
+   */
+  embeddingIdentity(): { provider: string; model: string; external: boolean } {
+    return { provider: 'openai', model: this.embeddingModel, external: true };
   }
 
   /**
@@ -228,6 +267,7 @@ export class OpenAiLlm implements LlmPort {
     const response = await this.client.chat.completions.create({
       model: this.chatModel,
       temperature: 0,
+      store: NO_STORE,
       max_tokens: Math.max(64, Math.ceil(input.budgetTokens * 1.1)),
       messages: [
         {
@@ -251,6 +291,7 @@ export class OpenAiLlm implements LlmPort {
     const response = await this.client.chat.completions.create({
       model: this.chatModel,
       temperature: 0,
+      store: NO_STORE,
       messages: [
         { role: 'system', content: input.system },
         { role: 'user', content: input.user },

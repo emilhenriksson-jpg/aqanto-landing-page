@@ -492,6 +492,343 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 - **orchestrator** — Historik screen (footer link) with demo + live history loader;
   live Dokument shelf via room documents endpoint; web suite 37 green.
 
+## retrieval/routing/profil — supersede-kedjor, delad svenska, kompassens default
+
+Branch `cursor/retrieval-routing-compass-loose-ends-ed14`, PR #16. Owns migration
+**0021** (`embedding_provenance`). Renumbered twice: claimed 0016, moved to 0020 when `main`
+took 0016/0017, moved to 0021 when `main` took 0020 for the app-role grants. Checked against
+`main` each time rather than counted. Two things learned the hard way and worth having
+written down:
+
+- **Idempotent DDL is what makes a renumber cheap.** The ledger keys on content hash now, so
+  a rename is normally recognised without replaying — but `IF NOT EXISTS` is the difference
+  between a rename that costs nothing and one that needs an operator. 0021 has it throughout;
+  0001–0020 do not.
+- **A row applied before the content-keyed ledger has no checksum, so the rename cannot be
+  derived.** On a database in that state the runner refuses with *"körda men inte finns på
+  disk"* and the way through is naming the pair:
+  `MIGRATIONS_RENAMED=0020_embedding_provenance.sql=0021_embedding_provenance.sql` (comma-separate
+  several). It moves that one row and writes its checksum, so the next rename needs nothing.
+  **Not** `MIGRATIONS_ALLOW_ORPHANS=1`, which stands the protection down for every row for a
+  whole boot. Production never saw 0020 under either name — this branch is unmerged — so it
+  will simply apply 0021 fresh; the variable was only needed on this sandbox.
+
+Nothing in 0021 touches
+a table on another track's list beyond adding three columns to `app.item`.
+
+### "Hur har X ändrats över tid" följer nu kedjan
+
+The scope's own sentence — *historiken visar både den ursprungliga uppgiften och
+korrigeringen* — was not true, and `item.superseded` being emitted was only half of what
+it needed. A correction does not edit the old memory: `applyProposal` writes a **new**
+item and supersedes the old one, so the previous value lives on a different row under a
+different short id. `HistoryPort.provenance` walks one item, so it reported "never
+changed" — right about the row, wrong about the fact.
+
+- `HistoryPort.changes` walks `superseded_by` in both implementations: forward from any
+  short id in a chain to its head (so the id a person remembers from *before* the
+  correction resolves to the same chain), then back over everything the head replaced.
+  Recursive CTE on Postgres, `UNION` not `UNION ALL` so a cycle terminates rather than
+  hangs — `superseded_by` is application-written and a loop is a bug, not an
+  impossibility.
+- `memoryChanges` (`packages/core/src/changes.ts`) composes it with two ways of *finding*
+  a chain, because a question arrives in either tense: `RetrievalPort.search` reaches it
+  through what the memory says now, and `HistoryPort.list` reaches the same chain through
+  the wording it no longer uses. The second arm is the one that matters —
+  "när bodde jag i Stockholm" must work after the memory says Göteborg, and search
+  cannot find a superseded item by design.
+- One step per **value**, not per event. A correction appends two events describing the
+  same transition (`item.created` for the memory that replaces, `item.superseded` for the
+  one replaced), and `resolveDispute` appends only the second because the winner already
+  existed. Consecutive steps arriving at the same body collapse, keeping the earlier
+  provenance.
+- Shipped as `search_memory { changes: true }` and `GET /v1/search?changes=1`, not a
+  tenth tool — same reasoning as `since`/`until`: a plain query takes the exact path it
+  always has.
+
+**The leak, guarded twice and tested five times.** A chain's steps are by construction
+text the person has replaced — the one kind of content the allowlists in `recent.ts` and
+`ask.ts` exist to keep out of a model's context. Those allowlists cannot help here,
+because showing exactly those bodies is the feature. So the rule is about the *head*: a
+chain is only ever returned for a memory that is currently `active` and readable, refused
+in the storage query **and** again in `memoryChanges`. The tests ask with the deleted
+wording itself, which is the phrasing guaranteed to match text that is meant to be gone:
+`packages/core/src/changes.test.ts`, `packages/db/src/services/changes.test.ts` against
+real Postgres, `apps/mcp` through the tool, `apps/rest` over HTTP, and `e2e` on both
+harnesses.
+
+### Routningens rumsmatchning använder den delade svenska stemmern
+
+`routing.ts` carried its own eleven-suffix list with a note from its own author saying to
+replace it rather than grow it. That list is gone; `swedishStem` does the work. It matters
+beyond tidiness: a room's own memories are ranked by search and matched by the router, and
+two ideas of what "ledningen" reduces to means the router files a memory somewhere search
+then ranks differently.
+
+The old list had **no genitive in it at all**, so "leverantörens" never met a room's own
+"leverantörer" — Snowball's step 1 has `ens`, and both sides now reach `leverantör`.
+Tested as a case that previously scored 0.2 against a 0.34 threshold, i.e. went private.
+
+**The privacy asymmetry is untouched and re-tested against the better matcher.** The
+shortlist is still lexical and deterministic, `confirmPlacement` can still only veto and
+never propose, uncertainty and an equal second place still resolve private, the token
+`roomScope` filter still applies, and nothing here returns "no approval needed". Two
+things stayed local on purpose: `dedupeHash` still folds accents and case for the
+length/function-word filters (`FUNCTION_WORDS` is written accent-stripped), and the
+explanation still quotes the person's own spelling rather than the matcher's stems.
+
+### Kompassens sex default är en egenskap hos koden
+
+`app.profile.compass` defaults to `'[]'`, so a profile cached before
+`0015_personal_compass.sql` read back with no compass at all — whether the block reached a
+model depended on when the account was created and whether anything had since rebuilt the
+projection. The Postgres path papered over it by treating a short array as a cache miss
+and rebuilding the projection from inside a getter, which worked and made the guarantee
+depend on a write happening on a read path.
+
+`compassEntriesFromCache` fills every unpersonalised slot from `COMPASS_PRINCIPLES` on
+every read, in both implementations. A cached `default` entry is deliberately ignored: it
+is a copy of code from the day the projection was built rather than a decision, and
+rendering it is how an edit to a default text silently fails to reach an existing account.
+Tested against an account created before the column existed, one created after, the mixed
+case of one personalised principle and five defaults, and the stale-cached-default case.
+
+### Sessionspaketet levererar det det räknar ut
+
+Three things it paid for and discarded, all confirmed against the code before changing
+anything (found by the third review; verified rather than taken on trust):
+
+- **`sinceLastSeen` had zero consumers in the whole repo.** Both projections computed it
+  and packed it to `SINCE_LAST_SEEN_TOKEN_BUDGET`; the renderer printed `title` and
+  `brief` and dropped the third field. It was the only line in the package that sounds
+  like a memory developing over time rather than a static dossier. It renders now, inside
+  `wrapRoomContent` like every other piece of room content, and it is the first part of
+  the active room to give way when space is tight — the brief outranks it because a model
+  that named a room asked for its contents.
+- **`headlinesFor` served a placeholder from a process-local cache and queued no
+  rebuild.** The cache empties on every restart and only a write to the room refilled it,
+  so a shared room nobody had written to since the last deploy reached every session as
+  "Inget sparat än" — a statement about the room, and a false one. It now asks for a
+  rebuild, deduped per room so twenty sessions in a minute are not twenty summariser
+  calls, and still answers immediately because session start cannot wait on a model.
+- **`render()` picked its own budget.** `GET /v1/context?budget=500` was validated,
+  documented and ignored: the parameter reached `build` and `render` fell back to
+  `BUNDLE_TOKEN_BUDGET`, so `tokenCount` described a string the caller never got. MCP
+  rendered against the tighter `INSTRUCTIONS_TOKEN_BUDGET` without having assembled
+  against it. `ContextBundle.budgetTokens` records the ceiling and rendering defaults to
+  it.
+
+Also bounded the catch-up read (`SINCE_LAST_SEEN_SCAN_LIMIT`), which scanned every event
+since `last_seen_seq` on the session-start path for a list cut to a token budget anyway.
+
+### Och sedan: från dossier till öppning
+
+The plumbing above delivers what it computes. Judged as a person rather than as a budget,
+the *contents* were still a description of somebody rather than a way into a conversation:
+every block said something settled, so a model reading them could only recite. Three
+changes, in the order they were worth doing.
+
+**1. Vad personen lämnade hängande.** The one thing nothing marked. This is the third item
+`docs/agent-instruction-layer.md` set aside as needing machinery an instruction cannot
+create — *"'Ask how something went' needs the calendar. The model has to know that
+something was said three weeks ago and hasn't been followed up on"* — so this is finishing
+an idea the project already had.
+
+`openThreadsFor` derives it from the log alone: no new write, no table, no model call, and
+nothing anybody has to remember to set. A memory is open when its kind implies an outcome
+(`decision` or `note` only — "Allergisk mot ketchup" is not waiting on anything, and
+listing it teaches a model the block is noise), **nothing has happened to it since** (the
+newest event is `saved` or `updated`; a delete, a supersede or a dispute *is* a follow-up),
+it is at least a week old (something saved yesterday is this week's work, and asking about
+it reads as not having been listening), and at most ninety days old (older than that is
+the past, and raising it is what makes a model feel like it is reading a file on you).
+
+Two lines, hard cap. A model handed six of these reads them out as a list, which is the
+exact behaviour the block exists to avoid. And the preamble says *Photographic har inte
+hört något sedan dess — det betyder inte att det är ogjort*, because the person may well
+have finished the thing and not mentioned it: "har du hunnit med X?" is right either way,
+"X är fortfarande öppet" is wrong half the time.
+
+Ranked **above** `recent` in the slack both are spent from. Between "here are four things
+that happened" and "this one thing has been waiting three weeks", the second is what a
+person notices, so `recent` is what gives way. Asserted as a sweep across profile sizes
+rather than pinned to one, because the size at which the budget runs out moves whenever a
+rule is edited and a test that needs re-tuning for that is a test that gets deleted.
+
+**2. `recent` reads as a thread rather than a changelog.** It rendered
+`- 2026-09-14: sparade — Emil: Allergisk mot ketchup`, four lines of it. Nobody says "on
+the fourteenth of September I mentioned"; they say "i fredags". So the time is relative
+(`relativeSwedishDay`, deterministic and offline — this is a voice turn), the room comes
+before the verb because where a thing happened is what orients a reader, and a plain save
+drops the verb entirely since saving is what this product does. The verb survives only
+where it carries information: changed, removed, replaced.
+
+Deliberately **not** a summarised sentence. That needs the summariser on a job rather than
+on the read path, plus somewhere to cache it, and shipping a summary before the thing being
+summarised is the wrong order — the same argument this repo already made about week and
+month rollups. The rendering change is what the complaint was actually about.
+
+**3. `Håller på med just nu` stopped claiming a note and a decision are the same thing.**
+That section is fed by both `decision` and `note`, and the heading asserted currency for
+everything under it. It was the section most likely to make a model confidently wrong about
+a person's life — and a wrong fact is annoying where a wrong claim about what somebody is
+*doing* reads as not knowing them at all.
+
+`RenderedItem` gained optional `kind` and `at`, set for `currentFocus` and nowhere else:
+`- [beslut · igår] Förvärvet skjuts till Q3 (p-7k2m)`. A date on "Allergisk mot ketchup"
+would be noise, and noise is exactly what stops a date meaning anything where it matters.
+The heading is now *På gång — beslut och anteckningar, daterade. Det äldsta kan ha slutat
+gälla; fråga hellre än att påstå*, which hands the judgement to the reader instead of making
+a claim the data cannot support.
+
+### `?budget=` vägrar det den inte kan hålla
+
+Accepting a value it cannot meet is a small lie, and one only found by measuring the
+response. The old minimum was 100; `MIN_HONOURABLE_BUDGET_TOKENS` measures the
+never-dropped text — preamble, Compass, confirmation style, data boundary — and comes out
+at **497**. Below that the schema now refuses with a 400 naming the minimum, rather than
+answering with a string twice the size of the number asked for.
+
+Measured from the text rather than written down, so it cannot drift when a rule or a
+default principle is edited. **And the honest caveat, stated per response rather than
+hidden:** 497 is the floor for the un-droppable *text*, while a particular person's package
+also keeps at least one profile item and their whole room list, so a budget above the floor
+can still be exceeded by their own content. `GET /v1/context` therefore returns
+`budgetTokens` next to `tokenCount`, and `tokenCount` is measured from the string the
+caller was handed — so the pair is checkable instead of the number being implied to have
+been met.
+
+### Sökkvalitet — ommätt mot tester som kan misslyckas
+
+The 81%/100% figures had come from a measurement whose corpus and harness were scratch
+files, deleted after use, which made two numbers an embedding decision rested on
+unfalsifiable. The corpus is now committed (`search-quality.corpus.ts`, 25 memories and
+27 questions across the five original categories) and measured through the real shipped
+path — `createPostgresServices` + `PgRetrieval`, live Postgres with `pg_trgm`, `unaccent`
+and `pgvector`, recall@3:
+
+| | recall@3 | hard-paraphrase |
+|---|---|---|
+| No key (`FakeLlm`, default) | **24/27 = 89%** | 2/5 |
+| Real key (`text-embedding-3-small`) | **27/27 = 100%** | 5/5 |
+
+**The 100% reproduces exactly. The 81% does not — it measures 89%, and the difference is
+the corpus rather than the code.** The original 25 memories and 27 questions no longer
+exist, so this is a reconstruction of the same shape and mix; it corroborates the
+direction and the categorical claim rather than reproducing the exact figure. Anyone
+quoting 81% should quote 89% and say which corpus.
+
+The number worth quoting is the second column, not the first: without a real model, three
+of five questions that share no content word with their answer are not found at all. With
+one, all five are. The aggregate hides this, because the other 22 questions are answerable
+lexically — which is also why the test asserts the paraphrase split as its own bound in
+both directions, including a *ceiling* on the no-key run. A corpus that lexical ranking
+can answer cannot be used to argue for embeddings.
+
+### Embeddings: vad som lämnar servern, när, och vad som inte gör det
+
+Detta är meningen som ska kunna sägas högt till en kund, så den är skriven för att vara
+sann och specifik snarare än lugnande.
+
+**Vad som skickas.** När ett minne sparas skickas **minnets egen text** — inte hela
+konversationen, inte namn, e-post, telefonnummer eller konto-id — till OpenAI för att
+räknas om till en vektor (`text-embedding-3-small`, 1536 dimensioner). Samma sak händer
+med **sökfrågans text** vid varje sökning. Vid backfill skickas texten i varje aktivt
+minne som ännu inte har en vektor, en gång. Rumsbeskrivningar och dokumentsammanfattningar
+skickas när de genereras. Inget `user`-fält följer med, så ingen person-id kopplas till
+texten hos dem.
+
+**Vad som inte skickas.** Dokumentens innehåll: `chunk.embedding` skrivs fortfarande
+aldrig, så ingen uppladdad fil har passerat en modell. Raderade minnen: backfillen rör
+bara `status = 'active'`. Med `PHOTOGRAPHIC_LLM` osatt lämnar ingenting servern alls —
+`FakeLlm` räknar ut vektorerna i processen.
+
+**Vad OpenAI gör med det.** De **tränar inte** på API-data; det kräver ett aktivt
+medgivande som inte är givet. De **sparar** däremot API-trafik i **upp till 30 dagar** för
+missbruksövervakning. Noll lagring ("zero data retention") är ett avtal som träffas med
+OpenAI på organisationsnivå — det följer inte med en API-nyckel och kan inte slås på per
+anrop. Så det korrekta att säga är: *ingen träning, men upp till 30 dagars lagring hos
+OpenAI, tills ett ZDR-avtal finns.* Completion-anropen skickar `store: false`, vilket tar
+bort OpenAIs egen lagring av själva utbytet — men inte de 30 dagarna.
+
+**Vad Photographic sparar om det.** Migration 0021 lägger `embedding_model`,
+`embedding_provider` och `embedded_at` på `app.item`, skrivet i samma sats som vektorn, så
+det finns inget läge där ett minne har en vektor men ingen uppgift om vad som räknade ut
+den. `GET /v1/memory/:id/provenance` svarar med det, och frågan "har min text skickats
+någonstans?" har därmed ett svar per minne. `external: false` betyder att vektorn räknades
+ut lokalt — ett riktigt svar, inte ett tomt.
+
+### Backfill: modellen gäller även det som redan är sparat
+
+`PgIngest` köar en embedding vid skrivning, så att slå på modellen förbättrade ingenting
+retroaktivt. Det är skillnaden mellan "sökningen blev bättre för det jag sparar framöver"
+och "mitt minne blev bättre".
+
+- **Ingen markör.** Arbetslistan räknas fram ur datan varje körning: `status = 'active'`
+  och (ingen vektor **eller** en vektor från en annan modell). En omstart mitt i fortsätter
+  exakt där den slutade, eftersom "där den slutade" bara är "det som återstår". En markör
+  skulle behöva sparas, hållas konsistent med rader som skrevs under körningen, och
+  nollställas för hand varje gång modellen byttes — tre sätt att tappa arbete.
+- **Kan inte dubbeldebitera.** En rad lämnar listan i samma sats som vektorn skrivs, och
+  bara ett backfill-jobb kan ligga i kön samtidigt (`dedupe_key` + `FOR UPDATE SKIP
+  LOCKED`). Det enda fall som betalar två gånger är en process som dör efter att
+  leverantören svarat men före `UPDATE` — som mest en batch, och inte undvikbart utan
+  två-fas-commit mot någon annans API.
+- **En vektor från `FakeLlm` räknas som arbete kvar**, vilket är exakt vad första
+  riktiga körningen är: allt som embeddades medan `PHOTOGRAPHIC_LLM` var osatt bär en hash
+  utan semantiskt innehåll.
+- **Synligt nog att veta om det är klart.** `embeddingBackfillProgress` räknar återstående
+  mängd direkt, jobbet loggar en rad per batch med antal kvar, och
+  `scripts/backfill-embeddings.mjs` skriver JSON-rader till noll. Skriptet **vägrar** köra
+  med `FakeLlm`, eftersom det annars skulle markera varje minne som embeddat och få den
+  riktiga backfillen att se färdig ut innan den kört.
+
+**Kör den så här, när nyckeln finns på appen:**
+`DATABASE_URL=… PHOTOGRAPHIC_LLM=openai OPENAI_API_KEY=… node scripts/backfill-embeddings.mjs`
+(`--status` skriver bara läget och avslutar.)
+
+### Leverantörsbytet är bevisat, inte påstått
+
+`packages/db/src/embedding-backfill.test.ts` konstruerar en **andra leverantörsidentitet**
+och skickar in den genom `createPostgresServices({ llm })` — inget annat i anropet ändras.
+Skrivvägen, `embed_item`-jobbet, sökningen, backfillen och proveniensen följer alla med.
+Om ett byte krävde en ändring under den söm skulle testet inte kompilera.
+
+**Vad ett byte till en europeisk leverantör faktiskt kostar** (skrivet nu, inte när det
+behövs): en ny `LlmPort`-implementation är ungefär `OpenAiLlm` med en annan bas-URL, plus
+en rad i `createLlmFromEnv`. Det som *inte* är konfiguration är dimensionen:
+`app.item.embedding` och `app.chunk.embedding` är `vector(1536)`, och Mistrals
+`mistral-embed` — det närmaste EU-svaret — ger 1024. Det är en migration (ny kolumn eller
+ändrad typ, nytt HNSW-index) plus en full omkörning av backfillen ovan, alltså en
+kostnad som skalar med antalet minnen snarare än med kod. Backfillens arbetslista hanterar
+redan precis det fallet: ett minne vars `embedding_model` inte är den nu konfigurerade
+räknas som arbete kvar.
+
+### Grönt
+
+Monorepo typecheck rent. `packages/core` 142, `packages/agent` 79, `packages/db` 151
+(2 skippade: `LIVE_SUPABASE` och en gammal nyckel-gate), `packages/llm` 9,
+`packages/services-memory` 10, `apps/mcp` 65, `apps/rest` 161, `apps/web` 75,
+`e2e` 66 på `HARNESS=memory` och 66 på `HARNESS=postgres`; övriga paket oförändrade och
+gröna. Postgres 16 + pgvector installerades i den här sandlådan för att köra
+Postgres-sviterna; migration 0021 applicerad. Rebasat på `main` två gånger (0016/0017,
+sedan 0018–0020), med tre konflikter, alla additiva: `apps/rest/src/app.test.ts` och
+`e2e/src/journey.test.ts` (båda grenarna la till ett `describe` på samma rad — båda
+behållna) och `apps/rest/src/routes/history.ts`, där `main` oberoende hittade samma sak jag
+gjorde — att rutten slängde `motivation`, `source` och `changed` — så deras formulering
+behölls och mitt `embedding`-block lades till. Mina e2e-tester bytte från `itWhenWired` till
+`it`, eftersom `main` medvetet tog bort den hjälpfunktionen: en harness som inte kan byggas
+ska vara ett hårt fel, inte ett skip.
+
+### Territorium
+
+Rörde inte `wiring.ts`, `session.ts`, `migrate.ts`, någon `ingest.ts`, `account.ts`,
+exportvägen eller webbskärmarna. Två ställen där det här korsar delad mark, båda små och
+värda att veta om vid merge: `packages/db/src/postgres-services.ts` (en rad som ger
+`PgProjection` en `enqueue`, plus registreringen av backfill-jobbet) och
+`packages/core/src/ports.ts` (`HistoryPort.changes`, `LlmPort.embeddingIdentity`,
+båda nya — inget befintligt anrop ändrat).
+
 ## Track 3 — platform & documents
 
 Branch `cursor/photographic-platform-documents-80d8`, PR #2. Only this heading is mine;
