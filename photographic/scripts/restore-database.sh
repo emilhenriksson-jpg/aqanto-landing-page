@@ -120,7 +120,17 @@ else
                                      CREATE EXTENSION IF NOT EXISTS citext;
                                      CREATE EXTENSION IF NOT EXISTS vector;
                                      CREATE EXTENSION IF NOT EXISTS unaccent;'
-  pg_restore --no-owner --no-privileges -d "$TARGET_DATABASE_URL" "$DUMP" || STATUS=$?
+  # --no-owner, not --no-privileges: ownership names a role the target cluster may not have
+  # (Supabase's own `postgres`, say), but the GRANTs the dump carries are what make
+  # `photographic_app` able to reach anything at all. Measured: with --no-privileges, a
+  # restore into an empty database reported "identical: true" from verify-restore — which
+  # checks rows, not grants — while photographic_app could SELECT nothing, INSERT nothing,
+  # in all 29 tables. The application would have connected to a database that looks whole
+  # and answered permission-denied on every query. If the role does not exist yet on this
+  # cluster, the GRANT statements for it fail individually and pg_restore reports it in
+  # $STATUS below; the schema and data restore either way, and the check just past this one
+  # says so explicitly rather than leaving it to be found on the first request.
+  pg_restore --no-owner -d "$TARGET_DATABASE_URL" "$DUMP" || STATUS=$?
 fi
 
 if [ "$STATUS" -ne 0 ]; then
@@ -173,6 +183,32 @@ fi
 
 if [ "$LEDGER" != "$EXPECTED_MIGRATIONS" ]; then
   echo "→ Liggaren har $LEDGER rader, avbilden har $EXPECTED_MIGRATIONS filer. Kör pnpm db:migrate mot målet."
+fi
+
+# The role trap: the ledger can say 0016/0020 already ran (they did, on the source) while
+# this target's photographic_app cannot reach a single row -- either because the role does
+# not exist here yet, or because an older dump/restore path stripped the grants with
+# --no-privileges. Both look identical to "the restore worked": row counts match, the event
+# log is unbroken, verify-restore says identical. Only asking the role itself catches it.
+ROLE_EXISTS="$(psql "$TARGET_DATABASE_URL" -Atc "select exists (select 1 from pg_roles where rolname = 'photographic_app')")"
+if [ "$ROLE_EXISTS" = "t" ]; then
+  ROLE_CAN_READ="$(psql "$TARGET_DATABASE_URL" -Atc "select has_table_privilege('photographic_app', 'app.person', 'SELECT')")"
+  if [ "$ROLE_CAN_READ" != "t" ]; then
+    cat >&2 <<'MESSAGE'
+VARNING: photographic_app finns i klustret men kan inte läsa app.person i den återställda
+databasen. Liggaren kan säga att grants-migreringen är körd -- den kördes, på källan, inte
+här. En applikation som pekas hit får permission denied på allt, vilket är en total
+avbrott som ser ut som en lyckad återställning i varje kontroll utom den här.
+
+    AUDIT_DATABASE_URL="$TARGET_DATABASE_URL" node --import tsx scripts/check-app-role-grants.ts
+
+listar exakt vad som saknas.
+MESSAGE
+  else
+    echo "→ photographic_app kan läsa app.person: grants kom med återställningen."
+  fi
+else
+  echo "→ photographic_app finns inte i det här klustret ännu -- inget att kontrollera. Se scripts/deploy.md."
 fi
 
 cat <<MESSAGE
