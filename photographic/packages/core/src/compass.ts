@@ -1,0 +1,132 @@
+/**
+ * The Personal Compass: six fixed principles for how a model should treat this person,
+ * delivered at session start rather than fetched, and changed only through the same
+ * approval gate as any other instruction.
+ *
+ * The set of *slots* is fixed and lives here, in code — not in the database, and not
+ * open-ended. A person does not add a seventh principle; they replace the wording of one
+ * of the six. That is what keeps this a compass rather than a second `instruction` kind
+ * with extra ceremony: a model can hold six distinct axes in mind against every answer,
+ * which is the whole reason a curated list beats a long one. See
+ * docs/agent-instruction-layer.md for the reasoning behind exactly these six.
+ *
+ * A principle nobody has customised yet renders its default text with no memory behind
+ * it — no item, no `created` event, nothing in the calendar claiming the person said it.
+ * The default lives here in code for exactly that reason: it lets a first session avoid
+ * sounding generic without ever fabricating a decision the person never made. The
+ * instant a principle is changed, that becomes a real memory with real provenance, and
+ * the built-in default for that slot is gone for good.
+ */
+
+import type { ShortId } from './domain.js';
+
+export type CompassPrincipleKey =
+  | 'directness'
+  | 'no_performative_encouragement'
+  | 'independent_conclusions'
+  | 'challenge_weak_arguments'
+  | 'lead_with_problems'
+  | 'label_certainty';
+
+export interface CompassPrincipleDef {
+  key: CompassPrincipleKey;
+  /** Short Swedish label, for surfaces that list all six (the compass screen). */
+  label: string;
+  /** Rendered verbatim when nobody has customised this principle. */
+  defaultText: string;
+}
+
+/**
+ * Order matters for two reasons: it is the order every session reads them in, and it is
+ * the order the compass screen lists them in. Directness first because it is the
+ * principle every other one assumes — a model that is not direct will soften the other
+ * five on the way out regardless of what they say.
+ */
+export const COMPASS_PRINCIPLES: readonly CompassPrincipleDef[] = [
+  {
+    key: 'directness',
+    label: 'Var direkt',
+    defaultText: 'Var direkt. Säg det du menar utan att mjuka upp det i onödan.',
+  },
+  {
+    key: 'no_performative_encouragement',
+    label: 'Var inte uppmuntrande på förhand',
+    defaultText:
+      'Var inte uppmuntrande på förhand. Bekräftelse ska vara förtjänad, inte automatisk.',
+  },
+  {
+    key: 'independent_conclusions',
+    label: 'Bilda din egen uppfattning',
+    defaultText:
+      'Bilda din egen uppfattning istället för att bara hålla med. Att hålla med ska betyda ' +
+      'att argumentet faktiskt håller.',
+  },
+  {
+    key: 'challenge_weak_arguments',
+    label: 'Säg ifrån när ett resonemang inte håller',
+    defaultText:
+      'Säg ifrån när ett resonemang inte håller, även om det innebär att du är oense.',
+  },
+  {
+    key: 'lead_with_problems',
+    label: 'Lyft problemet före berömmet',
+    defaultText:
+      'Om något har en verklig brist eller risk, säg det först — inte efter beröm eller ' +
+      'längst ner.',
+  },
+  {
+    key: 'label_certainty',
+    label: 'Skilj fakta, antagande och spekulation',
+    defaultText: 'Skilj på vad som är fakta, vad som är ett antagande och vad som är spekulation.',
+  },
+];
+
+const KEYS = new Set<string>(COMPASS_PRINCIPLES.map((p) => p.key));
+
+export function isCompassPrincipleKey(value: unknown): value is CompassPrincipleKey {
+  return typeof value === 'string' && KEYS.has(value);
+}
+
+export function compassPrincipleLabel(key: CompassPrincipleKey): string {
+  return COMPASS_PRINCIPLES.find((p) => p.key === key)?.label ?? key;
+}
+
+/** The JSON field name a compass item's `structured` column carries its slot under. */
+export const COMPASS_KEY_FIELD = 'compassKey';
+
+/** One principle as it renders for a person: either their own wording or the default. */
+export interface CompassEntry {
+  key: CompassPrincipleKey;
+  text: string;
+  source: 'default' | 'personal';
+  /** Set only when `source` is `'personal'` — there is nothing to reference for a default. */
+  shortId: ShortId | null;
+}
+
+/**
+ * Builds the six-entry compass from whatever compass-kind items exist, filling any gap
+ * with the built-in default.
+ *
+ * Takes the loosely-typed shape rather than a full `Item`, so both `MemoryProjection` and
+ * `PgProjection` can call this with whatever they already have in hand without an extra
+ * mapping step. Only the fields the compass actually needs.
+ */
+export function compassEntriesFrom(
+  items: ReadonlyArray<{ shortId: ShortId; body: string; structured: Record<string, unknown> }>,
+): CompassEntry[] {
+  const byKey = new Map<CompassPrincipleKey, { shortId: ShortId; body: string }>();
+
+  for (const item of items) {
+    const key = item.structured[COMPASS_KEY_FIELD];
+    if (isCompassPrincipleKey(key) && !byKey.has(key)) {
+      byKey.set(key, { shortId: item.shortId, body: item.body });
+    }
+  }
+
+  return COMPASS_PRINCIPLES.map((def) => {
+    const custom = byKey.get(def.key);
+    return custom
+      ? { key: def.key, text: custom.body, source: 'personal' as const, shortId: custom.shortId }
+      : { key: def.key, text: def.defaultText, source: 'default' as const, shortId: null };
+  });
+}

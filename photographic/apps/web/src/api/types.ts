@@ -87,9 +87,18 @@ export interface ProfileSectionsDto {
   currentFocus: RenderedItemDto[];
 }
 
+/** One of the six fixed Personal Compass principles, personal wording or the default. */
+export interface CompassEntryDto {
+  key: string;
+  text: string;
+  source: 'default' | 'personal';
+  shortId: string | null;
+}
+
 export interface ProfileDto {
   rendered: string;
   sections: ProfileSectionsDto;
+  compass: CompassEntryDto[];
   tokenCount: number;
   itemCount: number;
   version: number;

@@ -30,6 +30,7 @@ export type {
   CalendarDayDto,
   CalendarEntryDto,
   ClientHealthDto,
+  CompassEntryDto,
   EventProvenanceDto,
   ForgetResponse,
   HistoryEntryDto,

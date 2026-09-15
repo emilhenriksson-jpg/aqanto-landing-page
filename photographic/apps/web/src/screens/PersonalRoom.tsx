@@ -157,6 +157,9 @@ function PersonalRoomReady({
       <DocumentsSection roomId={room.id} documents={documents} />
 
       <footer className="page-foot">
+        <Link to="/kompass" className="page-foot__link">
+          Personlig kompass
+        </Link>
         <Link to="/historik" className="page-foot__link">
           Historik
         </Link>

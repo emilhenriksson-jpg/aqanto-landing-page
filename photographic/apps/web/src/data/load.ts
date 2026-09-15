@@ -6,7 +6,8 @@
  * (room GET is brief + members only). Documents come from `GET /v1/rooms/:id/documents`.
  */
 
-import { PROFILE_TOKEN_BUDGET } from '@photographic/core';
+import type { CompassPrincipleKey } from '@photographic/core';
+import { compassPrincipleLabel, PROFILE_TOKEN_BUDGET } from '@photographic/core';
 
 import {
   ApiError,
@@ -30,6 +31,7 @@ import type {
   CalendarDayDto,
   CalendarEntryDto,
   ClientHealthDto,
+  CompassEntryDto,
   MemoryEventDetailDto,
   ProfileSectionsDto,
   ProposalDto,
@@ -43,6 +45,7 @@ import type {
 import type {
   ApprovalItem,
   AskResultLine,
+  CompassLine,
   DayEvent,
   DayView,
   DemoClient,
@@ -448,6 +451,22 @@ function askHitMeta(dto: AskHitDto, now = new Date()): string {
  * told the app did something you did yourself is the kind of small wrongness that makes a
  * history feel untrustworthy.
  */
+export function mapCompassEntry(dto: CompassEntryDto): CompassLine {
+  return {
+    key: dto.key,
+    label: compassPrincipleLabel(dto.key as CompassPrincipleKey),
+    text: dto.text,
+    source: dto.source,
+    shortId: dto.shortId,
+  };
+}
+
+/** Always six entries — see `compassEntriesFrom` in `@photographic/core`. */
+export async function loadCompassFromApi(): Promise<CompassLine[]> {
+  const { profile } = await getProfile();
+  return profile.compass.map(mapCompassEntry);
+}
+
 function historyWho(dto: { agentClient: string | null; actorName: string | null }): string {
   if (dto.agentClient === 'web' || dto.agentClient === 'voice') return 'Du';
   if (dto.agentClient) return clientLabel(dto.agentClient);

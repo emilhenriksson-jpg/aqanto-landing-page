@@ -493,6 +493,20 @@ describe('context, which is the whole point', () => {
     // The profile is injected whole on every session, so it always has to fit.
     expect(context.tokenCount).toBeLessThanOrEqual(2000);
   });
+
+  it('delivers all six Personal Compass principles to a brand-new account', async () => {
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+
+    const profile = await (await f.get('/v1/profile', token)).json();
+
+    expect(profile.profile.compass).toHaveLength(6);
+    expect(profile.profile.compass.every((entry: { source: string }) => entry.source === 'default')).toBe(
+      true,
+    );
+
+    const context = await (await f.get('/v1/context', token)).json();
+    expect(context.rendered).toMatch(/Personens kompass/);
+  });
 });
 
 describe('rooms and who can see them', () => {

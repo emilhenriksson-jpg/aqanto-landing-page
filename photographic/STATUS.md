@@ -919,3 +919,72 @@ against; flagged rather than assumed working.
   Typecheck clean; e2e and every package suite green, run sequentially — the shared
   local Postgres does not survive `pnpm -r test`'s parallelism, unrelated to this
   change and already recorded above.
+
+## Personal Compass
+
+- **retrieval agent** — the **Personal Compass**: six fixed principles for how a model
+  treats the person, delivered at `initialize` in a dedicated, never-dropped block
+  (`renderCompass`, reserved alongside the data-boundary rules and the recent-block's
+  own reservation the way "recent" is the first thing given up rather than the last).
+  Design and the 13→6 curation written up in the Personal Compass doc for Emil before
+  building — worth reading for the judgement calls, not just the mechanism.
+  Compass items are ordinary `app.item` rows under a new `compass` kind, tagged with
+  `structured.compassKey`, not a parallel settings table — full provenance, calendar
+  visibility and 30-day trash reversal for free. A principle nobody has customised
+  renders its built-in default with no row behind it at all, so a new account gets the
+  whole compass on day one without a fabricated `created` event ever claiming Emil said
+  something he did not.
+  Changes go through the gate two independent ways: `update_compass` (ninth MCP tool)
+  only ever calls `IngestPort.propose`, which never auto-writes regardless of any
+  argument — there is no `explicit` parameter to set — and `remember` separately refuses
+  `kind: 'compass'` outright before the gate would even run. `extractFacts`'s kind
+  coverage in `@photographic/llm` deliberately excludes `compass` for the same reason:
+  no path silently reaches it.
+  A second compass proposal for an already-customised slot resolves by exact key lookup
+  (`activeCompassItem`) rather than the fuzzy word-overlap match `propose` uses
+  elsewhere, so approving it supersedes the old wording instead of sitting beside it.
+  Read-only `Personlig kompass` screen off the personal-room footer (own judgement call:
+  editing stays conversational for V1, reviewed through the existing Godkänn queue,
+  rather than a six-box form).
+  New migration `0015_personal_compass.sql` — adds `'compass'` to `app.item_kind`, a
+  `structured` column on `app.proposal` (mirroring `app.item.structured`, to carry the
+  principle key through approval), and a `compass` cache column on `app.profile`
+  (mirroring the existing `sections` cache).
+  Coverage: 5 new `apps/mcp` dispatch tests, 2 new `packages/db` Postgres integration
+  tests exercising the real `structured->>'compassKey'` query and the supersede path,
+  9 new `apps/web` tests, 5 new `e2e` journey tests — green on both `HARNESS=memory`
+  and `HARNESS=postgres`.
+
+  **Built off the foundation tip, then rebased onto `main` once eight PRs had merged
+  there and PR #9 turned out to point at a stale branch.** Real conflicts, not
+  mechanical ones, in every file the compass touches that a later PR also rewrote:
+  `packages/db/src/services/ingest.ts` and `services-memory/src/ingest.ts` (Track 2's
+  event log gave `write`/`propose`/`applyProposal` new shapes — `intent`, `motivation`,
+  `sourceItemId`, author columns, routing) — resolved by taking the merged file whole
+  and re-deriving the compass's four touch points on top (the `remember` guard, the
+  exact-slot lookup replacing the fuzzy `neighbours` match, `structured` threaded
+  through `write`/`queueProposal`), rather than trying to reconcile line-by-line diffs
+  against a function that no longer existed in its old shape.
+  `packages/agent/src/tools.ts` and `packages/core/src/policy.ts` — re-checked rather
+  than reapplied: `requiresApproval` now takes `sensitivity` and checks `explicit` last,
+  exactly the property this feature depends on, so `APPROVAL_REQUIRED_KINDS` gained
+  `'compass'` as pure defence in depth on top of the merged function rather than a
+  reordering of it — the real guarantee is still that `update_compass` never calls
+  `requiresApproval` at all, only `propose`, which has no `explicit` argument to pass.
+  `packages/agent/src/instructions.ts` — the session-context package's `recent` block
+  landed as its own `assembleBlocks`/`renderRecent` split; the Compass slots in as a
+  third reserved block (`compassBlock`, counted into the same `reserved` budget as the
+  rules), ahead of `recent` in every sense that matters: `recent` is still spent from
+  whatever slack remains and is the first thing dropped, the Compass is now the last.
+  `apps/rest/src/scoped-routes.ts` — checked, not changed: the Compass adds no REST
+  route (`update_compass` is MCP-only by design), so nothing needed a scope guard.
+  Migration renumbered from a collision-prone `0003` to `0015` — `main` already carries
+  migrations through `0014`, and two files sharing `0003` on `main` is a tolerated
+  accident, not a pattern worth repeating.
+  Full re-verification on the rebased tree: monorepo typecheck clean; every package's
+  test suite green (`packages/agent` 68, `packages/db` 104 (2 skipped, gated behind
+  `OPENAI_API_KEY`/`LIVE_SUPABASE`), `apps/mcp` 60, `apps/web` 75, `e2e` 62 on
+  `HARNESS=memory` and 62 on `HARNESS=postgres` — run each via the package's own
+  `test` script rather than a bare `npx vitest run`, which skips the local
+  `fileParallelism: false` config and reproduces exactly the shared-Postgres race
+  other tracks already found and recorded above).

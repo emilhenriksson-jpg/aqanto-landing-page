@@ -10,10 +10,16 @@ import type { ItemKind } from '@photographic/core';
 import { dedupeHash, estimateTokens } from '@photographic/core';
 
 /**
- * Exhaustive by construction: a new `ItemKind` in the frozen contract fails to compile
- * here rather than silently never being extracted.
+ * Exhaustive over every *extractable* `ItemKind`, by construction: a new kind in the
+ * frozen contract fails to compile here rather than silently never being extracted.
+ *
+ * `compass` is deliberately excluded rather than added. Fact extraction is how a model
+ * silently pulls durable statements out of a passage it read, and a Compass principle
+ * is never allowed to land that way — its only door is `update_compass`, which always
+ * proposes and never auto-writes. Letting the extractor tag something `compass` would
+ * be a second, quieter path to the same instruction a person never approved.
  */
-const KIND_COVERAGE: Record<ItemKind, true> = {
+const KIND_COVERAGE: Record<Exclude<ItemKind, 'compass'>, true> = {
   identity: true,
   fact: true,
   preference: true,

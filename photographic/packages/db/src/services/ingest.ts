@@ -36,6 +36,8 @@ import type {
 } from '@photographic/core';
 import { NotFoundError, NotPermittedError, ValidationError } from '@photographic/core';
 import {
+  COMPASS_KEY_FIELD,
+  COMPASS_PRINCIPLE_MAX_CHARS,
   ROUTING_SAMPLE_SIZE,
   canRemoveMemory,
   dedupeHash,
@@ -43,6 +45,7 @@ import {
   deriveSource,
   estimateTokens,
   generateShortId,
+  isCompassPrincipleKey,
   purgeDeadline,
   requiresApproval,
   joinReason,
@@ -72,6 +75,7 @@ export const MAX_BODY_CHARS = 2000;
 
 const BASE_SALIENCE: Record<ItemKind, number> = {
   identity: 1,
+  compass: 1,
   instruction: 0.95,
   never: 0.95,
   preference: 0.8,
@@ -116,6 +120,15 @@ export class PgIngest implements IngestPort {
       explicit?: boolean;
     } & WriteProvenance,
   ): Promise<WriteDecision> {
+    // Compass writes have exactly one door: `propose`, which never auto-writes. Refusing
+    // it here rather than only relying on `requiresApproval` means a model cannot reach
+    // an auto-write by passing `kind: 'compass'` and `explicit: true` even if the policy
+    // check downstream were ever weakened — the same property the approval gate exists
+    // to guarantee, enforced a second, independent way.
+    if (input.kind === 'compass') {
+      throw new ValidationError('Kompassen ändras bara via ett förslag som personen godkänner.');
+    }
+
     const body = input.body.trim().replace(/\s+/g, ' ');
     if (!body) throw new ValidationError('Tomt minne kan inte sparas.');
     if (body.length > MAX_BODY_CHARS) {
@@ -246,7 +259,14 @@ export class PgIngest implements IngestPort {
 
   async propose(
     actor: Actor,
-    input: { roomId: RoomId; body: string; kind?: ItemKind; reason?: string; source?: string },
+    input: {
+      roomId: RoomId;
+      body: string;
+      kind?: ItemKind;
+      reason?: string;
+      source?: string;
+      structured?: Record<string, unknown>;
+    },
   ): Promise<Proposal> {
     if (!(await canWrite(this.pool, actor.personId, input.roomId))) throw new NotPermittedError();
 
@@ -254,6 +274,32 @@ export class PgIngest implements IngestPort {
     if (!body) throw new ValidationError('Tomt förslag kan inte sparas.');
 
     const kind = input.kind ?? classifyKind(body);
+
+    // A Compass proposal replaces one of the six fixed slots, never adds beside it, so
+    // its conflict is found by the slot's key — an exact lookup — rather than by the
+    // word-overlap guess `neighbours` makes for everything else.
+    if (kind === 'compass') {
+      const compassKey = input.structured?.[COMPASS_KEY_FIELD];
+      if (!isCompassPrincipleKey(compassKey)) {
+        throw new ValidationError('Förslaget saknar vilken kompassprincip det gäller.');
+      }
+      if (body.length > COMPASS_PRINCIPLE_MAX_CHARS) {
+        throw new ValidationError(
+          `En kompassprincip är kort — max ${COMPASS_PRINCIPLE_MAX_CHARS} tecken.`,
+        );
+      }
+      const existing = await this.activeCompassItem(input.roomId, compassKey);
+      return this.queueProposal(actor, {
+        roomId: input.roomId,
+        intent: 'remember',
+        kind,
+        body,
+        reason: input.reason ?? 'föreslagen ändring av den personliga kompassen',
+        conflictsWith: existing?.id ?? null,
+        structured: input.structured ?? {},
+      });
+    }
+
     const siblings = await this.activeSiblings(input.roomId);
     const conflicting = this.neighbours(body, siblings)[0]?.id ?? null;
 
@@ -265,6 +311,7 @@ export class PgIngest implements IngestPort {
       reason: input.reason ?? (input.source ? `importerat från ${input.source}` : 'importerat minne'),
       conflictsWith: conflicting,
       ...(input.source ? { importedFrom: input.source } : {}),
+      structured: input.structured ?? {},
     });
   }
 
@@ -756,6 +803,7 @@ export class PgIngest implements IngestPort {
           ...(proposal.motivation ? { motivation: proposal.motivation } : {}),
           supersedes: acrossAuthors ? null : conflicting?.id ?? null,
           previousBody: acrossAuthors ? null : conflicting?.body ?? null,
+          structured: proposal.structured,
         },
         tx,
       );
@@ -788,6 +836,8 @@ export class PgIngest implements IngestPort {
       sharedFrom?: { itemId: ItemId; shortId: ShortId; roomId: RoomId } | null;
       sharedWith?: SharedWith[] | null;
       eventType?: 'item.created' | 'item.shared';
+      /** Kind-specific tag, currently only the Compass's `compassKey`. See `Item.structured`. */
+      structured?: Record<string, unknown>;
     },
     db: Db = this.pool,
   ): Promise<Item> {
@@ -804,15 +854,17 @@ export class PgIngest implements IngestPort {
     const row = await this.translatingPlacementRefusal(() =>
       queryOne<ItemRow>(
         db,
-        `INSERT INTO app.item (short_id, room_id, kind, body, sensitivity, salience, token_estimate,
-                               dedupe_hash, author_person_id, author_client_id, placement_explicit)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO app.item (short_id, room_id, kind, body, structured, sensitivity, salience,
+                               token_estimate, dedupe_hash, author_person_id, author_client_id,
+                               placement_explicit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING ${ITEM_COLUMNS}`,
         [
           shortId,
           input.roomId,
           input.kind,
           input.body,
+          JSON.stringify(input.structured ?? {}),
           input.sensitivity,
           salience,
           tokenEstimate,
@@ -1199,13 +1251,14 @@ export class PgIngest implements IngestPort {
       sourceItemId?: ItemId;
       motivation?: string;
       importedFrom?: string;
+      structured?: Record<string, unknown>;
     },
   ): Promise<Proposal> {
     const row = await queryOne<ProposalRow>(
       this.pool,
       `INSERT INTO app.proposal (room_id, person_id, intent, kind, body, reason, motivation,
-                                 conflicts_with, source_item, proposed_by_client)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                                 conflicts_with, source_item, proposed_by_client, structured)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING ${PROPOSAL_COLUMNS}`,
       [
         input.roomId,
@@ -1218,6 +1271,7 @@ export class PgIngest implements IngestPort {
         input.conflictsWith,
         input.sourceItemId ?? null,
         actor.agentClient,
+        JSON.stringify(input.structured ?? {}),
       ],
     );
     const proposal = mapProposal(row!);
@@ -1261,6 +1315,19 @@ export class PgIngest implements IngestPort {
       [roomId],
     );
     return rows.map(mapItem);
+  }
+
+  /** The one active item currently filling a given Compass slot, if any. */
+  private async activeCompassItem(roomId: RoomId, compassKey: string): Promise<Item | null> {
+    const row = await queryOne<ItemRow>(
+      this.pool,
+      `SELECT ${ITEM_COLUMNS} FROM app.item
+       WHERE room_id = $1 AND kind = 'compass' AND status = 'active'
+         AND structured->>'${COMPASS_KEY_FIELD}' = $2
+       LIMIT 1`,
+      [roomId, compassKey],
+    );
+    return row ? mapItem(row) : null;
   }
 
   private async findByShortId(roomId: RoomId, shortId: ShortId): Promise<Item | null> {

@@ -15,7 +15,16 @@
 
 import { TOOL_NAMES } from '@photographic/agent';
 import type { Actor, RoomId, Services, ShortId } from '@photographic/core';
-import { askMemory, PhotographicError, resolveRoomRef } from '@photographic/core';
+import {
+  askMemory,
+  COMPASS_KEY_FIELD,
+  COMPASS_PRINCIPLES,
+  compassPrincipleLabel,
+  isCompassPrincipleKey,
+  PhotographicError,
+  resolveRoomRef,
+  ValidationError,
+} from '@photographic/core';
 import { z } from 'zod';
 
 import type { McpLog } from './deps.js';
@@ -24,6 +33,7 @@ import {
   renderAsk,
   renderForgotten,
   renderHistory,
+  renderProposal,
   renderProvenance,
   renderRestored,
   renderSearch,
@@ -32,6 +42,8 @@ import {
   renderWrite,
   roomTitleIndex,
 } from './render.js';
+
+const COMPASS_PRINCIPLE_KEYS = COMPASS_PRINCIPLES.map((p) => p.key) as [string, ...string[]];
 
 export interface DispatchResult {
   text: string;
@@ -68,6 +80,13 @@ const ARGS = {
       room,
       explicit: z.boolean().optional(),
       sensitive: z.boolean().optional(),
+    })
+    .strict(),
+
+  update_compass: z
+    .object({
+      principle: z.enum(COMPASS_PRINCIPLE_KEYS),
+      text: z.string().trim().min(1).max(220),
     })
     .strict(),
 
@@ -215,6 +234,30 @@ async function run<N extends ToolName>(
             : decision.proposal.roomId;
 
       return renderWrite(decision, await titleOf(services, actor, landedIn));
+    }
+
+    case 'update_compass': {
+      const input = args as ArgsOf<'update_compass'>;
+      // Not resolved via `resolveRoomRef`: the Compass lives in the personal room only,
+      // and letting a model name a different room here would be a request to write
+      // Compass-kind memory somewhere `remember` already refuses to put it.
+      const personalRoom = await services.identity.personalRoomOf(actor.personId);
+
+      if (!isCompassPrincipleKey(input.principle)) {
+        // Unreachable while the zod enum and `COMPASS_PRINCIPLES` agree, kept as a
+        // typed narrowing rather than an `as` cast.
+        throw new ValidationError('Okänd kompassprincip.');
+      }
+
+      const proposal = await services.ingest.propose(actor, {
+        roomId: personalRoom.id,
+        body: input.text,
+        kind: 'compass',
+        reason: `föreslagen ändring av principen "${compassPrincipleLabel(input.principle)}" i den personliga kompassen`,
+        structured: { [COMPASS_KEY_FIELD]: input.principle },
+      });
+
+      return renderProposal(proposal);
     }
 
     case 'search_memory': {

@@ -6,6 +6,8 @@
  * same change, never one without the other.
  */
 
+import type { CompassEntry } from './compass.js';
+
 export type PersonId = string & { readonly __brand: 'PersonId' };
 export type RoomId = string & { readonly __brand: 'RoomId' };
 export type ItemId = string & { readonly __brand: 'ItemId' };
@@ -31,6 +33,13 @@ export type ProposalStatus = 'pending' | 'accepted' | 'rejected' | 'expired';
  * connected model behaves at once, so they render into system-prompt position and
  * always require explicit approval. A wrong fact is annoying; a wrong instruction
  * degrades every chat the person has.
+ *
+ * `compass` is a further distinction from `instruction`, not a synonym for it: it is
+ * one of exactly six fixed principles (`packages/core/src/compass.ts`), never a
+ * free-form seventh, rendered in its own budgeted block rather than folded into the
+ * standing-instructions section. Same approval gate, same provenance, same trash — the
+ * difference is entirely about which slot it fills and how it renders, not about how it
+ * is stored.
  */
 export type ItemKind =
   | 'identity'
@@ -39,7 +48,8 @@ export type ItemKind =
   | 'instruction'
   | 'decision'
   | 'note'
-  | 'never';
+  | 'never'
+  | 'compass';
 
 /** Which surface produced a read or write. Used for provenance and health reporting. */
 export type AgentClient =
@@ -494,6 +504,13 @@ export interface Proposal {
   proposedByClient: AgentClient | null;
   status: ProposalStatus;
   createdAt: Date;
+  /**
+   * Carried through to the item `write` performs on acceptance. Empty for every
+   * proposal except a Compass change, where it names which of the six principles the
+   * body fills — see `COMPASS_KEY_FIELD` in `compass.ts`. Without this, an accepted
+   * Compass proposal would land as an ordinary instruction with no slot to attach to.
+   */
+  structured: Record<string, unknown>;
 }
 
 /**
@@ -504,6 +521,14 @@ export interface Profile {
   personId: PersonId;
   rendered: string;
   sections: ProfileSections;
+  /**
+   * The six Personal Compass principles, always exactly six, personal wording or the
+   * built-in default per slot. Deliberately not one of `ProfileSections`: those are
+   * rendered together under the profile's own token ceiling, while the Compass is
+   * rendered as its own block with its own budget and is one of the last things
+   * dropped rather than one of the first. See `renderCompass` in `@photographic/agent`.
+   */
+  compass: CompassEntry[];
   tokenCount: number;
   itemCount: number;
   builtFromSeq: EventSeq;

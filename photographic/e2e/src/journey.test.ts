@@ -231,6 +231,54 @@ describe('a person and their memory', () => {
   });
 });
 
+describe('the personal compass', () => {
+  const email = `kompass-${randomUUID()}@example.com`;
+
+  itWhenWired('delivers all six default principles at the MCP handshake, before anything is customised', async () => {
+    await harness.services.identity.register({ email, displayName: 'Kompass' });
+    const client = await harness.connectMcpClient(await harness.tokenFor(email));
+
+    expect(client.instructions).toMatch(/Personens kompass/);
+    expect(client.instructions).toMatch(/Var direkt/);
+    expect(client.instructions).toMatch(/Skilj på vad som är fakta/);
+  });
+
+  itWhenWired('never auto-writes a compass change, even marked explicit', async () => {
+    // The property the whole feature depends on: there is no argument to `propose`
+    // that skips the queue, unlike `remember`'s `explicit` flag.
+    const actor = await harness.actorForEmail(email, 'claude-desktop');
+    const room = await harness.services.identity.personalRoomOf(actor.personId);
+
+    const proposal = await harness.services.ingest.propose(actor, {
+      roomId: room.id,
+      body: 'Hoppa över all inledande artighet helt.',
+      kind: 'compass',
+      structured: { compassKey: 'directness' },
+    });
+
+    expect(proposal.status).toBe('pending');
+
+    const bundle = await harness.services.bundle.build(actor);
+    expect(harness.services.bundle.render(bundle)).not.toContain('Hoppa över all inledande artighet');
+  });
+
+  itWhenWired('renders the personalised wording after approval, replacing the default for that slot', async () => {
+    const actor = await harness.actorForEmail(email, 'claude-desktop');
+
+    const [proposal] = await harness.services.ingest.listProposals(actor);
+    await harness.services.ingest.resolveProposal(actor, proposal.id, true);
+    await harness.runJobsToCompletion();
+
+    const client = await harness.connectMcpClient(await harness.tokenFor(email));
+
+    expect(client.instructions).toContain('Hoppa över all inledande artighet helt.');
+    // The other five principles are untouched, and there is exactly one line for
+    // directness — the default is gone, not merely joined by the personal wording.
+    expect(client.instructions).toMatch(/Skilj på vad som är fakta/);
+    expect(client.instructions).not.toMatch(/Var direkt\. Säg det du menar/);
+  });
+});
+
 describe('the trash and the record', () => {
   const email = `papperskorg-${randomUUID()}@example.com`;
 

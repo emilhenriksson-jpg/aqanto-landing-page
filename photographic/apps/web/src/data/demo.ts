@@ -792,3 +792,64 @@ export function searchDemoMemory(query: string): AskResultLine[] {
 
   return results;
 }
+
+/**
+ * One of the six fixed Personal Compass principles.
+ * Live path: `loadCompassFromApi` maps the `compass` field of GET /v1/profile.
+ */
+export interface CompassLine {
+  key: string;
+  label: string;
+  text: string;
+  /** `'default'` renders no id and no "senast ändrad" line — there is nothing behind it. */
+  source: 'default' | 'personal';
+  shortId: string | null;
+}
+
+/** Five defaults and one customised, so the screen demos both states at once. */
+export const DEMO_COMPASS: CompassLine[] = [
+  {
+    key: 'directness',
+    label: 'Var direkt',
+    text: 'Var direkt. Säg det du menar utan att mjuka upp det i onödan.',
+    source: 'default',
+    shortId: null,
+  },
+  {
+    key: 'no_performative_encouragement',
+    label: 'Var inte uppmuntrande på förhand',
+    text: 'Var inte uppmuntrande på förhand. Bekräftelse ska vara förtjänad, inte automatisk.',
+    source: 'default',
+    shortId: null,
+  },
+  {
+    key: 'independent_conclusions',
+    label: 'Bilda din egen uppfattning',
+    text:
+      'Bilda din egen uppfattning istället för att bara hålla med. Att hålla med ska betyda ' +
+      'att argumentet faktiskt håller.',
+    source: 'default',
+    shortId: null,
+  },
+  {
+    key: 'challenge_weak_arguments',
+    label: 'Säg ifrån när ett resonemang inte håller',
+    text: 'Säg ifrån direkt när ett resonemang inte håller, hellre än att låta det passera.',
+    source: 'personal',
+    shortId: 'p-cmp1',
+  },
+  {
+    key: 'lead_with_problems',
+    label: 'Lyft problemet före berömmet',
+    text: 'Om något har en verklig brist eller risk, säg det först — inte efter beröm eller längst ner.',
+    source: 'default',
+    shortId: null,
+  },
+  {
+    key: 'label_certainty',
+    label: 'Skilj fakta, antagande och spekulation',
+    text: 'Skilj på vad som är fakta, vad som är ett antagande och vad som är spekulation.',
+    source: 'default',
+    shortId: null,
+  },
+];

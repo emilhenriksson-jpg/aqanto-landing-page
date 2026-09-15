@@ -7,6 +7,7 @@ import { FragaMittMinne } from './screens/FragaMittMinne.js';
 import { Handelse } from './screens/Handelse.js';
 import { InvitePreview } from './screens/InvitePreview.js';
 import { Kalender } from './screens/Kalender.js';
+import { Kompass } from './screens/Kompass.js';
 import { PersonalRoom } from './screens/PersonalRoom.js';
 import { Rooms } from './screens/Rooms.js';
 import { SharedRoom } from './screens/SharedRoom.js';
@@ -16,8 +17,8 @@ import { Historik } from './screens/Historik.js';
 /**
  * Consumer app: open it and you are standing inside your personal room.
  * Secondary nav is rooms, the calendar, "Fråga mitt minne", client health, and approvals
- * — not a dashboard home. Historik and Papperskorg live off quiet personal-room footer
- * links (not rail icons).
+ * — not a dashboard home. Historik, Papperskorg and Kompass live off quiet personal-room
+ * footer links (not rail icons).
  *
  * Invite landing sits outside the shell: recipients are not logged in yet.
  *
@@ -36,6 +37,7 @@ export function AppRoutes() {
         <Route path="fraga" element={<FragaMittMinne />} />
         <Route path="papperskorg" element={<Trash />} />
         <Route path="historik" element={<Historik />} />
+        <Route path="kompass" element={<Kompass />} />
         {/*
           The calendar is a rail destination, not a footer link: the scope calls it a
           central part of the app rather than something internal to the AI. `/kalender`

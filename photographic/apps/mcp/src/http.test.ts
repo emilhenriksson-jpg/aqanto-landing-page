@@ -170,7 +170,7 @@ describe('connecting', () => {
     const { tools } = await client.listTools();
 
     expect(tools.map((tool) => tool.name)).toContain('remember');
-    expect(tools).toHaveLength(8);
+    expect(tools).toHaveLength(9);
 
     // A soft delete marked destructive makes clients confirm every "glöm det", which is
     // the friction the thirty-day trash exists to remove.
@@ -416,7 +416,7 @@ describe('a person with nothing saved', () => {
     const client = await connect(await register('Ny', 'ny@example.com'));
 
     expect(client.getInstructions()).toMatch(/ännu inget sparat/);
-    expect((await client.listTools()).tools).toHaveLength(8);
+    expect((await client.listTools()).tools).toHaveLength(9);
   });
 
   it('starts the session even when the profile cannot be built', async () => {
@@ -449,7 +449,7 @@ describe('a person with nothing saved', () => {
     );
 
     expect(client.getInstructions()).toMatch(/Anropa get_context/);
-    expect((await client.listTools()).tools).toHaveLength(8);
+    expect((await client.listTools()).tools).toHaveLength(9);
 
     // And the session exists with nothing delivered, which is the honest state: amber.
     const health = await wired.services.sessions.health(tokens.get(token)!.actor);
