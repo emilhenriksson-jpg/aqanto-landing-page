@@ -49,6 +49,20 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   // "How do you know that about me?" — a read of the log behind one memory.
   ['GET', '/memory/:shortId/provenance', SCOPE_MEMORY_READ],
 
+  // Both sides of every unresolved disagreement. A read of memory content, and of the
+  // most sensitive kind: two statements that cannot both be true.
+  ['GET', '/memory/disputes', SCOPE_MEMORY_READ],
+
+  // -------------------------------------------------------------------------
+  // The calendar
+  // -------------------------------------------------------------------------
+
+  // The calendar is a view over the event log, and the log carries memory bodies. So
+  // this is `memory.read` and not a weaker scope of its own: a client that cannot read
+  // memories must not be able to read them a day at a time instead.
+  ['GET', '/calendar/day', SCOPE_MEMORY_READ],
+  ['GET', '/calendar/events/:seq', SCOPE_MEMORY_READ],
+
   // -------------------------------------------------------------------------
   // Rooms
   // -------------------------------------------------------------------------
@@ -79,6 +93,15 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   ['DELETE', '/memory/:shortId', SCOPE_MEMORY_WRITE],
   ['POST', '/memory/undo', SCOPE_MEMORY_WRITE],
   ['POST', '/trash/:shortId/restore', SCOPE_MEMORY_WRITE],
+
+  // Sharing and moving change which room a memory lives in, which changes who can read
+  // it. That is a write, and the one with the widest consequences on this list — a
+  // read-only connection must not be able to move a private memory into a shared room.
+  ['POST', '/memory/:shortId/share', SCOPE_MEMORY_WRITE],
+  ['POST', '/memory/:shortId/move', SCOPE_MEMORY_WRITE],
+
+  // Settling a disagreement supersedes one of the two statements, so it edits memory.
+  ['POST', '/memory/disputes/resolve', SCOPE_MEMORY_WRITE],
 
   // Emptying the trash early, ahead of the thirty days. The only route here that
   // destroys something unrecoverably, so it carries the write scope like any other
@@ -116,6 +139,20 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   // it needs write and not merely room access.
   ['POST', '/rooms/:roomId/invites', SCOPE_MEMORY_WRITE],
   ['DELETE', '/invites/:inviteId', SCOPE_MEMORY_WRITE],
+
+  // Who has been invited is part of knowing who can read the room, so it rides with
+  // room access rather than with the write scope that sending an invite needs.
+  ['GET', '/rooms/:roomId/invites', SCOPE_ROOMS_READ],
+
+  // -------------------------------------------------------------------------
+  // Membership
+  // -------------------------------------------------------------------------
+
+  // Leaving a room can take the author's own contributions with it, and removing
+  // someone else changes who may read everything already written there. Both are
+  // writes to the person's memory structure, like creating or deleting a room.
+  ['POST', '/rooms/:roomId/leave', SCOPE_MEMORY_WRITE],
+  ['DELETE', '/rooms/:roomId/members/:personId', SCOPE_MEMORY_WRITE],
 
   // -------------------------------------------------------------------------
   // Managing the connection itself
