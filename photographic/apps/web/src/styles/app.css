@@ -531,6 +531,18 @@
   background: var(--bad);
 }
 
+/* Disconnected by the person. Grey rather than red: this is not a fault to fix, it is a
+   decision that took effect, and colouring it as a problem would read as an invitation
+   to undo it. Muted so the row stays legible while clearly not being one of the live
+   ones — it remains in the list because seeing what you cut off is the point. */
+.dot--revoked {
+  background: var(--ink-muted);
+}
+
+.health__row--revoked .health__name {
+  color: var(--ink-muted);
+}
+
 /* ----------------------------------------------------------- token meter */
 
 .token-meter {

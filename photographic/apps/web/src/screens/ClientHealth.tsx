@@ -68,6 +68,16 @@ function ClientRow({ client }: { client: DemoClient }) {
 function statusCopy(client: DemoClient, tone: ClientHealthTone): string {
   const when = client.lastSeenAt ? formatTime(client.lastSeenAt) : null;
 
+  // The disconnect is the answer to a question the person asked by pressing a button, so
+  // it is said plainly and in the past tense. The server really does revoke the token
+  // family — verified against the live host — and this row is the only place that fact
+  // was invisible, which for a control over who reads your memory is the same experience
+  // as it not having worked.
+  if (tone === 'revoked') {
+    return when
+      ? `Frånkopplad. Kom åt ditt minne senast ${when}, men kan inte längre.`
+      : 'Frånkopplad. Kan inte längre komma åt ditt minne.';
+  }
   if (tone === 'ok') {
     return when ? `Läste din profil via MCP ${when}.` : 'Läste din profil via MCP.';
   }

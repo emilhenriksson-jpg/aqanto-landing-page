@@ -181,7 +181,7 @@ export const PERSONAL_SECTION_ORDER: MemoryLine['kind'][] = [
  * Connected AI clients and whether the personal profile actually reached them.
  * Green = delivered as expected, amber = best-effort channel, red = never landed.
  */
-export type ClientHealthTone = 'ok' | 'warn' | 'bad';
+export type ClientHealthTone = 'ok' | 'warn' | 'bad' | 'revoked';
 
 export interface DemoClient {
   id: string;
@@ -191,6 +191,8 @@ export interface DemoClient {
   /** How the profile arrived, when it did. */
   deliveryMethod: 'mcp_instructions' | 'tool_call' | null;
   degraded: boolean;
+  /** Disconnected by the person. Kept in the list on purpose, but not as an equal. */
+  revoked: boolean;
 }
 
 export const DEMO_CLIENTS: DemoClient[] = [
@@ -201,6 +203,7 @@ export const DEMO_CLIENTS: DemoClient[] = [
     profileDelivered: true,
     deliveryMethod: 'mcp_instructions',
     degraded: false,
+    revoked: false,
   },
   {
     id: 'chatgpt-web',
@@ -209,6 +212,7 @@ export const DEMO_CLIENTS: DemoClient[] = [
     profileDelivered: true,
     deliveryMethod: 'tool_call',
     degraded: true,
+    revoked: false,
   },
   {
     id: 'codex',
@@ -217,10 +221,14 @@ export const DEMO_CLIENTS: DemoClient[] = [
     profileDelivered: false,
     deliveryMethod: null,
     degraded: false,
+    revoked: false,
   },
 ];
 
 export function clientHealthTone(client: DemoClient): ClientHealthTone {
+  // Before the delivery questions, because they stop being the point once a person has
+  // cut the client off: what they need to see is that the disconnect took effect.
+  if (client.revoked) return 'revoked';
   if (!client.profileDelivered) return 'bad';
   if (client.degraded) return 'warn';
   return 'ok';

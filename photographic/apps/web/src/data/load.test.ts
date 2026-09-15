@@ -61,6 +61,7 @@ describe('API → UI mapping', () => {
       profileDelivered: true,
       deliveryMethod: 'mcp_instructions',
       degraded: false,
+      revoked: false,
     });
     expect(client).toMatchObject({
       id: 'claude-desktop',

@@ -216,6 +216,7 @@ export function mapClientHealth(dto: ClientHealthDto): DemoClient {
     deliveryMethod:
       method === 'mcp_instructions' || method === 'tool_call' ? method : method ? 'tool_call' : null,
     degraded: dto.degraded,
+    revoked: dto.revoked,
   };
 }
 

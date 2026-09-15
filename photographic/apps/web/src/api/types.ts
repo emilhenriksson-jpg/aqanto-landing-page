@@ -137,6 +137,12 @@ export interface ClientHealthDto {
   profileDelivered: boolean;
   deliveryMethod: string | null;
   degraded: boolean;
+  /**
+   * The person disconnected this client. The server has sent it all along; this type
+   * did not declare it, so it was dropped at the boundary and the screen rendered a
+   * revoked client exactly like a live one.
+   */
+  revoked: boolean;
 }
 
 /** GET /v1/memory/proposals — pending approval cards. */
