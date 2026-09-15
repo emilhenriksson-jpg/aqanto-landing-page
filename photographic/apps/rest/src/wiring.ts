@@ -43,6 +43,7 @@ import {
   createPool,
   createPostgresServices,
   defaultBlobRoot,
+  describeDatabaseTls,
   PgAccounts,
   PgAuthCodeStore,
   PgClientGrants,
@@ -162,16 +163,16 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
 
   if (databaseUrl) {
     // Supabase Postgres is Postgres, so this is a re-point rather than a rewrite: the
-    // same migrations, the same seeds, the same suites. What differs is TLS and the
-    // transaction pooler, and both fail in ways that look like something else — see
-    // `supabasePoolConfig`.
+    // same migrations, the same seeds, the same suites.
+    //
+    // TLS is not composed here. `createPool` resolves it for every connection through
+    // `resolveDatabaseTls`, which is also what `pnpm db:migrate` goes through — the
+    // whole reason the boot migration could not reach Supabase was that this function
+    // knew about the CA and that one did not. `supabasePoolConfig` still contributes the
+    // pooler quirk, which is genuinely Supabase-specific.
     const pool = createPool(
       looksLikeSupabase(databaseUrl)
-        ? supabasePoolConfig({
-            connectionString: databaseUrl,
-            ...(process.env.SUPABASE_CA_CERT ? { caCertificate: process.env.SUPABASE_CA_CERT } : {}),
-            allowUnverifiedTls: process.env.SUPABASE_ALLOW_UNVERIFIED_TLS === '1',
-          }).config
+        ? supabasePoolConfig({ connectionString: databaseUrl }).config
         : { connectionString: databaseUrl },
     );
 
@@ -286,6 +287,16 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
   // process with one environment variable different, and nothing else says which.
   logger.info('oauth_persistence', { kind: wired.persistence });
   logger.info('blob_storage', { kind: wired.storageKind });
+
+  // The first line to read on a deploy: it says which CA is in use, and therefore
+  // whether the database connection is authenticated rather than merely encrypted.
+  // Logged here rather than inside `createServices` because that function has no
+  // logger, and a TLS decision nobody can see is how the original bug survived.
+  if (process.env.DATABASE_URL) {
+    for (const note of describeDatabaseTls(process.env.DATABASE_URL).notes) {
+      logger.info('database_tls', { detail: note });
+    }
+  }
 
   // Said at boot rather than discovered later. A Supabase project that is configured for
   // Postgres but not for Storage is a normal state and not an error — but it is one an

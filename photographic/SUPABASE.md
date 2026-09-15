@@ -25,37 +25,85 @@ mean it does not care. `pnpm dev` works with none of this set.
 Point `DATABASE_URL` at the project. That is all: the migrations in `packages/db`
 apply unchanged, `pnpm db:seed` works, and both e2e suites pass.
 
-Two things differ from a Postgres on localhost, and both fail in ways that look like
-something else. `packages/supabase/src/database.ts` handles both and logs which it
-chose, because these are load-dependent failures that no test will catch.
-
-**TLS.** Required, and verified against the system trust store by default. If your
-platform cannot chain Supabase's certificate, supply the project CA rather than turning
-verification off:
+**Use the session-mode pooler on port 5432, for everything.** One string, for the
+migration and for the app:
 
 ```bash
-export SUPABASE_CA_CERT="$(cat prod-ca-2021.crt)"
+DATABASE_URL='postgres://postgres.PROJECT:PW@aws-0-REGION.pooler.supabase.com:5432/postgres'
 ```
 
-`SUPABASE_ALLOW_UNVERIFIED_TLS=1` exists and is a worse answer: encrypted but not
-authenticated, which stops passive reading of the wire and not an active attacker in
-front of the database.
+That is a change from what this file used to say, and the old advice — direct connection
+on 5432 for migrations, transaction pooler on 6543 for the app — cannot be followed as
+written. The Dockerfile runs `pnpm db:migrate` and then the server from **one**
+environment, so there is one `DATABASE_URL` and it has to serve both. The session pooler
+is the string that can:
 
-**The transaction pooler.** Port `6543` is pgBouncer in transaction mode and does not
-support prepared statements, which `pg` uses for every parameterised query. The symptom
-is that everything works under light load and then fails with `prepared statement
-"..." already exists` once two requests share a backend. Detected automatically.
+| | Port | DDL safe | Prepared statements | Reachable from |
+|---|---|---|---|---|
+| Direct | 5432 | yes | yes | **IPv6 only** — a Fly machine, but not most CI |
+| **Session pooler** | **5432** | **yes** | **yes** | **IPv4, anywhere** |
+| Transaction pooler | 6543 | no | **no** | IPv4, anywhere |
 
-**Run migrations against port 5432**, not the pooler — some DDL does not survive
-transaction pooling.
+It is a real session, so DDL is safe. It is port 5432, so `supabasePoolConfig` does not
+take its transaction-pooler branch and prepared statements stay on. And it is IPv4, so
+the same secret works from Fly, from CI and from a laptop — the direct connection is
+IPv6-only on the Free and Pro plans, which works from a Fly machine and not from most
+other places.
+
+#### TLS: verified, with the CA shipped in the image
+
+Supabase's Postgres certificate chain terminates at **`Supabase Root 2021 CA`**, a
+private root in no system trust store. Node rejects it with `self-signed certificate in
+certificate chain`.
+
+**This needs no configuration.** That root ships in `packages/db/certs/`, and
+`resolveDatabaseTls` uses it for any non-loopback host. A public root certificate is not
+a secret, and bundling one is what every runtime does with its trust store — shipping it
+means the first deploy is verified without a secret that, when forgotten, fails the
+container before it serves anything.
+
+To override — a different project CA, or a rotation before we ship a new one:
 
 ```bash
-# Migrations and seeds: direct connection.
-DATABASE_URL='postgres://postgres:PW@db.PROJECT.supabase.co:5432/postgres' pnpm db:migrate
-
-# The application: pooler is fine and preferable.
-DATABASE_URL='postgres://postgres.PROJECT:PW@aws-0-REGION.pooler.supabase.com:6543/postgres' pnpm dev
+export SUPABASE_CA_CERT="$(cat prod-ca-2021.crt)"   # the whole PEM block
+export SUPABASE_CA_CERT_FILE=/run/secrets/ca.crt    # or a path
 ```
+
+**Do not put `sslmode` in the URL.** This is the part that wastes an afternoon, and it is
+measured against the live project rather than inferred:
+
+| `DATABASE_URL` suffix | What `pg` does |
+|---|---|
+| *(none)* | TLS with the bundled CA, **verified**. Use this. |
+| `?sslmode=require` | Treated as `verify-full` against the *system* store → fails. And the presence of `sslmode` makes an explicit `ssl` option be **discarded**, so passing the CA does not help. Refused at boot with instructions. |
+| `?sslmode=no-verify` | Encrypted but unauthenticated. Refused: for a database holding people's private memory that is the wrong trade even as a stopgap, and there is a verified alternative for free. |
+| `?sslmode=verify-full&sslrootcert=…` | Works. `pg` reads the CA from the URL and `resolveDatabaseTls` steps aside. |
+
+`sslmode=require` is what Supabase's own docs tell you to write, which is why this table
+exists. `pg` treats `require` as an alias for `verify-full` — the library says so in a
+deprecation warning — not as libpq's encrypt-but-don't-verify.
+
+One consequence worth stating plainly: with no `sslmode` **and** no `ssl` option, `pg`
+connects in **plaintext**, and Supabase's pooler accepts it. So `resolveDatabaseTls`
+refuses a remote host it has no CA for rather than falling through — a fix that merely
+stopped erroring could have handed this database an unencrypted connection nobody would
+notice.
+
+Both code paths go through `createPool`, which is the point. The migration runner used to
+build a bare `new Pool({ connectionString })` that never read the CA, while only the app
+composed one — and the Dockerfile runs the migration first, so the path with no CA was
+the first thing to run.
+
+#### The transaction pooler
+
+Port `6543` is pgBouncer in transaction mode and does not support prepared statements,
+which `pg` uses for every parameterised query. The symptom is that everything works under
+light load and then fails with `prepared statement "..." already exists` once two
+requests share a backend. Detected automatically by `supabasePoolConfig`, which logs the
+mode it chose — this is a load-dependent failure no test will catch.
+
+Do not use it for this app. The session pooler above is the right choice and the table
+explains why.
 
 ### 2. Storage — behind a port, so it can be replaced
 
@@ -124,14 +172,37 @@ for someone who has not confirmed their address yet is recoverable; that is not.
 The process says what it found at boot:
 
 ```
+{"msg":"database_tls","detail":"TLS verifieras mot det medföljande Supabase-rotcertifikatet."}
 {"msg":"oauth_persistence","kind":"postgres"}
 {"msg":"blob_storage","kind":"supabase"}
 {"msg":"supabase","storage":true,"auth":true}
 ```
 
-`supabase_incomplete` warnings name exactly what is missing, in Swedish. A project
-configured for Postgres but not Storage is a normal state and logs a warning rather than
-refusing to boot — but an operator should know before someone uploads a file.
+`database_tls` is the line to read first on a deploy: it says which CA is in use and
+therefore whether the connection is verified. `supabase_incomplete` warnings name exactly
+what is missing, in Swedish. A project configured for Postgres but not Storage is a
+normal state and logs a warning rather than refusing to boot — but an operator should
+know before someone uploads a file.
+
+The failure that looks like success: if `DATABASE_URL` did not work the process does not
+crash, it logs `{"msg":"oauth_persistence","kind":"memory"}` and serves an in-memory
+implementation that looks entirely healthy and forgets everything on restart. Check that
+line says `postgres`.
+
+### Verifying TLS without credentials
+
+A TLS handshake happens before authentication, so a deliberately wrong password is enough
+to tell a certificate problem from a login problem — which makes this checkable from any
+machine, against the real project:
+
+```bash
+LIVE_SUPABASE=1 LIVE_SUPABASE_HOST=aws-0-REGION.pooler.supabase.com \
+  pnpm --filter @photographic/db exec vitest run src/tls.test.ts
+```
+
+`tenant/user … not found` means the handshake verified. `self-signed certificate in
+certificate chain` means it did not. A local Postgres has none of this behaviour, which
+is why these two tests are the only ones in the repo that talk to the real thing.
 
 ## Current status
 
@@ -140,9 +211,22 @@ minted with a real key pair and verified through the real `jose` path, and Stora
 against an injected `fetch` that answers like the Storage API does, including the 409
 that is its deduplication signal.
 
-**No Supabase project was available when this was written**, so the database, Auth and
-Storage paths are verified against local Postgres 16 with pgvector, real signed tokens,
-and a faked Storage API rather than against a live project. The adapters are correct as
-far as offline testing can establish and have not met a real project. Someone with
-credentials should run `pnpm db:migrate` against one and upload a document before this
-is called done.
+**The TLS path is verified against the real project** (Frankfurt, `eu-central-1`). Read
+its certificate chain — leaf `*.pooler.supabase.com` → `Supabase Intermediate 2021 CA` →
+`Supabase Root 2021 CA`, self-signed — confirmed the bundled root's SHA-256 matches it,
+and ran `pnpm db:migrate` from a simulated image against the live pooler: it reaches
+`tenant/user … not found`, i.e. the handshake verified, where before it died on
+`self-signed certificate in certificate chain`.
+
+The bundled CA's fingerprint was corroborated two independent ways rather than taken from
+the server it authenticates, which would have been circular: fetched from
+`supabase-downloads.s3.amazonaws.com` over a publicly-trusted certificate, and compared
+against what the pooler presents. `tls.test.ts` pins the fingerprint, so swapping the
+file fails a test.
+
+**Storage and Auth have still not met a live project.** They are verified offline —
+tokens minted with a real key pair through the real `jose` path, Storage against an
+injected `fetch` that answers like the Storage API including the 409 that is its
+deduplication signal — which is as far as offline testing goes. Someone with credentials
+should upload a document and complete one Supabase sign-in before those two are called
+done.

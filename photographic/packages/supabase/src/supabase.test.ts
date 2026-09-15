@@ -99,33 +99,16 @@ describe('describeSupabase', () => {
 // ---------------------------------------------------------------------------
 
 describe('supabasePoolConfig', () => {
-  it('verifies TLS by default', () => {
+  it('does not set ssl, because TLS is decided in one place and this is not it', () => {
+    // It used to set it here, which is the bug: this function is only called by the app,
+    // while `pnpm db:migrate` builds its own pool — and the Dockerfile runs the
+    // migration at boot, so the path with no CA ran first. `resolveDatabaseTls` in
+    // `@photographic/db` now answers for both.
     const plan = supabasePoolConfig({
       connectionString: 'postgres://postgres:pw@db.abcdefgh.supabase.co:5432/postgres',
     });
 
-    expect(plan.config.ssl).toMatchObject({ rejectUnauthorized: true });
-    expect(plan.pooled).toBe(false);
-  });
-
-  it('uses the project CA when one is supplied', () => {
-    const plan = supabasePoolConfig({
-      connectionString: 'postgres://postgres:pw@db.abcdefgh.supabase.co:5432/postgres',
-      caCertificate: '-----BEGIN CERTIFICATE-----',
-    });
-
-    expect(plan.config.ssl).toMatchObject({ rejectUnauthorized: true });
-    expect(plan.notes.join(' ')).toContain('CA-certifikat');
-  });
-
-  it('only skips verification when explicitly told to, and says so', () => {
-    const plan = supabasePoolConfig({
-      connectionString: 'postgres://postgres:pw@db.abcdefgh.supabase.co:5432/postgres',
-      allowUnverifiedTls: true,
-    });
-
-    expect(plan.config.ssl).toMatchObject({ rejectUnauthorized: false });
-    expect(plan.notes.join(' ')).toContain('inte autentiserat');
+    expect(plan.config.ssl).toBeUndefined();
   });
 
   it('detects the transaction pooler and warns about migrations', () => {
@@ -133,11 +116,22 @@ describe('supabasePoolConfig', () => {
     // fails with "prepared statement already exists" once two requests share a backend,
     // which is exactly the failure no test catches.
     const plan = supabasePoolConfig({
-      connectionString: 'postgres://postgres:pw@aws-0-eu-north-1.pooler.supabase.com:6543/postgres',
+      connectionString: 'postgres://postgres:pw@aws-0-eu-central-1.pooler.supabase.com:6543/postgres',
     });
 
     expect(plan.pooled).toBe(true);
     expect(plan.notes.join(' ')).toContain('5432');
+  });
+
+  it('leaves the session pooler alone, which is why it is the one to deploy on', () => {
+    // Session mode is port 5432, so it does not take the transaction-pooler branch:
+    // prepared statements stay on and DDL is safe. That is what lets one DATABASE_URL
+    // serve both the boot migration and the app.
+    const plan = supabasePoolConfig({
+      connectionString: 'postgres://postgres.abcdefgh:pw@aws-0-eu-central-1.pooler.supabase.com:5432/postgres',
+    });
+
+    expect(plan.pooled).toBe(false);
   });
 
   it('sets a connection timeout, because this is a network away', () => {

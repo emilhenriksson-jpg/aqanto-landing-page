@@ -6,15 +6,10 @@
  * unchanged, the seeds run, and the e2e suite passes against it. A re-point, not a
  * rewrite.
  *
- * What does need saying is the two ways a hosted Postgres differs from one on localhost,
- * because both fail in ways that look like something else.
- *
- * **TLS.** Supabase requires it. `pg` will negotiate TLS when asked, but it verifies
- * against the system trust store, and the pooler presents a certificate for a wildcard
- * host that some environments will not chain. The honest options are to supply the
- * project CA or to accept the connection unverified; this exposes both and defaults to
- * verifying, because silently not verifying a database connection is not a default
- * anyone should inherit.
+ * What is left here is one thing: the transaction pooler. TLS moved out, to
+ * `@photographic/db`'s `resolveDatabaseTls`, because deciding it here meant deciding it
+ * only for the app — the migration runner builds its own pool and never called this, and
+ * the Dockerfile runs migrations at boot. One function now answers for both.
  *
  * **The transaction pooler.** Port 6543 is pgBouncer in transaction mode, which does not
  * support prepared statements — and `pg` uses them for any parameterised query, which is
@@ -31,19 +26,6 @@ const TRANSACTION_POOLER_PORT = 6543;
 
 export interface SupabasePoolOptions {
   connectionString: string;
-  /**
-   * PEM for the project CA, when the platform's trust store cannot chain Supabase's
-   * certificate. Preferred over turning verification off.
-   */
-  caCertificate?: string;
-  /**
-   * Connect without verifying the server certificate.
-   *
-   * Encrypted but unauthenticated: it stops passive reading of the wire and not an
-   * active attacker in front of the database. Off by default and worth leaving off —
-   * there is a real CA available for the price of an environment variable.
-   */
-  allowUnverifiedTls?: boolean;
   max?: number;
 }
 
@@ -76,19 +58,18 @@ export function supabasePoolConfig(options: SupabasePoolOptions): SupabasePoolPl
     connectionTimeoutMillis: 10_000,
   };
 
-  if (options.caCertificate) {
-    config.ssl = { ca: options.caCertificate, rejectUnauthorized: true };
-    notes.push('TLS med projektets CA-certifikat.');
-  } else if (options.allowUnverifiedTls) {
-    config.ssl = { rejectUnauthorized: false };
-    notes.push(
-      'TLS utan certifikatverifiering. Krypterat men inte autentiserat – sätt ' +
-        'SUPABASE_CA_CERT i stället.',
-    );
-  } else {
-    config.ssl = { rejectUnauthorized: true };
-    notes.push('TLS med systemets rotcertifikat.');
-  }
+  /**
+   * TLS is deliberately not set here.
+   *
+   * It used to be, and that was the bug: the CA was composed in this function, which
+   * only the app calls, while `pnpm db:migrate` built a bare pool through
+   * `@photographic/db`'s `createPool` and never saw it — and the Dockerfile runs the
+   * migration at boot, so the path with no CA was the first thing to run.
+   *
+   * `createPool` now resolves TLS for every connection from one function, so both paths
+   * get the same answer. Setting `ssl` here again would put the decision back in two
+   * places, which is how they drift.
+   */
 
   if (pooled) {
     // pgBouncer in transaction mode hands a different backend to each transaction, so a

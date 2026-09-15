@@ -6,10 +6,21 @@
  */
 
 export {
+  BUNDLED_CA_PATH,
+  DatabaseTlsError,
+  SUPABASE_ROOT_CA_SHA256,
+  isLoopbackHost,
+  resolveDatabaseTls,
+  type CaSource,
+  type DatabaseTls,
+} from './tls.js';
+
+export {
   DEFAULT_DATABASE_URL,
   closePool,
   createPool,
   databaseUrl,
+  describeDatabaseTls,
   execute,
   getPool,
   inTransaction,

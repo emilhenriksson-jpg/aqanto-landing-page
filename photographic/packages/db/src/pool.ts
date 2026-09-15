@@ -9,6 +9,8 @@
 import { Pool } from 'pg';
 import type { Pool as PgPool, PoolClient, PoolConfig, QueryResultRow } from 'pg';
 
+import { resolveDatabaseTls, type DatabaseTls } from './tls.js';
+
 /** Used when `DATABASE_URL` is unset. Matches the local development database. */
 export const DEFAULT_DATABASE_URL =
   'postgres://photographic:photographic@127.0.0.1:5432/photographic';
@@ -26,13 +28,50 @@ export function databaseUrl(): string {
   return process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
 }
 
+/**
+ * The one place a pool is built, and therefore the one place TLS is decided.
+ *
+ * It did not used to decide TLS at all — this was a bare `new Pool({ connectionString })`
+ * — which is why `pnpm db:migrate` could not reach Supabase: the CA was composed in the
+ * app's wiring and the migration runner never saw it, and the Dockerfile runs the
+ * migration at boot. Both paths call this function, so putting the decision here is what
+ * makes "one `DATABASE_URL`, verified from both" true rather than aspirational.
+ *
+ * `resolveDatabaseTls` throws rather than falling back. A remote host gets verified TLS
+ * or an error with instructions; it never gets plaintext, which is what `pg` would do on
+ * its own with no `ssl` option.
+ */
 export function createPool(config: PoolConfig = {}): PgPool {
+  const connectionString = config.connectionString ?? databaseUrl();
+
+  // An explicit `ssl` from the caller wins. Nothing in this repo passes one any more —
+  // that is the point — but a test or a future adapter might, and silently overriding it
+  // would be the same class of bug as the one being fixed.
+  const ssl =
+    config.ssl !== undefined
+      ? config.ssl
+      : resolveDatabaseTls({ connectionString }).ssl;
+
   return new Pool({
-    connectionString: databaseUrl(),
+    connectionString,
     max: Number(process.env.DATABASE_POOL_MAX ?? 10),
     idleTimeoutMillis: 10_000,
+    // Hosted Postgres is a network away rather than a socket next door, and `pg`'s
+    // default of no timeout turns a blip into a request that never returns.
+    connectionTimeoutMillis: 10_000,
     ...config,
+    ...(ssl === undefined ? {} : { ssl }),
   });
+}
+
+/**
+ * The TLS decision plus its reasoning, for a boot log.
+ *
+ * Separate from `createPool` because the notes are worth printing exactly once at
+ * startup, and building a pool is not the same thing as wanting to explain it.
+ */
+export function describeDatabaseTls(connectionString = databaseUrl()): DatabaseTls {
+  return resolveDatabaseTls({ connectionString });
 }
 
 let shared: PgPool | null = null;
