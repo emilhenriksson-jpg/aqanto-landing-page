@@ -295,31 +295,67 @@ app's shape.
    | `MIGRATION_DATABASE_URL` | the owner (`postgres` on Supabase) | DDL across `app`. Used only by `pnpm db:migrate`, including the boot migration |
    | `DATABASE_URL` | `photographic_app` | `SELECT/INSERT/UPDATE/DELETE`, sequences, `EXECUTE`. No DDL, no `TRUNCATE`, no writes to `app.schema_migrations` |
 
-   Migration `0016_app_role_grants.sql` grants all of that, and sets default privileges so
-   a table added later is covered without anyone remembering. It does **not** create the
-   role, because a login role needs a password and that does not belong in the repository.
-   One operator step, once:
+   Migration `0020_app_role_and_grants.sql` does all of it: creates the role if it is
+   absent, grants unconditionally, and sets default privileges so a table added later is
+   covered without anyone remembering. **The role already exists in production** and every
+   object in `app` is reachable from it — checked by pointing
+   `scripts/check-app-role-grants.ts` at production as the role itself.
+
+   It replaces `0016_app_role_grants.sql`, which was wrapped in `IF EXISTS (… pg_roles …)`
+   and therefore did nothing on a database where the role had not been created yet — while
+   the ledger recorded it as applied, so it could never run again. That is the state
+   production was in: migration applied, no role, zero grants. `0016` stays in the ledger;
+   do not delete it.
+
+   ### Where the role's password lives
+
+   In the Fly secret **`APP_ROLE_DATABASE_URL`**, which holds the whole connection string
+   for `photographic_app` including its password. Nothing reads it yet — it is deliberately
+   inert until the switch below — and it is there because that is where the switch will
+   look, and because the alternative was a file on a disposable machine. A role that exists
+   in production with a password nobody holds is a problem discovered during an incident.
 
    ```bash
-   # 1. Create the role with a generated password, as the owner.
-   psql "$MIGRATION_DATABASE_URL" -c "CREATE ROLE photographic_app LOGIN PASSWORD '<generated>'"
+   fly ssh console -a photographic -C 'printenv APP_ROLE_DATABASE_URL'
+   ```
 
-   # 2. Apply the grants. Before this the role can reach nothing.
-   MIGRATION_DATABASE_URL=... pnpm db:migrate
+   **If it is ever lost**, reset rather than hunt. The password is not derived from anything
+   and nothing depends on its current value, because nothing authenticates as this role yet:
 
-   # 3. Keep the owner for migrations, point the app at the restricted role.
+   ```bash
+   psql "$MIGRATION_DATABASE_URL" -c "ALTER ROLE photographic_app PASSWORD '<generated>'"
+   fly secrets set APP_ROLE_DATABASE_URL='<owner URL with photographic_app and the new password>'
+   ```
+
+   After the switch below, resetting means the same two commands plus setting `DATABASE_URL`
+   to the new URL in the same `fly secrets set`, so there is no window where the running app
+   holds a password the database no longer accepts.
+
+   ### The switch itself, which has not happened
+
+   The application still connects as the owner. Reachability was proved first, deliberately,
+   so that the switch is one variable rather than a change and a hope:
+
+   ```bash
    fly secrets set MIGRATION_DATABASE_URL='<owner URL>' \
-                   DATABASE_URL='<same URL with photographic_app and its password>'
+                   DATABASE_URL='<the value of APP_ROLE_DATABASE_URL>'
    ```
 
    Order matters: set `MIGRATION_DATABASE_URL` in the same command as the new
-   `DATABASE_URL`, or the next boot migration runs as the restricted role and fails.
-   **Rollback** is one command — set `DATABASE_URL` back to the owner URL — because the
-   grants migration is additive and changes nothing about the owner's own access.
+   `DATABASE_URL`, or the next boot migration runs as the restricted role and fails on the
+   first `CREATE`. **Rollback** is one command — set `DATABASE_URL` back to the owner URL —
+   because the grants are additive and change nothing about the owner's own access.
 
-   The grants block is guarded on the role existing, so it is a no-op on a database where
-   it does not: local development, CI, and every deploy before step 1. That is what makes
-   it safe to ship ahead of the switch rather than as part of it.
+   Before switching, re-run the audit; it enumerates every object rather than sampling:
+
+   ```bash
+   AUDIT_DATABASE_URL='<the value of APP_ROLE_DATABASE_URL>' \
+     node --import tsx scripts/check-app-role-grants.ts
+   ```
+
+   It reports counts of *base tables*, sequences and functions. That is a different question
+   from `information_schema.role_table_grants`, which also counts views — in production the
+   two read 29 and 34, and both are right: 29 base tables plus 5 views. Neither is a typo.
 4. **Attach the custom domain and request a certificate:**
    ```bash
    fly certs add mcp.photographic.space
