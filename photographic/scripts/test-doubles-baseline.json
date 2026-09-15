@@ -15,6 +15,11 @@
   "known": [
     {
       "importer": "apps/rest/src/wiring.ts",
+      "specifier": "@photographic/connect/testing",
+      "why": "MemorySessionIssuer and MemoryCodeStore. NOT acceptable, recorded so nothing else joins them. The issuer mints session-<personId>-<n> and wiring.ts:319 verifies it by regex, so any member of a shared room can sign in as any other member; PR #14 replaces the issuer with a signed one. MemoryCodeStore survives even after #14: login codes and their hourly rate limit live in one process's heap and there is no table for them in any migration. Delete both rows when there is a real issuer and a real code store."
+    },
+    {
+      "importer": "apps/rest/src/wiring.ts",
       "specifier": "@photographic/auth/testing",
       "why": "MemoryClientStore, MemoryAuthCodeStore, MemoryPendingAuthorizationStore, MemoryTokenStore — the OAuth state for connected AI clients, only on the branch with no DATABASE_URL (wiring.ts:218-221). Postgres-backed versions exist and are selected when there is a database, and wiring.merge.test.ts guards that. So this one is a real fallback rather than the only implementation, and it is why apps/rest's suite must run against Postgres in CI: with no database the guard test is the one that cannot run."
     },
@@ -37,11 +42,6 @@
       "importer": "packages/services-memory/src/documents.ts",
       "specifier": "@photographic/documents/testing",
       "why": "MemoryBlobStore and MemoryStorageLedger, inside the same reference implementation. apps/rest picks a real BlobStore through resolveBlobStore for the Postgres path, so this is reached only on the in-memory branch above."
-    },
-    {
-      "importer": "apps/rest/src/server.ts",
-      "specifier": "@photographic/nonexistent/testing",
-      "why": "deliberate, to prove the ratchet fails on a line that no longer matches"
     }
   ]
 }
