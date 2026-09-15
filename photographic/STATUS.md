@@ -232,3 +232,6 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
 - **orchestrator** — Godkänn + Klienter load from REST when `VITE_USE_DEMO=0`
   (`listProposals` / `listClients`). `scripts/demo-web.md` documents session
   token + live web. Voice placeholder landing shipped earlier.
+
+- **orchestrator** — shared-room live memories via `GET /v1/rooms/:id/items`
+  (`listForRoom` on retrieval); web loader + contract tests green (24 web tests).
