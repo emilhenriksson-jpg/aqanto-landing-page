@@ -1,13 +1,19 @@
 /**
- * The acceptance test for the whole build.
+ * The acceptance test for the whole build: you open any connected model and it already
+ * knows who you are.
  *
- * This is the target the overnight work is aiming at, written before the wiring
- * exists. It is red until the composition root in `packages/app` constructs a real
- * `Services` from every implementation package, and green when the product does what
- * was promised: you open any connected model and it already knows who you are.
+ * It runs against a real Postgres, not fakes, because the parts most likely to be wrong
+ * are the seams between packages. `HARNESS=memory` puts it on the reference
+ * implementation instead; `e2e/src/harness.ts` explains what that does and does not buy.
  *
- * It runs against the real local Postgres, not fakes, because the parts most likely to
- * be wrong are the seams between packages.
+ * A harness that cannot be built is a hard failure, not a skip. This file used to guard
+ * `import('./harness.js')` with `.catch(() => null)` and route every test through an
+ * `itWhenWired` helper that called `ctx.skip()` when the harness was missing — written
+ * while the composition root did not exist yet, and correct then. It was also one
+ * refactor away from the failure it was trying to avoid: move the construction inside
+ * the guarded import, or catch its error, and all 30 tests report as skipped, vitest
+ * exits 0, and the acceptance suite is green having asserted nothing. The import is
+ * static now, so there is no branch left in which this file can pass without running.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -15,7 +21,14 @@ import { randomUUID } from 'node:crypto';
 
 import { askMemory, RECENT_ACTIVITY_LIMIT } from '@photographic/core';
 
-// Wired by the orchestrator once the implementation packages land.
+import { createHarness } from './harness.js';
+
+// Still `any`, and not because nobody tried. `let harness: Harness` typechecks the
+// harness surface but surfaces 24 strict-null errors inside the assertions below
+// (`'proposal' is possibly 'undefined'`, `Property 'item' does not exist on type
+// 'WriteDecision'`) — real narrowing that the test bodies never did. Fixing those is
+// worth doing and is not a CI change: done here it would mean rewriting two dozen
+// assertions in someone else's acceptance test to land a workflow.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let harness: any;
 
@@ -27,31 +40,19 @@ const randomMobile = () =>
   `+4670${String(Math.floor(Math.random() * 10_000_000)).padStart(7, '0')}`;
 
 beforeAll(async () => {
-  const mod = await import('./harness.js').catch(() => null);
-  if (!mod) return;
-  harness = await mod.createHarness({ databaseUrl: DATABASE_URL });
+  harness = await createHarness({ databaseUrl: DATABASE_URL });
 });
 
 afterAll(async () => {
-  await harness?.teardown?.();
+  await harness?.teardown();
 });
-
-/**
- * Reports as skipped rather than passed while the composition root is missing.
- * A suite that goes green because it did nothing is worse than one that fails.
- */
-const itWhenWired = (name: string, fn: () => Promise<void>) =>
-  it(name, async (ctx) => {
-    if (!harness) ctx.skip();
-    await fn();
-  });
 
 describe('getting started', () => {
   const email = `ny-${randomUUID()}@example.com`;
   /** A mobile number is the only way in. See `packages/connect/src/phone.ts`. */
   const phone = randomMobile();
 
-  itWhenWired('signs a person up with a code and sends them straight to connecting', async () => {
+  it('signs a person up with a code and sends them straight to connecting', async () => {
     const requested = await harness.connect.requestCode({ phone });
     expect(requested.destinationHint).not.toBe(phone);
 
@@ -66,7 +67,7 @@ describe('getting started', () => {
     expect(verified.next).toBe('connect');
   });
 
-  itWhenWired('offers the same connect URL to everyone, with no per-person address', async () => {
+  it('offers the same connect URL to everyone, with no per-person address', async () => {
     const payload = await harness.connect.connectPayload();
 
     expect(payload.mcpUrl).toBe(harness.mcpUrl);
@@ -77,7 +78,7 @@ describe('getting started', () => {
     expect(serialised).not.toMatch(/token=/);
   });
 
-  itWhenWired('confirms a connection only once context reaches the model', async () => {
+  it('confirms a connection only once context reaches the model', async () => {
     const actor = await harness.actorForPhone(phone, 'claude-desktop');
     const handle = await harness.connect.startVerification(actor, 'claude');
 
@@ -96,7 +97,7 @@ describe('getting started', () => {
 describe('a person and their memory', () => {
   const email = `emil-${randomUUID()}@example.com`;
 
-  itWhenWired('gets a personal room the moment they register', async () => {
+  it('gets a personal room the moment they register', async () => {
     const { person, personalRoom } = await harness.services.identity.register({
       email,
       displayName: 'Emil',
@@ -110,7 +111,7 @@ describe('a person and their memory', () => {
     expect(rooms).toHaveLength(1);
   });
 
-  itWhenWired('remembers a small fact without asking permission', async () => {
+  it('remembers a small fact without asking permission', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const room = await harness.services.identity.personalRoomOf(actor.personId);
 
@@ -122,7 +123,7 @@ describe('a person and their memory', () => {
     expect(result.outcome).toBe('auto');
   });
 
-  itWhenWired('stores the same fact once when a second model saves it too', async () => {
+  it('stores the same fact once when a second model saves it too', async () => {
     // ChatGPT and Claude will each independently try to save this. The profile has a
     // hard ceiling, so the second write must not consume a second slot.
     const actor = await harness.actorForEmail(email, 'chatgpt-web');
@@ -136,7 +137,7 @@ describe('a person and their memory', () => {
     expect(result.outcome).toBe('duplicate');
   });
 
-  itWhenWired('asks before storing an instruction', async () => {
+  it('asks before storing an instruction', async () => {
     // An instruction changes every connected model's behaviour at once, so it never
     // lands silently no matter how small it is.
     const actor = await harness.actorForEmail(email, 'claude-desktop');
@@ -151,7 +152,7 @@ describe('a person and their memory', () => {
     expect(result.outcome).toBe('needs_approval');
   });
 
-  itWhenWired('puts the fact into the context bundle after approval', async () => {
+  it('puts the fact into the context bundle after approval', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
 
     const [proposal] = await harness.services.ingest.listProposals(actor);
@@ -166,7 +167,7 @@ describe('a person and their memory', () => {
     expect(bundle.tokenCount).toBeLessThanOrEqual(2000);
   });
 
-  itWhenWired('hands the profile to Claude during the MCP handshake', async () => {
+  it('hands the profile to Claude during the MCP handshake', async () => {
     // The whole promise of the product: context arrives before the person types.
     const client = await harness.connectMcpClient(await harness.tokenFor(email));
 
@@ -177,7 +178,7 @@ describe('a person and their memory', () => {
     expect(health.some((h: { profileDelivered: boolean }) => h.profileDelivered)).toBe(true);
   });
 
-  itWhenWired(
+  it(
     'also hands Claude a short line about what just happened, in the same handshake',
     async () => {
       // The session-start package in full: personal core context (asserted above by
@@ -201,7 +202,7 @@ describe('a person and their memory', () => {
     },
   );
 
-  itWhenWired('answers "Fråga mitt minne" across private memory and the calendar at once', async () => {
+  it('answers "Fråga mitt minne" across private memory and the calendar at once', async () => {
     // Scope §7: "vad bestämde vi om Photographic igår" needs both a text match and a
     // date, in one list, with the seeded ketchup fact and the calendar entry recording
     // that it was saved both findable through the same call.
@@ -222,7 +223,7 @@ describe('a person and their memory', () => {
     }
   });
 
-  itWhenWired('lets a model delete exactly the right memory by its short id', async () => {
+  it('lets a model delete exactly the right memory by its short id', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const room = await harness.services.identity.personalRoomOf(actor.personId);
     const bundle = await harness.services.bundle.build(actor);
@@ -240,7 +241,7 @@ describe('a person and their memory', () => {
 describe('the personal compass', () => {
   const email = `kompass-${randomUUID()}@example.com`;
 
-  itWhenWired('delivers all six default principles at the MCP handshake, before anything is customised', async () => {
+  it('delivers all six default principles at the MCP handshake, before anything is customised', async () => {
     await harness.services.identity.register({ email, displayName: 'Kompass' });
     const client = await harness.connectMcpClient(await harness.tokenFor(email));
 
@@ -249,7 +250,7 @@ describe('the personal compass', () => {
     expect(client.instructions).toMatch(/Skilj på vad som är fakta/);
   });
 
-  itWhenWired('never auto-writes a compass change, even marked explicit', async () => {
+  it('never auto-writes a compass change, even marked explicit', async () => {
     // The property the whole feature depends on: there is no argument to `propose`
     // that skips the queue, unlike `remember`'s `explicit` flag.
     const actor = await harness.actorForEmail(email, 'claude-desktop');
@@ -268,7 +269,7 @@ describe('the personal compass', () => {
     expect(harness.services.bundle.render(bundle)).not.toContain('Hoppa över all inledande artighet');
   });
 
-  itWhenWired('renders the personalised wording after approval, replacing the default for that slot', async () => {
+  it('renders the personalised wording after approval, replacing the default for that slot', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
 
     const [proposal] = await harness.services.ingest.listProposals(actor);
@@ -288,7 +289,7 @@ describe('the personal compass', () => {
 describe('the trash and the record', () => {
   const email = `papperskorg-${randomUUID()}@example.com`;
 
-  itWhenWired('keeps a deleted memory recoverable instead of removing it', async () => {
+  it('keeps a deleted memory recoverable instead of removing it', async () => {
     const person = await harness.registerPerson(email, 'Emil');
     const actor = harness.actorFor(person.person, 'claude-desktop');
     const room = await harness.services.identity.personalRoomOf(actor.personId);
@@ -314,7 +315,7 @@ describe('the trash and the record', () => {
     expect(entry.daysRemaining).toBe(30);
   });
 
-  itWhenWired('restores it on request, with the same short id', async () => {
+  it('restores it on request, with the same short id', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const [entry] = await harness.services.trash.list(actor);
 
@@ -330,7 +331,7 @@ describe('the trash and the record', () => {
     expect(harness.services.bundle.render(bundle)).toContain('ketchup');
   });
 
-  itWhenWired('answers "how do you know that about me?"', async () => {
+  it('answers "how do you know that about me?"', async () => {
     const actor = await harness.actorForEmail(email);
     const bundle = await harness.services.bundle.build(actor);
     const shortId = bundle.profile.sections.hardFacts[0]?.shortId;
@@ -347,7 +348,7 @@ describe('the trash and the record', () => {
     ]);
   });
 
-  itWhenWired('shows every silent write in the history, attributed', async () => {
+  it('shows every silent write in the history, attributed', async () => {
     const actor = await harness.actorForEmail(email);
     const history = await harness.services.history.list(actor);
 
@@ -360,7 +361,7 @@ describe('the trash and the record', () => {
     );
   });
 
-  itWhenWired('erases the text, not just the row, once retention runs out', async () => {
+  it('erases the text, not just the row, once retention runs out', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const room = await harness.services.identity.personalRoomOf(actor.personId);
 
@@ -384,7 +385,7 @@ describe('the trash and the record', () => {
     expect(purged.body).toBeNull();
   });
 
-  itWhenWired('imports existing ChatGPT memories as proposals, not as facts', async () => {
+  it('imports existing ChatGPT memories as proposals, not as facts', async () => {
     const actor = await harness.actorForEmail(email);
     const before = await harness.services.ingest.listProposals(actor);
 
@@ -410,7 +411,7 @@ describe('sharing a room with someone else', () => {
   const emilEmail = `emil-${randomUUID()}@example.com`;
   const jacobEmail = `jacob-${randomUUID()}@example.com`;
 
-  itWhenWired('lets an invited person read the room before they have an account', async () => {
+  it('lets an invited person read the room before they have an account', async () => {
     const emil = await harness.registerPerson(emilEmail, 'Emil');
     const actor = harness.actorFor(emil.person);
 
@@ -441,7 +442,7 @@ describe('sharing a room with someone else', () => {
     expect(preview.preview).toContain('förvärvet');
   });
 
-  itWhenWired('lets an invited person join without a separate signup step', async () => {
+  it('lets an invited person join without a separate signup step', async () => {
     const annaEmail = `anna-${randomUUID()}@example.com`;
     const annaPhone = randomMobile();
     const emil = await harness.personByEmail(emilEmail);
@@ -471,7 +472,7 @@ describe('sharing a room with someone else', () => {
     expect(verified.joinedRoom.title).toBe('Buyersclub Ledning');
   });
 
-  itWhenWired("gives the invited person's own AI the room context", async () => {
+  it("gives the invited person's own AI the room context", async () => {
     const jacob = await harness.registerPerson(jacobEmail, 'Jacob');
     // His own invite, not whichever was created last: an invite is single-use and bound
     // to whoever redeems it, so Anna's spent link is no longer a way in.
@@ -487,7 +488,7 @@ describe('sharing a room with someone else', () => {
     expect(rendered).toContain('Buyersclub Ledning');
   });
 
-  itWhenWired('opens a session with an overview of every room, read or not', async () => {
+  it('opens a session with an overview of every room, read or not', async () => {
     const jacob = await harness.personByEmail(jacobEmail);
     const actor = harness.actorFor(jacob, 'cursor');
     await harness.runJobsToCompletion();
@@ -508,7 +509,7 @@ describe('sharing a room with someone else', () => {
     expect(rendered).toMatch(/get_context med rummets namn/);
   });
 
-  itWhenWired('never leaks the personal room to the person you invited', async () => {
+  it('never leaks the personal room to the person you invited', async () => {
     const jacob = await harness.personByEmail(jacobEmail);
     const jacobActor = harness.actorFor(jacob, 'cursor');
 
@@ -523,7 +524,7 @@ describe('sharing a room with someone else', () => {
     expect(hits).toHaveLength(0);
   });
 
-  itWhenWired("keeps 'recent' as isolated as everything else — never Emil's private room", async () => {
+  it("keeps 'recent' as isolated as everything else — never Emil's private room", async () => {
     // "Recent" reads through the same choke point as search and the room overview
     // (`HistoryPort`, scoped by `accessibleRoomIds`). This is the assertion that the
     // session-start package does not open a second door: Jacob shares one room with
@@ -554,7 +555,7 @@ describe('sharing a room with someone else', () => {
     );
   });
 
-  itWhenWired('keeps "Fråga mitt minne" as isolated as a plain search already is', async () => {
+  it('keeps "Fråga mitt minne" as isolated as a plain search already is', async () => {
     // `askMemory` composes `RetrievalPort.search` and `HistoryPort.list` — both already
     // proven isolated above (`accessibleRoomIds`) — rather than a third, independent
     // query. This is the assertion that the composition did not accidentally widen
@@ -581,7 +582,7 @@ describe('sharing a room with someone else', () => {
     expect(hits.some((hit: { text: string }) => hit.text.includes('privat fakta om Emil'))).toBe(false);
   });
 
-  itWhenWired('treats text written by other people as data, never as instructions', async () => {
+  it('treats text written by other people as data, never as instructions', async () => {
     const emil = await harness.personByEmail(emilEmail);
     const actor = harness.actorFor(emil);
     const room = await harness.roomByTitle(actor, 'Buyersclub Ledning');

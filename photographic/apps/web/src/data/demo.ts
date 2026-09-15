@@ -181,7 +181,7 @@ export const PERSONAL_SECTION_ORDER: MemoryLine['kind'][] = [
  * Connected AI clients and whether the personal profile actually reached them.
  * Green = delivered as expected, amber = best-effort channel, red = never landed.
  */
-export type ClientHealthTone = 'ok' | 'warn' | 'bad';
+export type ClientHealthTone = 'ok' | 'warn' | 'bad' | 'revoked';
 
 export interface DemoClient {
   id: string;
@@ -191,6 +191,8 @@ export interface DemoClient {
   /** How the profile arrived, when it did. */
   deliveryMethod: 'mcp_instructions' | 'tool_call' | null;
   degraded: boolean;
+  /** Disconnected by the person. Kept in the list on purpose, but not as an equal. */
+  revoked: boolean;
 }
 
 export const DEMO_CLIENTS: DemoClient[] = [
@@ -201,6 +203,7 @@ export const DEMO_CLIENTS: DemoClient[] = [
     profileDelivered: true,
     deliveryMethod: 'mcp_instructions',
     degraded: false,
+    revoked: false,
   },
   {
     id: 'chatgpt-web',
@@ -209,6 +212,7 @@ export const DEMO_CLIENTS: DemoClient[] = [
     profileDelivered: true,
     deliveryMethod: 'tool_call',
     degraded: true,
+    revoked: false,
   },
   {
     id: 'codex',
@@ -217,10 +221,14 @@ export const DEMO_CLIENTS: DemoClient[] = [
     profileDelivered: false,
     deliveryMethod: null,
     degraded: false,
+    revoked: false,
   },
 ];
 
 export function clientHealthTone(client: DemoClient): ClientHealthTone {
+  // Before the delivery questions, because they stop being the point once a person has
+  // cut the client off: what they need to see is that the disconnect took effect.
+  if (client.revoked) return 'revoked';
   if (!client.profileDelivered) return 'bad';
   if (client.degraded) return 'warn';
   return 'ok';
@@ -230,39 +238,160 @@ export function clientHealthTone(client: DemoClient): ClientHealthTone {
  * Pending proposals waiting for a tap. Designed as a calm feed to clear, not an inbox.
  * Live path: `loadApprovalsFromApi` maps GET /v1/memory/proposals onto this shape.
  */
+/** What accepting will do. Mirrors `ProposalIntent` in `@photographic/core`. */
+export type ApprovalIntent = 'remember' | 'share' | 'update';
+
 export interface ApprovalItem {
   id: string;
   /** Display name of the client that proposed it, e.g. "Claude". */
   clientLabel: string;
+  intent: ApprovalIntent;
   kind: MemoryLine['kind'];
   body: string;
   /** Human-readable explanation of why this could not be written automatically. */
   reason: string;
+  /** Which room it lands in. Null when the room is one this person cannot name. */
+  roomId: string | null;
+  roomTitle: string | null;
+  roomKind: RoomKind | null;
+  /**
+   * Who would be able to read it.
+   *
+   * Names when the room's members have them and a count when they do not — nothing in
+   * sign-up asks a person their name today, so a shared room can genuinely be three
+   * people with no names, and "kan läsas av" has to stay true in that case too.
+   */
+  audience: string[];
+  audienceCount: number;
+  createdAt: string | null;
 }
 
 export const DEMO_APPROVALS: ApprovalItem[] = [
   {
     id: 'a-1k9q',
     clientLabel: 'Claude',
+    intent: 'remember',
     kind: 'instruction',
     body: 'utmana alltid mina idéer',
     reason: 'Instruktioner ändrar hur varje modell beter sig — de kräver alltid ditt godkännande.',
+    roomId: 'personal',
+    roomTitle: 'Ditt rum',
+    roomKind: 'personal',
+    audience: [],
+    audienceCount: 1,
+    createdAt: '2026-09-15T08:12:00.000Z',
   },
   {
     id: 'a-3m2p',
     clientLabel: 'ChatGPT',
-    kind: 'fact',
-    body: 'Bor i Göteborg',
-    reason: 'Strider mot det som redan finns: Emil, 34, bor i Stockholm.',
+    intent: 'share',
+    kind: 'note',
+    body: 'Peab har offererat 340 000 kr för köket',
+    reason: 'Allt som skrivs till ett delat rum avgörs av dig, aldrig automatiskt.',
+    roomId: 'ledning',
+    roomTitle: 'Buyersclub Ledning',
+    roomKind: 'shared',
+    audience: ['Anna', 'Jacob'],
+    audienceCount: 3,
+    createdAt: '2026-09-15T07:40:00.000Z',
   },
   {
     id: 'a-7w4c',
     clientLabel: 'Cursor',
-    kind: 'preference',
-    body: 'Svara alltid på engelska i kodreview',
-    reason: 'Preferenser som styr hur modeller svarar granskas innan de sparas.',
+    intent: 'update',
+    kind: 'fact',
+    body: 'Bor i Göteborg',
+    reason: 'Strider mot det som redan finns: Emil, 34, bor i Stockholm.',
+    roomId: 'personal',
+    roomTitle: 'Ditt rum',
+    roomKind: 'personal',
+    audience: [],
+    audienceCount: 1,
+    createdAt: '2026-09-14T19:05:00.000Z',
   },
 ];
+
+/**
+ * "Hur vet du det om mig?", answered about one memory.
+ *
+ * The screens render this shape; `load.ts` maps the provenance endpoint onto it. Every
+ * field is already formatted for reading, because the point of the answer is that a
+ * person understands it, not that it is complete.
+ */
+export interface ProvenanceAnswer {
+  shortId: string;
+  /** "2 september 2026 kl 09:14". */
+  when: string;
+  /** "Claude", "ChatGPT", "Du" — never "AI", never an enum value. */
+  who: string;
+  /** "Samtal med Claude", "avtal.pdf". Null when the log predates provenance. */
+  sourceLabel: string | null;
+  roomTitle: string;
+  roomKind: RoomKind;
+  /** Why it was stored there, in the router's own sentence. */
+  motivation: string | null;
+  approvedByName: string | null;
+  changed: boolean;
+  /**
+   * Whether this memory's own words were sent to a model to make it searchable.
+   *
+   * Null is "we have not recorded that", which is not the same as "no" and must never
+   * be rendered as one — an older server does not serve the field at all.
+   */
+  modelReach: string | null;
+  /** The calendar event that created it, so the answer can be zoomed into. */
+  seq: number | null;
+}
+
+/**
+ * Demo answers, so the designed screen can be seen without an account.
+ *
+ * Deliberately not exhaustive: rows with no entry here render the same "vi vet inte"
+ * state a memory written before the log carried provenance would, which is a state that
+ * has to be designed rather than discovered in production.
+ */
+export const DEMO_PROVENANCE: Record<string, ProvenanceAnswer> = {
+  'p-h58j': {
+    shortId: 'p-h58j',
+    when: '2 september 2026 kl 09:14',
+    who: 'Claude',
+    sourceLabel: 'Samtal med Claude, 2 september',
+    roomTitle: 'Ditt rum',
+    roomKind: 'personal',
+    motivation: 'Handlar om vem du är, så det hör hemma i ditt privata minne.',
+    approvedByName: null,
+    changed: false,
+    modelReach:
+      'Ja — skickad till OpenAI (text-embedding-3-small) 2 september 2026, för att kunna hittas på betydelse. Modellen tränas inte på den.',
+    seq: 41,
+  },
+  'p-zsyt': {
+    shortId: 'p-zsyt',
+    when: '11 september 2026 kl 17:02',
+    who: 'ChatGPT',
+    sourceLabel: 'Samtal med ChatGPT, 11 september',
+    roomTitle: 'Ditt rum',
+    roomKind: 'personal',
+    motivation: 'En instruktion om hur modeller ska bete sig mot dig.',
+    approvedByName: 'Emil',
+    changed: true,
+    modelReach: 'Nej — sökindexet räknades ut här (bag-of-words).',
+    seq: 58,
+  },
+  'r-8k2m': {
+    shortId: 'r-8k2m',
+    when: '4 september 2026 kl 14:20',
+    who: 'Claude',
+    sourceLabel: 'styrelseunderlag-q3.pdf',
+    roomTitle: 'Buyersclub Ledning',
+    roomKind: 'shared',
+    motivation: 'Hör till Buyersclub Ledning eftersom det nämner förvärvet.',
+    approvedByName: 'Emil',
+    changed: false,
+    modelReach: null,
+    seq: 44,
+  },
+};
 
 /**
  * What a recipient sees before they have an account: the room itself, readable,

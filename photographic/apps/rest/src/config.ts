@@ -35,6 +35,22 @@ export interface RestConfig {
   webUrl: string;
 
   /**
+   * The bare domain, when this process also answers on it, or `null`.
+   *
+   * `photographic.space` is the name a person types; `mcp.photographic.space` describes a
+   * protocol endpoint and is what clients are configured against. One process serves
+   * both, and this is the only thing that tells them apart — so `/` can be the front door
+   * on one name and the product's home on the other.
+   *
+   * `null` means every host is treated alike, which is exactly the behaviour that existed
+   * before the apex was pointed here. Nothing changes until `APEX_HOST` is set.
+   *
+   * It is deliberately *not* used to derive `publicUrl`, `webUrl` or the OAuth issuer.
+   * There is one OAuth origin and it stays `mcp.` — see `apexRefusesOauth` in `app.ts`.
+   */
+  apexHost: string | null;
+
+  /**
    * The built auth app (`apps/onboarding`), served from this origin, or `null` for none.
    *
    * Set by `loadConfigFromEnv`; `createApp` never looks at the filesystem itself.
@@ -107,6 +123,7 @@ export const DEFAULT_CONFIG: RestConfig = {
   // The onboarding app's dev port, which is where the login page lives when this
   // process is not serving it.
   webUrl: 'http://localhost:5174',
+  apexHost: null,
   webDist: null,
   appDist: null,
   environment: 'development',
@@ -160,6 +177,7 @@ export function loadConfigFromEnv(env: Env = process.env): RestConfig {
     port,
     publicUrl,
     webUrl: webUrl.replace(/\/+$/, ''),
+    apexHost: env.APEX_HOST?.trim().toLowerCase().replace(/:\d+$/, '') || null,
     webDist,
     appDist,
     environment,

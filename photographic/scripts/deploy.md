@@ -110,6 +110,22 @@ Skriv `exit` för att lämna serverterminalen. Länken behövs inte längre.
 | Sidan säger `Länken saknar nödkod` | Delen efter `#` följde inte med. | Kopiera länken igen, hela raden. |
 | `fly ssh console` svarar inte | Maskinen är nere, och då finns inget att logga in på. | Titta på `fly status -a photographic` först — det här är ett annat problem. |
 
+### Den är gången, inte bara skriven
+
+Hela vägen kördes mot `mcp.photographic.space` 2026-09-15 mot ett riktigt konto i den
+riktiga databasen: `fly ssh console`, skriptet med numret skrivet som `072-987 65 43`,
+länken öppnad, session satt. Andra försöket med samma länk gav `401` och meddelandet om
+att köra skriptet igen. Skillnaden mot "dokumenterad" är hela poängen med en nödväg.
+
+**Från och med nu är det här enda vägen in när SMS inte fungerar.** Att läsa koden ur
+`fly logs` går inte längre: `PHOTOGRAPHIC_SMS` är `log`, och i produktion vägrar den
+kanalen att skicka i stället för att skriva koden till loggen. `POST /v1/signup/request`
+svarar `502` och loggen får `code_delivery_refused` — ingen kod. Verifierat i samma
+omgång: tre avvisade försök, noll koder i loggen.
+
+Det betyder att `BREAK_GLASS_SECRET` inte är en försiktighetsåtgärd längre utan den enda
+nyckeln till kontot. Är den inte satt finns ingen väg in alls förrän 46elks är på plats.
+
 ### Varför den här vägen finns
 
 Tidigare stod inloggningskoden i klartext i serverloggen. Det var praktiskt, och det
@@ -208,11 +224,16 @@ app's shape.
                    ELKS_API_USERNAME=... ELKS_API_PASSWORD=... \
                    SMS_FROM=Photografic                         # SMS delivery
    ```
-   Each one fails differently when it is missing, and each failure is quiet:
+   `SESSION_SECRET` belongs with these and is set in the block above, not this one. It is
+   listed there because it is required for the process to start at all rather than for
+   sign-in to work; unset, it falls back to `CODE_SECRET`, so the two blocks together are
+   what a working deploy needs.
+
+   Each of these fails differently when it is missing:
 
    | Missing | What happens | How you notice |
    | --- | --- | --- |
-   | `CODE_SECRET` | A new key per boot, so every code in flight stops working at a restart. | `code_secret_ephemeral` at `warn`, every boot. |
+   | `CODE_SECRET` | **The process refuses to start** in production, and Fly rolls the deploy back. Outside production it is a fresh key per boot, so every code in flight stops verifying at a restart. | The boot log names the variable and exits non-zero. Outside production, `secret_ephemeral` at `warn`. |
    | `BREAK_GLASS_SECRET` | Nödinloggning accepts nothing, so with SMS also unconfigured nobody can sign in at all. | `break_glass_unavailable` at `warn`, every boot. |
    | The 46elks three | The SMS channel refuses at send: a person trying to sign up gets a visible, retryable failure rather than a code that went to a log. | `code_delivery_inert` at `error`, every boot, naming the channel and the fix. |
 

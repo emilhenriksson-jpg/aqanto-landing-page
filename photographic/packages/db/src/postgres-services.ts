@@ -182,6 +182,36 @@ export async function createPostgresServices(
     await invites.expireOverdue();
   });
 
+  jobs.work('purge_documents', async () => {
+    await documents.purgeExpired();
+  });
+
+  /**
+   * Storage charged to somebody with nothing to show for it.
+   *
+   * The upload path compensates for what it can see, but a process that dies mid-upload
+   * cannot compensate for itself — so this is the half that runs afterwards. It is also
+   * the only thing that can clean up damage done before compensation existed.
+   */
+  jobs.work('reconcile_storage', async () => {
+    await documents.reconcileStorage();
+  });
+
+  /**
+   * The recurring half of the queue, seeded here.
+   *
+   * Every one of these had a handler and nothing that ever enqueued it, which is a
+   * particular kind of invisible: the handler exists, so the feature reads as built, and
+   * invites simply never expired. Each run schedules the next, so the chain survives a
+   * restart as long as the row does.
+   */
+  await jobs.scheduleRecurring([
+    { kind: 'purge_trash', everySeconds: 3600 },
+    { kind: 'expire_invites', everySeconds: 900 },
+    { kind: 'purge_documents', everySeconds: 3600 },
+    { kind: 'reconcile_storage', everySeconds: 3600 },
+  ]);
+
   const services: Services = {
     identity,
     rooms,

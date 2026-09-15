@@ -37,6 +37,7 @@
 }
 
 .rail__link {
+  position: relative;
   width: 44px;
   height: 44px;
   border-radius: var(--radius-pill);
@@ -46,6 +47,28 @@
   transition:
     color var(--dur-base) var(--ease-spring),
     background var(--dur-base) var(--ease-spring);
+}
+
+/*
+ * The one count in the rail, and the only violet on it.
+ *
+ * Small on purpose. The rail already tells you where Godkänn is; the badge only has to
+ * say that the product is waiting for you, and a number that shouts would turn the
+ * calmest screen in the app into an inbox.
+ */
+.rail__badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  color: #fff;
+  font: 500 0.6875rem/18px var(--font-sans);
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--canvas);
 }
 
 .rail__link:hover {
@@ -158,6 +181,27 @@
   justify-content: space-between;
   gap: var(--space-12);
   animation: room-enter var(--dur-slow) var(--ease-spring) both;
+}
+
+/*
+ * The hero gives up some of its height when a decision is waiting.
+ *
+ * At its designed 78dvh the notice below it is entirely off the first viewport, and
+ * "impossible to miss" then rests on the rail badge alone. This is the one condition
+ * under which the room is not the most important thing on the screen, and it lasts
+ * exactly as long as the queue does.
+ */
+.hero--personal:has(+ .waiting) {
+  min-height: min(54dvh, 440px);
+  margin-bottom: var(--space-10);
+  gap: var(--space-8);
+}
+
+/* Further on a phone, where the notice is taller and the tab bar takes the last 60px. */
+@media (max-width: 720px) {
+  .hero--personal:has(+ .waiting) {
+    min-height: min(40dvh, 340px);
+  }
 }
 
 /* Brand sits high; identity rests at the floor — one composition, no secondary chrome. */
@@ -360,6 +404,45 @@
   margin-left: auto;
 }
 
+/*
+ * "Hur vet du det?" — quiet until asked.
+ *
+ * Same weight as Ta bort, because neither is the point of the row: the memory is. What
+ * matters is that the question can be asked here, where a person is already looking at
+ * the thing they are wondering about.
+ */
+.memory__why {
+  text-align: left;
+}
+
+.memory__proof {
+  padding: var(--space-4) 0 var(--space-1);
+  border-top: 1px solid var(--hairline);
+  animation: rise var(--dur-fast) var(--ease-spring) both;
+}
+
+.memory__proof .provenance__row {
+  grid-template-columns: 9.5rem 1fr;
+  gap: var(--space-3);
+}
+
+/*
+ * Stacked on a phone, which is the primary case here — a person asks where a memory came
+ * from while they are talking. The narrower label column above is an override of the
+ * shared `.provenance__row` rule and beat its own mobile collapse on specificity, which
+ * squeezed every answer into a 158px ribbon.
+ */
+@media (max-width: 720px) {
+  .memory__proof .provenance__row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}
+
+.memory__proof-more {
+  margin: var(--space-3) 0 0;
+}
+
 .chip {
   font: var(--type-meta);
   font-family: var(--font-mono);
@@ -450,10 +533,98 @@
   margin: 0;
 }
 
+.approval-card__audience {
+  font: var(--type-label);
+  letter-spacing: var(--track-body);
+  margin: 0;
+  color: var(--ink);
+}
+
+/* An answer that did not land has to look different from one that did. */
+.approval-card__failed {
+  font: var(--type-meta);
+  margin: 0;
+  color: var(--bad);
+}
+
 .approval-card__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+}
+
+/* ------------------------------------------------- a decision that is waiting */
+
+/*
+ * The notice that carries the queue onto the screens a person already visits.
+ *
+ * Brand-tinted rather than brand-filled: it is the product waiting for you, not an
+ * alarm. It appears only when something is actually pending and it has no dismiss —
+ * dismissing it would recreate the exact invisible queue it exists to end.
+ */
+.waiting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+  max-width: 36rem;
+  margin: 0 0 var(--space-12);
+  padding: var(--space-6);
+  background: var(--brand-soft);
+  box-shadow: none;
+  animation: rise var(--dur-base) var(--ease-spring) both;
+}
+
+.waiting__eyebrow {
+  margin: 0;
+  color: var(--brand);
+  text-transform: none;
+}
+
+.waiting__title {
+  font: var(--type-heading);
+  letter-spacing: var(--track-heading);
+  margin: 0;
+}
+
+.waiting__lead {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  margin: 0;
+}
+
+.waiting__quote {
+  font-style: italic;
+  font-weight: 500;
+}
+
+.waiting__why,
+.waiting__rest {
+  margin: 0;
+}
+
+.waiting__audience {
+  font: var(--type-label);
+  letter-spacing: var(--track-body);
+  margin: 0;
+  color: var(--ink);
+}
+
+/* The sentence the product was missing: what the silence has been costing. */
+.waiting__cost {
+  font: var(--type-label);
+  letter-spacing: var(--track-body);
+  margin: 0;
+  color: var(--ink);
+}
+
+.waiting__action {
+  margin-top: var(--space-2);
+  text-decoration: none;
 }
 
 /* --------------------------------------------------------- client health */
@@ -529,6 +700,18 @@
 
 .dot--bad {
   background: var(--bad);
+}
+
+/* Disconnected by the person. Grey rather than red: this is not a fault to fix, it is a
+   decision that took effect, and colouring it as a problem would read as an invitation
+   to undo it. Muted so the row stays legible while clearly not being one of the live
+   ones — it remains in the list because seeing what you cut off is the point. */
+.dot--revoked {
+  background: var(--ink-muted);
+}
+
+.health__row--revoked .health__name {
+  color: var(--ink-muted);
 }
 
 /* ----------------------------------------------------------- token meter */
@@ -1270,7 +1453,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .page,
-  .approval-card {
+  .approval-card,
+  .waiting,
+  .memory__proof {
     animation: none;
   }
 
