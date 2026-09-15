@@ -12,6 +12,7 @@ import { compassPrincipleLabel, PROFILE_TOKEN_BUDGET } from '@photographic/core'
 import {
   ApiError,
   askMemory,
+  getAccount,
   getCalendarDay,
   getCalendarEvent,
   getDeletionState,
@@ -61,6 +62,15 @@ import type {
   HistoryLine,
   TrashLine,
 } from './demo.js';
+
+export interface AccountView {
+  firstName: string | null;
+}
+
+export async function loadAccountFromApi(): Promise<AccountView> {
+  const account = await getAccount();
+  return { firstName: account.firstName };
+}
 
 export function mapRoomSummary(summary: RoomSummaryDto): RoomCard {
   return {
@@ -112,9 +122,10 @@ export async function loadSharedRoomFromApi(roomId: string): Promise<RoomDetail 
     ]);
     if (room.kind === 'personal') return null;
 
-    const memberNames = members
-      .map((member) => memberDisplayName(member))
-      .filter((name): name is string => Boolean(name));
+    // Other members, not the viewer themselves — "delad med" already means "with other
+    // people", and `isSelf` is computed server-side so the client never has to guess
+    // its own identity to tell the two apart.
+    const memberNames = members.filter((member) => !member.isSelf).map(memberDisplayName);
 
     return {
       id: room.id,
@@ -165,9 +176,16 @@ function pushSection(
   }
 }
 
-function memberDisplayName(member: RoomMemberDto): string | null {
+/**
+ * A member's name for display, falling back to "Någon" — the same word every other
+ * unknown-person surface uses (invites, disputes, provenance) — rather than dropping
+ * the member from the list or leaving a blank. A shared room member with no name set
+ * yet is still a person the room is shared with, and hiding them undercounts who is
+ * actually there.
+ */
+function memberDisplayName(member: RoomMemberDto): string {
   const name = member.displayName?.trim();
-  return name && name.length > 0 ? name : null;
+  return name && name.length > 0 ? name : 'Någon';
 }
 
 export function mapClientHealth(dto: ClientHealthDto): DemoClient {
@@ -423,14 +441,32 @@ export async function loadTrashFromApi(): Promise<TrashLine[]> {
  */
 export interface AccountState {
   deletion: { daysRemaining: number; immediate: boolean } | null;
+  firstName: string | null;
 }
 
+/**
+ * The whole account screen in one read: the name, and whether a deletion is pending.
+ *
+ * Both in parallel and both required. They arrived as two screens on two branches, each
+ * with its own loader, and `/konto` can only render one — so the fetch is one call rather
+ * than a screen that knows which half it is.
+ */
 export async function loadAccountStateFromApi(): Promise<AccountState> {
-  const pending = (await getDeletionState()).pending;
+  // The name is fetched alongside but cannot take the screen down with it. Export and
+  // permanent deletion are why this screen exists, and they were unreachable for weeks;
+  // making them depend on a second endpoint would be a new way to lose them. A name that
+  // fails to load reads as "not set yet", which is a state the field already handles.
+  const [deletionState, account] = await Promise.all([
+    getDeletionState(),
+    getAccount().catch(() => ({ firstName: null })),
+  ]);
+  const pending = deletionState.pending;
+
   return {
     deletion: pending
       ? { daysRemaining: pending.daysRemaining, immediate: pending.immediate }
       : null,
+    firstName: account.firstName,
   };
 }
 

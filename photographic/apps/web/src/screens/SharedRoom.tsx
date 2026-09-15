@@ -69,14 +69,12 @@ function SharedRoomReady({
   room: RoomDetail;
   documents?: DocumentLine[];
 }) {
-  const others = Math.max(0, room.memberCount - 1);
   const grouped = groupByKind(room.memories);
+  // Names the other members rather than counting them — `room.memberNames` already
+  // excludes the viewer (see `loadSharedRoomFromApi`), so an empty list genuinely means
+  // nobody else has joined yet.
   const memberLine =
-    others === 0
-      ? 'Bara du'
-      : others === 1
-        ? 'Delad med 1 person'
-        : `Delad med ${others} personer`;
+    room.memberNames.length === 0 ? 'Bara du' : `Delad med ${joinNames(room.memberNames)}`;
 
   return (
     <article className="page page--shared">
@@ -169,6 +167,12 @@ function ActivitySection({ roomId }: { roomId: string }) {
       )}
     </section>
   );
+}
+
+/** "Anna", "Anna och Jacob", "Anna, Jacob och Vera" — never a bare Oxford list. */
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} och ${names[names.length - 1]}`;
 }
 
 function groupByKind(

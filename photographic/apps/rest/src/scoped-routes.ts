@@ -37,6 +37,11 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   ['GET', '/context', SCOPE_PROFILE_READ],
   ['GET', '/profile', SCOPE_PROFILE_READ],
 
+  // The person's own first name, or that there isn't one — about the account rather
+  // than its contents, so the weakest read scope every client already has is the right
+  // bar. *Setting* it is a different question and lives in `FIRST_PARTY_ONLY_ROUTES`.
+  ['GET', '/account', SCOPE_PROFILE_READ],
+
   // -------------------------------------------------------------------------
   // Reading memory
   // -------------------------------------------------------------------------
@@ -308,5 +313,14 @@ export const HUMAN_DECISION_ROUTES: readonly ScopedRoute[] = [
 export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
   ['PATCH', '/clients/:clientId'],
   ['DELETE', '/clients/:clientId'],
+
+  /**
+   * Setting the person's own first name. Same reasoning as renaming a client: no OAuth
+   * scope should let a connected AI decide what a person is called, because a scope that
+   * permitted it would be held by every client holding it. There is no MCP tool for this
+   * on either side of the door.
+   */
+  ['PATCH', '/account/name'],
+
   ...HUMAN_DECISION_ROUTES,
 ] as const;

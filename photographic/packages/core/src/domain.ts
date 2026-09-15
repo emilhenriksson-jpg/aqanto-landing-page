@@ -43,6 +43,16 @@ export type ProposalStatus = 'pending' | 'accepted' | 'rejected' | 'expired';
  * standing-instructions section. Same approval gate, same provenance, same trash — the
  * difference is entirely about which slot it fills and how it renders, not about how it
  * is stored.
+ *
+ * `name` is the person's own first name, mirroring `compass` in one way and departing
+ * from it in another. Mirrors it: a dedicated kind rather than a settings column, so it
+ * carries the same provenance, history and 30-day trash treatment as anything else a
+ * person owns, with at most one active at a time (see `IngestPort.setFirstName`).
+ * Departs from it: a name has no MCP tool and no propose path at all — it is set once,
+ * directly, from the person's own browser session (first sign-in or the account
+ * screen), so unlike a Compass principle it is never something a model can suggest.
+ * `remember` and `propose` both refuse this kind outright, the same defence-in-depth
+ * `compass` already has for its own, different reason.
  */
 export type ItemKind =
   | 'identity'
@@ -52,7 +62,8 @@ export type ItemKind =
   | 'decision'
   | 'note'
   | 'never'
-  | 'compass';
+  | 'compass'
+  | 'name';
 
 /** Which surface produced a read or write. Used for provenance and health reporting. */
 export type AgentClient =

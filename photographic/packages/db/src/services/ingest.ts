@@ -38,6 +38,7 @@ import { NotFoundError, NotPermittedError, ValidationError } from '@photographic
 import {
   COMPASS_KEY_FIELD,
   COMPASS_PRINCIPLE_MAX_CHARS,
+  FIRST_NAME_MAX_CHARS,
   ROUTING_SAMPLE_SIZE,
   canRemoveMemory,
   canRepublishMemory,
@@ -70,6 +71,7 @@ import {
   type RoomRow,
 } from '../rows.js';
 import { appendEvent } from './events.js';
+import { personalRoomIdOf } from './identity.js';
 import { enqueueJob } from './jobs.js';
 import { markStaleWithin, restoreWithin, softDeleteWithin } from './lifecycle.js';
 import { canWrite, roleIn } from './permissions.js';
@@ -88,6 +90,10 @@ const BASE_SALIENCE: Record<ItemKind, number> = {
   fact: 0.75,
   decision: 0.6,
   note: 0.4,
+  // Never read for ranking: `name` items are excluded from every profile section (see
+  // `SECTION_OF` in `projection.ts`) and never compete for the personal-room ceiling.
+  // A number is required only because this map is exhaustive over `ItemKind`.
+  name: 0,
 };
 
 const IDENTITY_HINTS =
@@ -133,6 +139,12 @@ export class PgIngest implements IngestPort {
     // to guarantee, enforced a second, independent way.
     if (input.kind === 'compass') {
       throw new ValidationError('Kompassen ändras bara via ett förslag som personen godkänner.');
+    }
+    // `name` has no door here at all, not even a gated one: it has no MCP tool and no
+    // propose path, so the only legitimate writer is `setFirstName`, which never calls
+    // `remember`. Refusing it keeps that true even if a client sends the kind by hand.
+    if (input.kind === 'name') {
+      throw new ValidationError('Förnamnet sätts bara via kontosidan, aldrig som ett vanligt minne.');
     }
 
     const body = input.body.trim().replace(/\s+/g, ' ');
@@ -280,6 +292,16 @@ export class PgIngest implements IngestPort {
     if (!body) throw new ValidationError('Tomt förslag kan inte sparas.');
 
     const kind = input.kind ?? classifyKind(body);
+
+    // Unlike `compass`, `name` has no legitimate reason to reach a proposal at all: there
+    // is no MCP tool and no import path that should ever suggest a person's own name.
+    // Refused here too, not only in `remember`, so `POST /v1/import` and
+    // `POST /v1/memory/proposals` cannot be used to slip a `name` item into some other
+    // room without going through `setFirstName`'s singleton-supersede logic and its
+    // `app.person.display_name` cache sync.
+    if (kind === 'name') {
+      throw new ValidationError('Förnamnet sätts bara via kontosidan, aldrig som ett förslag.');
+    }
 
     // A Compass proposal replaces one of the six fixed slots, never adds beside it, so
     // its conflict is found by the slot's key — an exact lookup — rather than by the
@@ -734,6 +756,54 @@ export class PgIngest implements IngestPort {
 
     if (result.applied) this.pokeHeadlineCache(item.roomId);
     return result.item;
+  }
+
+  /**
+   * See `IngestPort.setFirstName`. One transaction: supersede whatever `name` item was
+   * active (if any), write the new one, and refresh the `app.person.display_name` cache
+   * every existing surface already reads — provenance, invites, room membership, the
+   * history feed — so none of them need to learn a second source of truth exists.
+   */
+  async setFirstName(actor: Actor, firstName: string): Promise<Item> {
+    const value = firstName.trim().replace(/\s+/g, ' ');
+    if (!value) throw new ValidationError('Förnamnet får inte vara tomt.');
+    if (value.length > FIRST_NAME_MAX_CHARS) {
+      throw new ValidationError(`Förnamnet är för långt — max ${FIRST_NAME_MAX_CHARS} tecken.`);
+    }
+
+    const roomId = await personalRoomIdOf(this.pool, actor.personId);
+    if (!roomId) throw new NotFoundError('Personen har inget personligt rum.');
+
+    return withTransaction(this.pool, async (tx) => {
+      const existing = await this.activeItemOfKind(roomId, 'name', tx);
+      if (existing && existing.body === value) return existing;
+
+      const item = await this.write(
+        actor,
+        {
+          roomId,
+          kind: 'name',
+          body: value,
+          sensitivity: 'normal',
+          explicit: true,
+          supersedes: existing?.id ?? null,
+          previousBody: existing?.body ?? null,
+          motivation: existing ? 'Bytte förnamn.' : 'Angav förnamn.',
+        },
+        tx,
+      );
+
+      if (existing) {
+        await this.supersede(tx, actor, { loser: existing, winner: item });
+      }
+
+      await tx.query(`UPDATE app.person SET display_name = $1 WHERE id = $2`, [
+        value,
+        actor.personId,
+      ]);
+
+      return item;
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -1443,6 +1513,21 @@ export class PgIngest implements IngestPort {
       [roomId],
     );
     return rows.map(mapItem);
+  }
+
+  /**
+   * The one active item of a given kind in a room, if any.
+   *
+   * Simpler than `activeCompassItem`: a first name has no key to disambiguate between
+   * (there is only ever one), so kind alone is the whole lookup.
+   */
+  private async activeItemOfKind(roomId: RoomId, kind: ItemKind, db: Db = this.pool): Promise<Item | null> {
+    const row = await queryOne<ItemRow>(
+      db,
+      `SELECT ${ITEM_COLUMNS} FROM app.item WHERE room_id = $1 AND kind = $2 AND status = 'active' LIMIT 1`,
+      [roomId, kind],
+    );
+    return row ? mapItem(row) : null;
   }
 
   /** The one active item currently filling a given Compass slot, if any. */

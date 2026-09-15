@@ -385,6 +385,24 @@ export interface IngestPort {
   resolveProposal(actor: Actor, id: ProposalId, accept: boolean): Promise<Item | null>;
 
   /**
+   * Sets the person's own first name.
+   *
+   * Stored as an ordinary item in the personal room under the `name` kind, not a
+   * settings field — so it gets exactly the same provenance, history and 30-day trash
+   * treatment as anything else a person owns, the same way `0015_personal_compass.sql`
+   * stored the Compass as memory rather than as a second source of truth beside it. At
+   * most one is ever active: setting it again supersedes the old one through the same
+   * path a correction takes, rather than leaving two statements about the same name.
+   *
+   * Always writes directly and never queues for approval. A Compass principle changes
+   * how every connected model behaves and can be proposed mid-conversation, which is
+   * why it is gated; a first name has no MCP tool and no propose path at all; the only
+   * caller is the person's own browser session, so there is no untrusted caller for a
+   * gate to catch.
+   */
+  setFirstName(actor: Actor, firstName: string): Promise<Item>;
+
+  /**
    * Unresolved disagreements in rooms the actor can reach.
    *
    * Shown in the same queue as proposals, because it is the same act — a person being

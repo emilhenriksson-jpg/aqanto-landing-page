@@ -33,7 +33,7 @@
   ],
   "groups": {
     "unit": {
-      "minPassed": 879,
+      "minPassed": 891,
       "maxSkipped": 1,
       "whySkipped": "packages/export: the near-limit archive test behind PHOTOGRAPHIC_NEAR_LIMIT_DISK. It writes a multi-gigabyte archive to a temporary file and reads it back with a zip implementation that is not ours, which is minutes of disk rather than seconds of CPU -- too slow for every pull request and the only thing that proves our writer and a third-party reader agree about zip64. Run it when the zip64 code changes: PHOTOGRAPHIC_NEAR_LIMIT_DISK=1 pnpm --filter @photographic/export test"
     },
@@ -42,13 +42,13 @@
       "maxSkipped": 0
     },
     "db": {
-      "minPassed": 212,
+      "minPassed": 214,
       "maxSkipped": 4,
       "openAiGated": 2,
       "whySkipped": "packages/db, keyless: two tls.test.ts tests behind LIVE_SUPABASE=1, and two behind OPENAI_API_KEY -- retrieval.test.ts and search-quality.test.ts, the second of which arrived with PR #16 and is what left main red. All four need a credential CI cannot have. The floor is CI's number, measured on the run for 0957dce: 212 passed / 4 skipped without a key, against 214 / 2 on a machine that has one."
     },
     "rest": {
-      "minPassed": 188,
+      "minPassed": 193,
       "maxSkipped": 0
     },
     "e2e-postgres": {

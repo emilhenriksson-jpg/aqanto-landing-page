@@ -67,10 +67,15 @@ export function InviteLanding({
   return (
     <div className="invite narrow">
       <section className="invite__decision">
+        {/*
+          "Någon" rather than a nameless "Du är inbjuden till" — the same fallback word
+          every other unknown-person surface in the product uses (history, disputes, the
+          web app's own invite screen), so a person who has not set a name yet reads the
+          same way wherever an invite mentions them. The markup around it is the invite
+          viewport's, which this branch predates.
+        */}
         <p className="invite__from meta">
-          {invitedBy
-            ? `${invitedBy} bjuder in dig till ett delat rum`
-            : 'Du är inbjuden till ett delat rum'}
+          {`${invitedBy?.trim() || 'Någon'} bjuder in dig till ett delat rum`}
         </p>
         <h1 className="invite__title">{preview.room.title}</h1>
         {preview.room.description ? (

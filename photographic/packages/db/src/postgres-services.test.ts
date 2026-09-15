@@ -149,7 +149,7 @@ describe('createPostgresServices', () => {
       wired!.services.ingest.remember(actor, {
         roomId: room.id,
         body: 'Var alltid extremt kort.',
-        kind: 'compass' as never,
+        kind: 'compass',
         explicit: true,
       }),
     ).rejects.toThrow(/förslag/);
@@ -261,6 +261,61 @@ describe('createPostgresServices', () => {
       // that a test cleans up after itself rather than counting on that.
       await pool!.query('DELETE FROM app.job WHERE dedupe_key = $1', [dedupeKey]);
     }
+  });
+
+  itIfDb('setFirstName supersedes the old name and keeps display_name in sync', async () => {
+    // Phone rather than email: registering by email falls back to the local part as a
+    // display name, which is correct for that path but not the one this test is about —
+    // a phone-only account (`verifyCode`'s `register({ phone })`) has no name at all
+    // until someone sets one.
+    const phone = `+4670${randomUUID().replace(/\D/g, '').slice(0, 7)}`;
+    const { person } = await wired!.services.identity.register({ phone });
+    expect(person.displayName).toBeNull();
+    const actor = wired!.actorFor(person.id, 'web');
+    const room = await wired!.services.identity.personalRoomOf(person.id);
+
+    const first = await wired!.services.ingest.setFirstName(actor, '  Jacob  ');
+    expect(first.kind).toBe('name');
+    expect(first.body).toBe('Jacob');
+    expect((await wired!.services.identity.findById(person.id))?.displayName).toBe('Jacob');
+
+    // Setting the same value again is a no-op, not a second correction.
+    const unchanged = await wired!.services.ingest.setFirstName(actor, 'Jacob');
+    expect(unchanged.id).toBe(first.id);
+
+    // Setting a new value supersedes the old item rather than sitting beside it — one
+    // active `name` item at a time, the same shape the Compass uses per slot.
+    const second = await wired!.services.ingest.setFirstName(actor, 'Jonas');
+    expect(second.id).not.toBe(first.id);
+    expect((await wired!.services.identity.findById(person.id))?.displayName).toBe('Jonas');
+
+    const history = await wired!.services.history.list(actor, { roomId: room.id });
+    expect(history.some((entry) => entry.body === 'Jonas')).toBe(true);
+    expect(history.some((entry) => entry.action === 'superseded')).toBe(true);
+  });
+
+  itIfDb('refuses "name" through remember or propose, only setFirstName may write it', async () => {
+    const email = `db-test-${randomUUID()}@example.com`;
+    const { person } = await wired!.services.identity.register({ email, displayName: 'Emil' });
+    const actor = wired!.actorFor(person.id, 'claude-desktop');
+    const room = await wired!.services.identity.personalRoomOf(person.id);
+
+    await expect(
+      wired!.services.ingest.remember(actor, {
+        roomId: room.id,
+        body: 'Jacob',
+        kind: 'name',
+        explicit: true,
+      }),
+    ).rejects.toThrow(/kontosidan/);
+
+    await expect(
+      wired!.services.ingest.propose(actor, {
+        roomId: room.id,
+        body: 'Jacob',
+        kind: 'name',
+      }),
+    ).rejects.toThrow(/kontosidan/);
   });
 
   itIfDb('an invited person sees the shared room, not the inviter\'s personal room', async () => {

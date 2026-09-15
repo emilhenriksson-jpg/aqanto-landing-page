@@ -31,14 +31,17 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Rum' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Öppna ditt rum' })).toBeInTheDocument();
     expect(screen.getByLabelText('2 olästa')).toHaveTextContent('2 nya');
-    expect(screen.getByLabelText('3 medlemmar')).toBeInTheDocument();
+    // Two, not three: `memberNames` is the *other* members now, not everyone including
+    // the viewer — see `data/load.ts`'s `loadSharedRoomFromApi`.
+    expect(screen.getByLabelText('2 medlemmar')).toBeInTheDocument();
 
     await user.click(screen.getByRole('link', { name: 'Öppna Buyersclub Ledning' }));
     expect(
       screen.getByRole('heading', { level: 1, name: 'Buyersclub Ledning' }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText('3 medlemmar')).toBeInTheDocument();
-    expect(screen.getByText('Delad med 2 personer')).toBeInTheDocument();
+    expect(screen.getByLabelText('2 medlemmar')).toBeInTheDocument();
+    // Named, not counted — the property this whole feature exists to add.
+    expect(screen.getByText('Delad med Anna och Jacob')).toBeInTheDocument();
     expect(screen.getByText('r-8k2m')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Dokument' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Aktivitet' })).toBeInTheDocument();

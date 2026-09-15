@@ -138,6 +138,15 @@ export const COMPASS_TOKEN_BUDGET = 320;
  */
 export const COMPASS_PRINCIPLE_MAX_CHARS = 220;
 
+/**
+ * Ceiling on the person's own first name.
+ *
+ * A first name, not a form field for a life story — long enough for "Kristoffer" and
+ * short enough that it never competes with an actual memory for room in the log or the
+ * history feed it appears in.
+ */
+export const FIRST_NAME_MAX_CHARS = 60;
+
 /** Cosine distance below which two items are treated as restating each other. */
 export const DEDUPE_DISTANCE_THRESHOLD = 0.12;
 

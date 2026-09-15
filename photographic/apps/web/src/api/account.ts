@@ -1,5 +1,5 @@
 /**
- * Export and account deletion.
+ * The person's own account: their name, their export, and their deletion.
  *
  * Both are first-party only on the server: no OAuth scope reaches them, so these calls
  * only work from the person's own browser session. That is the reason they live in the
@@ -9,11 +9,25 @@
 
 import { apiFetch } from './client.js';
 import type {
+  AccountDto,
   DeletionReceiptDto,
   DeletionStateDto,
   ExportJobDto,
   ExportLinkDto,
 } from './types.js';
+
+/** The person's own first name, or that there isn't one yet. */
+export function getAccount(): Promise<AccountDto> {
+  return apiFetch('/v1/account');
+}
+
+/** Sets it. First-party only server-side — no connected AI can call this. */
+export function setFirstName(firstName: string): Promise<{ firstName: string }> {
+  return apiFetch('/v1/account/name', {
+    method: 'PATCH',
+    body: JSON.stringify({ firstName }),
+  });
+}
 
 /**
  * Queues an export — POST /v1/export.
