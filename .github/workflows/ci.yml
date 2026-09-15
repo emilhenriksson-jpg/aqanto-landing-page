@@ -51,6 +51,11 @@ jobs:
         with:
           node-version: '22'
       - run: node scripts/check-test-doubles.mjs
+      # Three branches landed on `0016` in one afternoon. The migration runner sorts by
+      # filename and keys its ledger on the filename, so a shared number applies in
+      # alphabetical order and a rename re-runs the file everywhere it was already
+      # applied — which is why this has to be caught before the merge, not after.
+      - run: node scripts/check-migrations.mjs
 
   typecheck:
     runs-on: ubuntu-latest
@@ -258,6 +263,58 @@ jobs:
           echo "::error::/health svarade inte inom 45s."
           docker logs photographic-ci 2>&1 | tail -60
           exit 1
+
+      # The other half of the boot guarantee, and the half only a negative test can hold.
+      #
+      # `CMD` used to separate the migration from the server with `;` rather than `&&`, so
+      # a failed migration was logged and then the server started anyway against a partial
+      # schema. The symptom was individual 500s on whichever routes touched the new column
+      # — not a crash loop anyone would investigate — and with `/health` answering
+      # unconditionally, Fly called the deploy healthy. It is fixed on `main` now (`set -e`
+      # plus an explicit refusal), and a fix without a test is a fix that comes back: the
+      # `;` is one character and the next person to edit that line has no way to know.
+      #
+      # So: point it at a closed port and require it to die rather than serve. Four
+      # assertions, because "the container exited" on its own would also be satisfied by
+      # exiting for some unrelated reason, and a test that passes for the wrong reason is
+      # the thing this workflow exists to prevent.
+      - name: It refuses to serve against a failed migration
+        run: |
+          set +e
+          timeout 120 docker run --rm \
+            -e PORT=8080 \
+            -e SESSION_SECRET=ci-throwaway-session-secret \
+            -e CODE_SECRET=ci-throwaway-code-secret \
+            -e DATABASE_URL=postgres://nobody:nobody@127.0.0.1:1/nothing \
+            photographic:ci > /tmp/nodb.log 2>&1
+          code=$?
+          set -e
+          echo "--- container exited $code, log follows"
+          tail -25 /tmp/nodb.log
+
+          if [ "$code" = "124" ]; then
+            echo "::error::Containern levde i 120s med en misslyckad migrering. Det är" \
+                 "precis felet: servern kör mot ett halvt schema. Kontrollera att CMD i" \
+                 "Dockerfile fortfarande avbryter på migreringsfel."
+            exit 1
+          fi
+          if [ "$code" = "0" ]; then
+            echo "::error::Containern startade och avslutade rent trots att migreringen" \
+                 "misslyckades. CMD måste vägra starta servern när db:migrate faller."
+            exit 1
+          fi
+          if grep -q '"msg":"listening"' /tmp/nodb.log; then
+            echo "::error::HTTP-servern började lyssna trots en misslyckad migrering." \
+                 "Det är semikolon-felet tillbaka, oavsett vad slutkoden blev."
+            exit 1
+          fi
+          if ! grep -q 'ECONNREFUSED' /tmp/nodb.log; then
+            echo "::error::Containern dog, men inte av databasen — ingen ECONNREFUSED i" \
+                 "loggen. Testet skulle ha bevisat migreringsspärren och bevisade något" \
+                 "annat, så det bevisade ingenting. Läs loggen ovan."
+            exit 1
+          fi
+          echo "Vägrade starta, av rätt skäl."
 
       - name: Stop it
         if: always()
