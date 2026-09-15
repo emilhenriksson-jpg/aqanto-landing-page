@@ -54,6 +54,14 @@ export class MemoryCodeStore implements CodeStore {
     return this.history.filter((r) => r.destination === destination && r.createdAt >= since).length;
   }
 
+  async discard(id: string): Promise<void> {
+    this.rows.delete(id);
+    // Out of `history` too, which is what `countSince` reads — leaving it there is the
+    // whole bug this exists to prevent.
+    const at = this.history.findIndex((r) => r.id === id);
+    if (at !== -1) this.history.splice(at, 1);
+  }
+
   /** Test-only: the raw codes never live in the store, so the sender records them. */
   raw(id: string): PendingCode | undefined {
     return this.rows.get(id);

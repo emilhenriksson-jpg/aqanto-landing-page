@@ -151,7 +151,28 @@ export async function requestCode(
   };
 
   await deps.codes.insert(record);
-  await deps.sender.send({ channel, destination, code });
+
+  // Stored first, then sent, then undone if the send failed.
+  //
+  // The order is forced from both ends. Sending before storing means a provider that
+  // delivers while we fail to store hands a person a code that cannot be verified. But
+  // storing and leaving it there when delivery fails counts an attempt the person never
+  // received, and with five per hour a provider having a bad afternoon locks someone out
+  // of their own memory for an hour — on failures we had just made visible and
+  // retryable, which is worse than useless.
+  //
+  // So a failed delivery leaves no trace: the record goes, the allowance is untouched,
+  // and the person is exactly where they were before they pressed the button. The limit
+  // keeps doing its real job, which is about repeated *successful* requests to one
+  // destination.
+  try {
+    await deps.sender.send({ channel, destination, code });
+  } catch (error) {
+    // Cleanup must never replace the delivery error — that is the one the person needs
+    // to see, and swallowing it would turn a visible failure back into a silent one.
+    await deps.codes.discard(record.id).catch(() => {});
+    throw error;
+  }
 
   return {
     requestId: record.id,

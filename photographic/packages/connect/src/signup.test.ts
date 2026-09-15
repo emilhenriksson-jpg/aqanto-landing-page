@@ -4,6 +4,10 @@ import type { AuthError } from '@photographic/core';
 import type { Room, RoomId } from '@photographic/core';
 
 import { createHarness } from './testing/index.js';
+
+/** Stands in for `DeliveryError`, which lives in a package this one must not depend on. */
+class DeliveryFailure extends Error {}
+
 import {
   CODE_REJECTED,
   hashCode,
@@ -114,6 +118,39 @@ describe('requesting a code', () => {
     for (const phone of ['+0701234567', '0', '070-123']) {
       await expect(requestCode(h.deps, { phone }), phone).rejects.toThrow(/Ogiltigt telefonnummer/i);
     }
+  });
+
+  it('does not spend the allowance on a code that was never delivered', async () => {
+    const h = createHarness();
+    const failing = {
+      send: async () => {
+        throw new DeliveryFailure();
+      },
+    };
+
+    // Every attempt fails at the provider, and there are more of them than the limit.
+    for (let i = 0; i < MAX_REQUESTS_PER_HOUR + 2; i += 1) {
+      await expect(
+        requestCode({ ...h.deps, sender: failing }, { phone: '0701234567' }),
+      ).rejects.toBeInstanceOf(DeliveryFailure);
+    }
+
+    // The person is exactly where they started: nothing counted, nothing stored, and the
+    // next attempt is a delivery question rather than a lockout. Before this, six failed
+    // sends left them locked out for an hour over an outage they could not see.
+    expect(await h.codes.countSince('+46701234567', new Date(0))).toBe(0);
+
+    const recovered = await requestCode(h.deps, { phone: '0701234567' });
+    expect(recovered.channel).toBe('sms');
+  });
+
+  it('keeps counting requests that did reach someone', async () => {
+    const h = createHarness();
+    for (let i = 0; i < MAX_REQUESTS_PER_HOUR; i += 1) {
+      await requestCode(h.deps, { phone: '0701234567' });
+    }
+
+    await expect(requestCode(h.deps, { phone: '0701234567' })).rejects.toThrow(/För många försök/i);
   });
 
   it('rejects a request with neither email nor phone', async () => {

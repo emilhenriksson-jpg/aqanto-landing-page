@@ -32,6 +32,16 @@ export interface CodeStore {
   /** Single-use: returns false if another request consumed it first. */
   consume(id: string, at: Date): Promise<boolean>;
   countSince(destination: string, since: Date): Promise<number>;
+  /**
+   * Forgets a record entirely, rate-limit history included.
+   *
+   * For one caller: a code that was stored and then could not be delivered. The row has
+   * to exist before the send, or a provider that delivers while we fail to store leaves
+   * a person holding a code that cannot be verified — so the insert cannot simply move
+   * after the send. This is the other half of that ordering: when delivery fails, the
+   * attempt is undone rather than left to count against the person.
+   */
+  discard(id: string): Promise<void>;
 }
 
 export interface CodeSender {
