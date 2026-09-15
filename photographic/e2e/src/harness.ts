@@ -1,21 +1,41 @@
 /**
- * The wiring the acceptance test runs against.
+ * The wiring the acceptance suite runs against.
  *
- * `journey.test.ts` runs unmodified against two backends, picked by `HARNESS`:
+ * Two backends behind one `Services` shape, and the same test files run on either:
  *
- *  - `memory` (the default) — `@photographic/services-memory`, the reference
- *    implementation. This is the one that proves the product's behaviour: the tiering,
- *    the permission resolution, the trash and its purge, the invite loop, the profile
- *    ceiling and the data boundary are all real code here, and the seams between
- *    packages are real.
- *  - `postgres` — `@photographic/db`'s `createPostgresServices`, behind the same
- *    `Services` shape, against the real schema in `packages/db/migrations`. This is
- *    where the SQL — row-level security, the append-only trigger, the hybrid search
- *    query — joins the same suite.
+ *  - `postgres` — `@photographic/db`'s `createPostgresServices` against the real schema
+ *    in `packages/db/migrations`. This is the one production runs, and the only one that
+ *    exercises the SQL: the append-only trigger on `app.event`, the trigger refusing a
+ *    memory placed in a shared room without a person asking, the trigger refusing a
+ *    second member in a personal room, `app.accessible_room_ids` inside each read, the
+ *    transaction boundaries, the unique constraints and `ON DELETE CASCADE`, and the
+ *    hybrid search query. It drops and re-migrates a database of its own per run
+ *    (`<name>_e2e`, see `isolatedDatabaseUrl`).
+ *  - `memory` — `@photographic/services-memory`, the reference implementation. The same
+ *    domain rules written a second time in TypeScript. Worth running because a
+ *    divergence between the two is a production-only bug waiting to happen, and because
+ *    it is how you run this suite with no database at hand. It proves nothing about the
+ *    SQL, and the two have already drifted in at least two places (embeddings are
+ *    inline here and a queued job in Postgres; room routing matches different text).
  *
- * Both drivers running the same test file is the whole reason the reference
- * implementation was worth writing: it turns "does Postgres behave correctly" into a
- * diff against something that already does.
+ * Selection, in order: an explicit `options.driver`, then `HARNESS`, then `postgres` if
+ * a database URL is in hand, then `memory`.
+ *
+ * Which means — and this is the opposite of what this comment claimed until the
+ * discrepancy was reviewed — `memory` is not what the suite runs by default.
+ * `journey.test.ts` and `calendar.test.ts` both pass a hardcoded URL, so both take
+ * Postgres unless `HARNESS=memory` is set; only `documents.test.ts` passes none and
+ * follows the environment. `HARNESS=memory` is therefore the only way to put the whole
+ * suite on the reference implementation. CI runs both legs on every pull request so
+ * neither driver can quietly become the one nobody exercises.
+ *
+ * Two things this comment used to say that were not true. It named row-level security as
+ * what the Postgres driver adds: `0001_init.sql` wrote RLS policies that gated on a
+ * session variable no code ever set, and `0003_provenance_and_authorship.sql` drops the
+ * policies and disables RLS on every table — authorisation is in the API layer on
+ * purpose, and `ARCHITECTURE.md` explains why. And the documents around this file quoted
+ * "22 memory + 22 postgres", a count that was never reproducible and is now deliberately
+ * absent: `vitest` prints the number, and a number in a comment only rots.
  */
 
 import type {
