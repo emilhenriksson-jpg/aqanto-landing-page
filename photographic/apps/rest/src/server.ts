@@ -11,6 +11,7 @@
  */
 
 import { serve } from '@hono/node-server';
+import { startAlerting } from '@photographic/ops';
 
 import { loadConfigFromEnv } from './config.js';
 import { createLogger } from './logger.js';
@@ -28,6 +29,30 @@ if (process.env.DATABASE_URL) {
 }
 
 const wiring = await createWiring({ config, logger });
+
+/**
+ * The alarms, above the timers rather than inside them.
+ *
+ * Every failure this project has had so far was found by a person noticing that something
+ * looked wrong: the log line existed, and nobody was reading it. So this is deliberately
+ * not another log line — it sends to a webhook and an SMS when configured, and pings an
+ * external dead-man's switch on every healthy pass so that the one failure this process
+ * cannot report, its own absence, still reaches someone.
+ *
+ * Started here for the same reason the timers are here: `createWiring` has no side effects
+ * on purpose, and a watchdog is nothing but a side effect.
+ */
+const alerting = startAlerting({
+  env: process.env,
+  logger,
+  facts: {
+    environment: config.environment,
+    persistence: wiring.operations.persistence,
+    storageKind: wiring.operations.storageKind,
+  },
+  db: wiring.operations.db,
+  deliveryFailures: wiring.operations.deliveryFailures,
+});
 
 // Background work runs on a timer rather than a separate worker process, which is right
 // for development and is the first thing to split out when there is more than one
@@ -91,6 +116,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     clearInterval(jobTimer);
     clearInterval(purgeTimer);
   clearInterval(accountTimer);
+    alerting.watchdog.stop();
     server.close(() => {
       void wiring.close().finally(() => process.exit(0));
     });

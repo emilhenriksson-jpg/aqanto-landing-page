@@ -139,6 +139,9 @@ importers:
       '@photographic/mcp':
         specifier: workspace:*
         version: link:../mcp
+      '@photographic/ops':
+        specifier: workspace:*
+        version: link:../../packages/ops
       '@photographic/services-memory':
         specifier: workspace:*
         version: link:../../packages/services-memory
@@ -493,6 +496,37 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.2
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.2)(jsdom@30.0.1)(lightningcss@1.33.0)
+
+  packages/ops:
+    dependencies:
+      '@photographic/db':
+        specifier: workspace:*
+        version: link:../db
+      '@photographic/documents':
+        specifier: workspace:*
+        version: link:../documents
+      '@photographic/supabase':
+        specifier: workspace:*
+        version: link:../supabase
+      pg:
+        specifier: ^8.13.1
+        version: 8.23.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.2
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.13
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
