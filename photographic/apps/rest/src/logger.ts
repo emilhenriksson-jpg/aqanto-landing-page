@@ -36,6 +36,18 @@ const REDACTED_KEYS = new Set([
   'secret',
   'clientsecret',
   'apikey',
+  /**
+   * The one-time sign-in code.
+   *
+   * The last of three barriers rather than the fix: production does not select the log
+   * sender at all (`RefusingCodeSender`), and the log sender does not print the code there
+   * either (`LogCodeSender`). This one covers the mistake neither of those can — some
+   * future line, in some unrelated file, that logs a code without thinking about it.
+   *
+   * Nothing else logs a field called `code`; error codes travel inside a serialised
+   * `error` object, and `redact` only looks at the keys it is given.
+   */
+  'code',
   'body',
   'text',
   'query',
@@ -51,6 +63,22 @@ export interface LoggerOptions {
   /** Injected in tests; defaults to stdout. */
   write?: (line: string) => void;
   now?: () => Date;
+  /**
+   * Lets `code` through the redaction above. Off unless a caller asks, and the composition
+   * root only asks outside production.
+   *
+   * The exception exists because on a laptop the log *is* the delivery channel: `pnpm dev`,
+   * `scripts/mcp-smoke.md` and `e2e/src/live-mcp.smoke.test.ts` all sign in by grepping
+   * `signup_code` out of a file, and with no way to read a code there is no way to run the
+   * product locally at all. It is a flag rather than a rename because a renamed field would
+   * defeat the list for every future caller too, and the list has to keep protecting the
+   * accidental case — which is the only case it was ever for.
+   *
+   * It buys nothing in production and is not set there. If `NODE_ENV` were ever wrong the
+   * refusal to deliver by log would already be off as well, so this adds no failure mode
+   * that the two barriers in front of it do not already have.
+   */
+  revealSignupCode?: boolean;
 }
 
 export function createLogger(options: LoggerOptions = {}): Logger {
@@ -58,6 +86,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
   const base = options.base ?? {};
   const write = options.write ?? ((line: string) => process.stdout.write(`${line}\n`));
   const now = options.now ?? (() => new Date());
+  const allow = options.revealSignupCode === true ? ['code'] : [];
 
   function emit(logLevel: LogLevel, message: string, fields?: LogFields): void {
     if (LEVEL_ORDER[logLevel] < LEVEL_ORDER[level]) return;
@@ -65,8 +94,8 @@ export function createLogger(options: LoggerOptions = {}): Logger {
       ts: now().toISOString(),
       level: logLevel,
       msg: message,
-      ...redact(base),
-      ...redact(fields ?? {}),
+      ...redact(base, allow),
+      ...redact(fields ?? {}, allow),
     };
     write(safeStringify(line));
   }
@@ -80,10 +109,12 @@ export function createLogger(options: LoggerOptions = {}): Logger {
   };
 }
 
-export function redact(fields: LogFields): LogFields {
+export function redact(fields: LogFields, allow: readonly string[] = []): LogFields {
   const out: LogFields = {};
   for (const [key, value] of Object.entries(fields)) {
-    out[key] = REDACTED_KEYS.has(key.toLowerCase()) ? '[redacted]' : value;
+    const lower = key.toLowerCase();
+    const redacted = REDACTED_KEYS.has(lower) && !allow.includes(lower);
+    out[key] = redacted ? '[redacted]' : value;
   }
   return out;
 }

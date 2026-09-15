@@ -15,6 +15,115 @@ or be torn down. That is what "always connected" actually requires, and a tunnel
 does not provide it: a stable hostname fixes *what a client calls*, not *whether
 anything answers when it calls*.
 
+## Nödinloggning — så tar du dig in i ditt konto när SMS inte fungerar
+
+Den här sidan är på svenska och står först, för den läses av någon som är utelåst och
+har ont om tålamod. Allt annat i dokumentet är på engelska som resten av koden.
+
+Koden du loggar in med kommer med SMS. Fungerar inte SMS — ingen leverantör inlagd,
+tomt konto hos 46elks, ett avbrott — så skickas ingen kod, och den skrivs medvetet
+**inte** till serverloggen. Då finns en annan väg in, och nyckeln till den är maskinen
+själv: ett skript som körs inne på servern skapar en engångslänk till *ett* konto.
+
+### Gör det här en gång, i förväg
+
+Nödinloggningen fungerar bara om nyckeln finns på maskinen. Sätt den nu, medan
+ingenting är trasigt — den behövs aldrig igen och den går inte att sätta i efterhand
+när du redan är utelåst från allt utom Fly:
+
+```bash
+fly secrets set BREAK_GLASS_SECRET=$(openssl rand -hex 32) -a photographic
+```
+
+Maskinen startar om av sig själv. Kontrollera i loggen att den syns:
+
+```bash
+fly logs -a photographic | grep break_glass
+```
+
+`break_glass_armed` betyder att den är på plats. `break_glass_unavailable` betyder att
+den inte är det, och då är den här sidan bara text.
+
+### När du är utelåst: tre steg
+
+**1. Öppna en terminal på servern.**
+
+```bash
+fly ssh console -a photographic
+```
+
+**2. Kör skriptet med ditt eget mobilnummer.** Skriv numret precis som du brukar —
+`070-123 45 67`, `+46 70 123 45 67` eller `0701234567`, det spelar ingen roll:
+
+```bash
+cd /app && node --import tsx scripts/break-glass-signin.ts 070-123 45 67
+```
+
+Det svarar med en länk:
+
+```
+Nödinloggning för +46701234567 (konto 3f2b….).
+Öppna den här länken i din webbläsare inom 10 minuter:
+
+  https://mcp.photographic.space/nodlage#bg1.…
+
+Länken gäller en gång. Efter det, eller när tiden gått ut, kör skriptet igen.
+```
+
+**3. Kopiera hela länken och öppna den i din webbläsare.** Sidan säger "Loggar in dig"
+och skickar dig vidare till ditt minne. Du är inloggad som vanligt, precis som om koden
+hade kommit med SMS.
+
+Skriv `exit` för att lämna serverterminalen. Länken behövs inte längre.
+
+### Tre saker att veta
+
+- **Länken loggar in som du.** Klistra inte in den i en chatt, mejla den inte till dig
+  själv, spara den inte. Den gäller i tio minuter och slutar gälla i samma stund som
+  den används en gång — men under de tio minuterna är den hela din inloggning.
+- **Hela länken måste med, inklusive allt efter `#`.** Det är själva nödkoden. Den
+  delen skickas aldrig till servern och hamnar därför aldrig i någon logg; det är
+  därför den ligger just där. Klipps den bort säger sidan att koden saknas.
+- **Det lämnar spår.** Varje nödinloggning skrivs som två rader i händelseloggen, den
+  som inte går att ändra i efterhand: `session.break_glass_minted` när länken skapas och
+  `session.break_glass_used` när den används, båda i ditt eget rum och med samma `jti`.
+  Serverloggen får en rad till, `break_glass_signin`, som säger vem och när men aldrig
+  vad:
+
+  ```bash
+  fly logs -a photographic | grep break_glass_signin
+  ```
+
+  Notera: skärmen **Historik** visar de här raderna ännu inte — den filtrerar på en
+  bestämd lista händelsetyper, och att lägga till de två kräver en ändring i
+  `packages/core`. Raderna finns i loggen; de syns bara inte i gränssnittet än.
+
+### Om något går fel
+
+| Det står | Vad det betyder | Gör så här |
+| --- | --- | --- |
+| `BREAK_GLASS_SECRET är inte satt` | Nyckeln finns inte på maskinen. | Kör `fly secrets set BREAK_GLASS_SECRET=$(openssl rand -hex 32) -a photographic`, vänta på omstarten, kör skriptet igen. |
+| `DATABASE_URL är inte satt` | Du kör skriptet på fel maskin — troligen din egen dator. | Kör det inne i `fly ssh console`, inte lokalt. |
+| `Det finns inget konto för +46…` | Numret har inget konto, eller ett annat nummer än du tror. | Nödinloggningen tar dig tillbaka in i ett konto som finns, den skapar inga. Prova numret du registrerade dig med. |
+| `Vi kan bara skicka koden till ett svenskt mobilnummer` | Numret lästes inte som ett svenskt mobilnummer. | Skriv det som `070-123 45 67`. |
+| Sidan säger `Nödkoden gäller inte` | Länken är använd, äldre än tio minuter, eller avklippt. | Kör skriptet igen och använd den nya länken direkt. |
+| Sidan säger `Länken saknar nödkod` | Delen efter `#` följde inte med. | Kopiera länken igen, hela raden. |
+| `fly ssh console` svarar inte | Maskinen är nere, och då finns inget att logga in på. | Titta på `fly status -a photographic` först — det här är ett annat problem. |
+
+### Varför den här vägen finns
+
+Tidigare stod inloggningskoden i klartext i serverloggen. Det var praktiskt, och det
+betydde att var och en som kunde läsa loggen kunde logga in som vem som helst — även en
+nyckel som bara får *läsa*. Att bara ta bort loggraden hade låst ut dig ur ditt eget
+minne till dess att SMS fungerar, så båda sakerna gjordes samtidigt.
+
+Nödinloggningen är inte samma slags nyckel. Den kräver ett skal på den körande
+maskinen, alltså samma åtkomst som en deploy, inte läsrättighet. Den går inte att
+starta med någon förfrågan över nätet — det finns ingen väg dit, ingen flagga och ingen
+adress. Den gäller ett nummer i taget, i tio minuter, en gång, och den lämnar spår i
+din historik. Den kan inte skapa konton, inte läsa minnen och inte ändra någonting
+annat.
+
 ## Production: `mcp.photographic.space` on Fly
 
 **A tunnel is not the production answer.** `cloudflared` on a laptop dies when the lid
@@ -88,6 +197,28 @@ app's shape.
    Without `DATABASE_URL` the deployed process runs the in-memory reference
    implementation — fine for proving the deploy boots, wrong for anything meant to
    persist or for Claude to actually use.
+
+   **The three secrets sign-in depends on**, none of which used to be listed here — and
+   the deploy that followed this document therefore produced an installation where the
+   only way in was reading a code out of the log:
+   ```bash
+   fly secrets set CODE_SECRET=$(openssl rand -hex 32)          # HMAC over sign-in codes
+   fly secrets set BREAK_GLASS_SECRET=$(openssl rand -hex 32)   # Nödinloggning, above
+   fly secrets set PHOTOGRAPHIC_SMS=46elks \
+                   ELKS_API_USERNAME=... ELKS_API_PASSWORD=... \
+                   SMS_FROM=Photografic                         # SMS delivery
+   ```
+   Each one fails differently when it is missing, and each failure is quiet:
+
+   | Missing | What happens | How you notice |
+   | --- | --- | --- |
+   | `CODE_SECRET` | A new key per boot, so every code in flight stops working at a restart. | `code_secret_ephemeral` at `warn`, every boot. |
+   | `BREAK_GLASS_SECRET` | Nödinloggning accepts nothing, so with SMS also unconfigured nobody can sign in at all. | `break_glass_unavailable` at `warn`, every boot. |
+   | The 46elks three | The SMS channel refuses at send: a person trying to sign up gets a visible, retryable failure rather than a code that went to a log. | `code_delivery_inert` at `error`, every boot, naming the channel and the fix. |
+
+   `SMS_FROM` is `Photografic` with one `f`: eleven characters is the limit for an
+   alphanumeric sender and `Photographic` is one over, so a phone would show something
+   truncated by the operator instead.
 
    **`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are not optional in production**, even
    though the process boots happily without them. They are what `resolveBlobStore` needs
@@ -469,12 +600,17 @@ stay connected, that URL should be the Production one (`https://mcp.photographic
 once Fly is deployed) — a quick or named tunnel is fine for trying this out, but both are
 tied to a machine staying up in a way production is not meant to be.
 
-The sign-up code is not emailed yet — it is written to the API log as `signup_code`, so
+**In local development** the sign-up code is written to the API log as `signup_code`, so
 have that log open while you connect:
 
 ```bash
 grep signup_code /tmp/photographic-rest.log
 ```
+
+**In production that log line no longer carries the code**, and `fly logs` is not a way
+in. Codes go by SMS; when no SMS provider is configured the channel refuses to send rather
+than writing a credential to a file. If you are locked out, use **Nödinloggning** below —
+that is what it is for.
 
 **Reconnecting after a restart.** Two separate things determine whether Claude survives a
 restart, not one. A stable hostname — a named tunnel in development, Fly in production —

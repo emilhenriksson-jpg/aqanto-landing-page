@@ -11,6 +11,12 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.10.0)
+      '@photographic/connect':
+        specifier: workspace:*
+        version: link:packages/connect
+      '@photographic/db':
+        specifier: workspace:*
+        version: link:packages/db
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.2
