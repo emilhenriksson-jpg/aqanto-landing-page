@@ -304,11 +304,26 @@ export interface RoomHeadline {
 /**
  * What a model receives at session start. Assembled, budgeted and cached; never
  * built synchronously from raw items, because voice latency makes that impossible.
+ *
+ * Four things, matching the scope's "spara allt, skicka lite": `profile` is the
+ * personal core context and the core memories in it, `rooms` is the room overview,
+ * and `recent` is the extremely short "what just happened" line. Everything else —
+ * a room's actual contents, the full history, search — is fetched on demand, which is
+ * the whole point: this object is deliberately not everything Photographic knows.
  */
 export interface ContextBundle {
   personId: PersonId;
   profile: Profile;
   rooms: RoomSummary[];
+  /**
+   * A handful of the most recent events across every room the person can reach, newest
+   * first. Not a feed and not a substitute for one — `list_history` and `GET
+   * /v1/history` are the feed. This is the few lines a model can skim before the person
+   * has said anything, bounded by `RECENT_ACTIVITY_LIMIT` and `RECENT_TOKEN_BUDGET` and
+   * the first thing dropped when the budget is tight. See `recentActivityFor` for where
+   * it comes from today and why that read sits behind a seam.
+   */
+  recent: HistoryEntry[];
   activeRoom: ActiveRoomContext | null;
   tokenCount: number;
   bundleVersion: string;

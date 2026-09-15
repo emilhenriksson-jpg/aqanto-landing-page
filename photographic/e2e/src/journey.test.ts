@@ -13,6 +13,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 
+import { RECENT_ACTIVITY_LIMIT } from '@photographic/core';
+
 // Wired by the orchestrator once the implementation packages land.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let harness: any;
@@ -168,6 +170,30 @@ describe('a person and their memory', () => {
     const health = await harness.services.sessions.health(await harness.actorForEmail(email));
     expect(health.some((h: { profileDelivered: boolean }) => h.profileDelivered)).toBe(true);
   });
+
+  itWhenWired(
+    'also hands Claude a short line about what just happened, in the same handshake',
+    async () => {
+      // The session-start package in full: personal core context (asserted above by
+      // "ketchup"), the room overview (asserted elsewhere by room names and
+      // headlines), and now "recent" — the extremely short slice of what just
+      // happened, so a model does not have to ask before it can say something useful
+      // about the last few minutes.
+      const client = await harness.connectMcpClient(await harness.tokenFor(email));
+
+      expect(client.instructions).toMatch(/Det senaste som hände/);
+      // The instruction saved earlier in this suite ("Utmana alltid mina idéer") is
+      // recent enough to be one of the last few things that happened to this person.
+      expect(client.instructions).toMatch(/Utmana/);
+
+      const actor = await harness.actorForEmail(email);
+      const bundle = await harness.services.bundle.build(actor);
+
+      expect(bundle.recent.length).toBeGreaterThan(0);
+      // Bounded, not "whatever fits" — the budget from `RECENT_ACTIVITY_LIMIT`.
+      expect(bundle.recent.length).toBeLessThanOrEqual(RECENT_ACTIVITY_LIMIT);
+    },
+  );
 
   itWhenWired('lets a model delete exactly the right memory by its short id', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
@@ -411,6 +437,37 @@ describe('sharing a room with someone else', () => {
     // And the shared room must not carry Emil's private facts across.
     const hits = await harness.services.retrieval.search(jacobActor, { query: 'ketchup' });
     expect(hits).toHaveLength(0);
+  });
+
+  itWhenWired("keeps 'recent' as isolated as everything else — never Emil's private room", async () => {
+    // "Recent" reads through the same choke point as search and the room overview
+    // (`HistoryPort`, scoped by `accessibleRoomIds`). This is the assertion that the
+    // session-start package does not open a second door: Jacob shares one room with
+    // Emil, and everything Emil has ever done in his own personal room — including the
+    // ketchup fact — must be as absent from Jacob's "recent" as it is from his search.
+    const emil = await harness.personByEmail(emilEmail);
+    const jacob = await harness.personByEmail(jacobEmail);
+    const jacobActor = harness.actorFor(jacob, 'cursor');
+    const emilPersonalRoom = await harness.services.identity.personalRoomOf(emil.id);
+
+    await harness.services.ingest.remember(harness.actorFor(emil), {
+      roomId: emilPersonalRoom.id,
+      body: 'Något helt privat om Emil',
+      explicit: true,
+    });
+    await harness.runJobsToCompletion();
+
+    const bundle = await harness.services.bundle.build(jacobActor);
+    const rendered = harness.services.bundle.render(bundle);
+
+    expect(bundle.recent.every((entry: { roomId: string }) => entry.roomId !== emilPersonalRoom.id)).toBe(true);
+    expect(rendered).not.toContain('Något helt privat om Emil');
+
+    // What Jacob *is* allowed to see through "recent" is the shared room, which he is
+    // a member of just like the room overview and search already prove.
+    expect(bundle.recent.some((entry: { roomTitle: string }) => entry.roomTitle === 'Buyersclub Ledning')).toBe(
+      true,
+    );
   });
 
   itWhenWired('treats text written by other people as data, never as instructions', async () => {

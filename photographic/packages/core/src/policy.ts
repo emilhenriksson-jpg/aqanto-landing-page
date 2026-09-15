@@ -42,6 +42,28 @@ export const SINCE_LAST_SEEN_TOKEN_BUDGET = 400;
 export const ROOM_LIST_TOKEN_BUDGET = 220;
 
 /**
+ * How many events "recent" carries into the session package.
+ *
+ * Four, not forty. This is not the history feed — `list_history` and `GET
+ * /v1/history` already are that, complete and paged. "Recent" exists so a model can say
+ * "you moved the launch date yesterday" without a tool call, and four lines is already
+ * more than a person reads before they start typing. Fetched with this as a hard
+ * `limit`, not filtered down to it after the fact, so the read itself stays cheap.
+ */
+export const RECENT_ACTIVITY_LIMIT = 4;
+
+/**
+ * The whole "recent" block, rendered.
+ *
+ * Small enough that it almost never has to compete with the profile or the room
+ * overview for space, and that is deliberate: "recent" is a nicety, not a promise the
+ * way the profile and the room list are, so it is also the first thing given up when
+ * the budget is tight — dropped whole, not shortened line by line, because three lines
+ * that mention two of the last four things that happened is worse than none.
+ */
+export const RECENT_TOKEN_BUDGET = 150;
+
+/**
  * One room's headline.
  *
  * Roughly a sentence. Anything longer stops being an overview and starts being a brief,

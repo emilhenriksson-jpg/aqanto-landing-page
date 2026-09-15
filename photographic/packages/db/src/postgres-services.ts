@@ -69,11 +69,12 @@ export async function createPostgresServices(
   const rooms = new PgRooms(pool, projection);
   const invites = new PgInvites(pool, notify, options.baseUrl);
   const ingest = new PgIngest(pool, llm, projection, jobs, clock);
-  const bundle = new PgBundle(projection, rooms);
+  // Built before `bundle`: the session package's "recent" reads through it.
+  const history = new PgHistory(pool);
+  const bundle = new PgBundle(projection, rooms, history);
   const retrieval = new PgRetrieval(pool, llm);
   const documents = new PgDocuments(pool, llm, projection, jobs);
   const trash = new PgTrash(pool, ingest, projection);
-  const history = new PgHistory(pool);
   const events = new PgEvents(pool);
   const sessions = new PgSessions(pool);
 
