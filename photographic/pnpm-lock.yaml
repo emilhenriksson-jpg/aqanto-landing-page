@@ -29,6 +29,9 @@ importers:
       '@photographic/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@photographic/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@photographic/core':
         specifier: workspace:*
         version: link:../../packages/core
