@@ -1,8 +1,8 @@
 /**
  * Demo data for the room UI.
  *
- * Screens are designed against this shape so they can be reviewed before the REST
- * endpoints that feed them are finished. When those land, only the loader changes.
+ * Screens are designed against this shape. Live loads map REST responses onto the
+ * same types in `load.ts`; flip `VITE_USE_DEMO=0` to leave demo behind.
  */
 
 import { PROFILE_TOKEN_BUDGET } from '@photographic/core';
@@ -175,4 +175,91 @@ export const PERSONAL_SECTION_ORDER: MemoryLine['kind'][] = [
   'never',
   'decision',
   'note',
+];
+
+/**
+ * Connected AI clients and whether the personal profile actually reached them.
+ * Green = delivered as expected, amber = best-effort channel, red = never landed.
+ */
+export type ClientHealthTone = 'ok' | 'warn' | 'bad';
+
+export interface DemoClient {
+  id: string;
+  displayName: string;
+  lastSeenAt: string | null;
+  profileDelivered: boolean;
+  /** How the profile arrived, when it did. */
+  deliveryMethod: 'mcp_instructions' | 'tool_call' | null;
+  degraded: boolean;
+}
+
+export const DEMO_CLIENTS: DemoClient[] = [
+  {
+    id: 'claude-desktop',
+    displayName: 'Claude',
+    lastSeenAt: '2026-09-15T22:04:00.000Z',
+    profileDelivered: true,
+    deliveryMethod: 'mcp_instructions',
+    degraded: false,
+  },
+  {
+    id: 'chatgpt-web',
+    displayName: 'ChatGPT',
+    lastSeenAt: '2026-09-15T21:48:00.000Z',
+    profileDelivered: true,
+    deliveryMethod: 'tool_call',
+    degraded: true,
+  },
+  {
+    id: 'codex',
+    displayName: 'Codex',
+    lastSeenAt: null,
+    profileDelivered: false,
+    deliveryMethod: null,
+    degraded: false,
+  },
+];
+
+export function clientHealthTone(client: DemoClient): ClientHealthTone {
+  if (!client.profileDelivered) return 'bad';
+  if (client.degraded) return 'warn';
+  return 'ok';
+}
+
+/**
+ * Pending proposals waiting for a tap. Designed as a calm feed to clear, not an inbox.
+ * When REST proposals land, only the loader changes.
+ */
+export interface ApprovalItem {
+  id: string;
+  /** Display name of the client that proposed it, e.g. "Claude". */
+  clientLabel: string;
+  kind: MemoryLine['kind'];
+  body: string;
+  /** Human-readable explanation of why this could not be written automatically. */
+  reason: string;
+}
+
+export const DEMO_APPROVALS: ApprovalItem[] = [
+  {
+    id: 'a-1k9q',
+    clientLabel: 'Claude',
+    kind: 'instruction',
+    body: 'utmana alltid mina idéer',
+    reason: 'Instruktioner ändrar hur varje modell beter sig — de kräver alltid ditt godkännande.',
+  },
+  {
+    id: 'a-3m2p',
+    clientLabel: 'ChatGPT',
+    kind: 'fact',
+    body: 'Bor i Göteborg',
+    reason: 'Strider mot det som redan finns: Emil, 34, bor i Stockholm.',
+  },
+  {
+    id: 'a-7w4c',
+    clientLabel: 'Cursor',
+    kind: 'preference',
+    body: 'Svara alltid på engelska i kodreview',
+    reason: 'Preferenser som styr hur modeller svarar granskas innan de sparas.',
+  },
 ];
