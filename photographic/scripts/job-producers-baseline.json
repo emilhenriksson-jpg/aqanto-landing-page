@@ -12,6 +12,11 @@
     "recurring kinds in the Postgres root, so those rows are gone and what is left is the",
     "narrower fact that the in-memory root still schedules nothing.",
     "",
+    "purge_trash and expire_invites are gone from here too now: MemoryJobs grew the same",
+    "scheduleRecurring the Postgres root already had, seeded with the same kinds and",
+    "intervals, so both are produced on the in-memory root as well. purge_documents is",
+    "untouched and stays -- nothing scheduled it there.",
+    "",
     "Prose in these rows is the reason a future reader trusts the exemption, so it has to be",
     "checkable. An earlier version of the expire_invites row claimed the sweep was called",
     "from the account-jobs timer in apps/rest with a `.catch(() => 0)`. That call never",
@@ -21,16 +26,6 @@
     "as a rule: cite a line someone can open."
   ],
   "known": [
-    {
-      "kind": "purge_trash",
-      "root": "memory",
-      "why": "packages/services-memory/src/index.ts registers it; only the Postgres root seeds it, through jobs.scheduleRecurring in postgres-services.ts. Purging does happen on the in-memory path anyway, through the timer in apps/rest/src/server.ts calling wiring.purgeTrash() directly — the same timer that once ended the process for want of a .catch — so the consequence here is a duplicate mechanism rather than an absent one. Delete this row when MemoryJobs grows the same scheduling, or when the registration goes."
-    },
-    {
-      "kind": "expire_invites",
-      "root": "memory",
-      "why": "packages/services-memory/src/index.ts registers it; only the Postgres root seeds it. InvitePort.expireOverdue has no other caller in the repository — not a timer, not runAccountJobs — so on the in-memory path an expired invite's stored status stays 'pending' forever. That is a wrong column and not an open door: expiry is enforced per request, by peek returning null when expiresAt has passed (db/services/invites.ts:121) and by accept's SQL requiring expires_at > now() (:189). So nothing was ever reachable past its expiry; only the record of it was wrong. Delete this row when MemoryJobs schedules it."
-    },
     {
       "kind": "purge_documents",
       "root": "memory",

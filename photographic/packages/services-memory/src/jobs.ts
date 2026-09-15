@@ -19,6 +19,11 @@ interface QueuedJob {
   runAfter: Date;
 }
 
+/** The dedupe key a recurring job reuses, so there is one row per kind and not a pile. */
+export function recurringKey(kind: string): string {
+  return `recurring:${kind}`;
+}
+
 export class MemoryJobs implements JobPort {
   private queue: QueuedJob[] = [];
   private readonly handlers = new Map<
@@ -68,6 +73,27 @@ export class MemoryJobs implements JobPort {
   }
 
   /**
+   * Schedules work that has to keep happening, rather than work someone asked for.
+   *
+   * The `PgJobs` equivalent of this exists because `purge_trash` and `expire_invites` had
+   * a handler registered and nothing that ever enqueued it: the handler existed, so the
+   * feature read as built, and invites simply never expired. This is the same fix for the
+   * in-memory root. Each recurring job re-enqueues itself for its next run (see
+   * `runOnce`), and this seeds the first one — one entry per kind, because the dedupe key
+   * is the kind.
+   */
+  async scheduleRecurring(definitions: Array<{ kind: string; everySeconds: number }>): Promise<void> {
+    for (const definition of definitions) {
+      await this.enqueue({
+        kind: definition.kind,
+        dedupeKey: recurringKey(definition.kind),
+        runAfter: new Date(this.now().getTime() + definition.everySeconds * 1000),
+        payload: { recurring: definition.everySeconds },
+      });
+    }
+  }
+
+  /**
    * Runs everything currently due, once.
    *
    * A job with no handler is dropped rather than retried forever: in this
@@ -86,6 +112,17 @@ export class MemoryJobs implements JobPort {
       try {
         await handler(job.payload);
         ran += 1;
+        // Recurrence lives here rather than in each handler, mirroring `PgJobs.runOnce`,
+        // so a maintenance job cannot be the one that forgot to schedule its next run.
+        const every = job.payload['recurring'];
+        if (typeof every === 'number' && every > 0) {
+          await this.enqueue({
+            kind: job.kind,
+            dedupeKey: recurringKey(job.kind),
+            runAfter: new Date(this.now().getTime() + every * 1000),
+            payload: { recurring: every },
+          });
+        }
       } catch (error) {
         this.failures.push({ kind: job.kind, error });
       }
