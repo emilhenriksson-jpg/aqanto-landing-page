@@ -5,16 +5,16 @@
     "scripts/check-workflow-locations.mjs, which fails on a new one and on a row here that",
     "no longer matches.",
     "",
-    "The one row below is recorded, not accepted. It is an off-site backup of every",
-    "uploaded document that has never run, and moving it is one `git mv` — but it would",
-    "start running on a schedule the moment it moved, and whether its secrets exist is a",
-    "question for whoever owns the deploy path, not for a CI branch. Recording it is what",
-    "makes the check an error for everything else."
+    "Empty, and it should stay that way. The one row this list was created for --",
+    "document-archive.yml, the off-site copy of every uploaded document, which had run zero",
+    "times because it sat under the workspace directory -- has been moved to the repository",
+    "root and is registered. Moving it also required a `defaults.run.working-directory` of",
+    "`photographic`, since that path is resolved from the repository root no matter where",
+    "the workflow file lives.",
+    "",
+    "A row here is a workflow that cannot fail, which is worse than one that fails loudly:",
+    "it produces no red check for anyone to notice, so it reads exactly like a workflow that",
+    "is passing. Prefer fixing the location over recording it."
   ],
-  "known": [
-    {
-      "path": "photographic/.github/workflows/document-archive.yml",
-      "why": "The off-site copy of the document originals, on a daily and a weekly cron. It sits under the workspace directory rather than the repository root, so Actions has never registered it: the workflows API lists CI and pages-build-deployment and nothing else, and this file has executed zero times. Its own header says the failure mode it guards against is 'nobody noticed it stopped' — it never started, and a dead-man's switch that was never wound cannot fire. Fixing it is `git mv photographic/.github/workflows/document-archive.yml .github/workflows/`, after confirming BACKUP_HEARTBEAT_URL and the bucket credentials are set, because the move is what makes it begin running. Owned by the deploy path; delete this row when it moves."
-    }
-  ]
+  "known": []
 }

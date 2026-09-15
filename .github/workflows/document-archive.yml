@@ -64,6 +64,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
+    # The workspace is `photographic/` inside this repository, not the repository root,
+    # and `working-directory` is resolved from the root no matter where this file lives.
+    # This file used to sit at `photographic/.github/workflows/`, which GitHub does not
+    # read at all — it only registers workflows under the root `.github/workflows/`. So it
+    # had never run once: no schedule, no executions, and nothing red to notice, because a
+    # workflow that was never registered produces no failures either. A dead man's switch
+    # nobody wound. Moving it here is what makes the schedule real; this default is what
+    # makes it work once it fires.
+    defaults:
+      run:
+        working-directory: photographic
+
     steps:
       - uses: actions/checkout@v4
 
