@@ -242,6 +242,7 @@ export function serialiseBundle(bundle: ContextBundle, rendered: string) {
   return {
     profile: serialiseProfile(bundle.profile),
     rooms: bundle.rooms.map(serialiseRoomSummary),
+    recent: bundle.recent.map(serialiseHistoryEntry),
     activeRoom: bundle.activeRoom,
     // The string the model is meant to receive, pre-rendered. A client that assembles
     // its own from the sections will drift from the one the MCP server sends, and then

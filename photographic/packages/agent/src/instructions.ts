@@ -12,8 +12,8 @@
  * competing for attention at session start.
  */
 
-import type { ContextBundle, Profile, RenderedItem, RoomSummary } from '@photographic/core';
-import { ROOM_LIST_TOKEN_BUDGET, estimateTokens } from '@photographic/core';
+import type { ContextBundle, HistoryAction, HistoryEntry, Profile, RenderedItem, RoomSummary } from '@photographic/core';
+import { RECENT_TOKEN_BUDGET, ROOM_LIST_TOKEN_BUDGET, estimateTokens } from '@photographic/core';
 
 import { wrapRoomContent } from './boundary.js';
 import { DATA_BOUNDARY, HOW_TO_CONFIRM, LANGUAGE } from './policy-text.js';
@@ -265,6 +265,92 @@ function sharing(room: RoomSummary): string {
   return others === 1 ? 'delad med 1 person' : `delad med ${others} personer`;
 }
 
+/**
+ * "Recent": the extremely short line about what just happened, across every room.
+ *
+ * The room overview says what exists; this says what moved, without the model having
+ * to ask. Deliberately not the history feed — `list_history` already is that, complete
+ * and paged — so this stays to a handful of one-line entries and drops the whole block
+ * rather than shortening it further, because a partial "recent" that is missing the one
+ * thing that mattered reads as complete and is not.
+ *
+ * Room titles and memory bodies are the same kind of data a room brief carries: written
+ * by people, in a shared room by someone other than the one being helped. So the whole
+ * block goes inside `wrapRoomContent`, exactly like the room overview and the active
+ * room's brief.
+ */
+const RECENT_LABEL: Partial<Record<HistoryAction, string>> = {
+  saved: 'sparade',
+  updated: 'ändrade',
+  superseded: 'ersatte',
+  deleted: 'tog bort',
+  restored: 'tog tillbaka',
+  purged: 'raderade permanent',
+  proposed: 'föreslog',
+  approved: 'godkände',
+  rejected: 'avslog',
+  document_added: 'lade till ett dokument',
+  room_created: 'skapade rummet',
+  member_joined: 'gick med',
+  member_left: 'lämnade',
+};
+
+const RECENT_PREAMBLE = `Det senaste som hände, utan att du behöver fråga (bara några rader — list_history ger mer):`;
+
+/**
+ * An allowlist, not a denylist, for the same reason `ACTION_OF` in `HistoryPort` is one:
+ * a new action this does not know about should stay silent rather than guess it is
+ * safe to repeat.
+ *
+ * `saved`, `updated` and `restored` are the current state of a memory the model is
+ * already allowed to see in the profile or a room read — repeating a short preview here
+ * is not a new disclosure. Everything else is either not yet real (`proposed`,
+ * `approved`, `rejected` — a proposal is not a decision, and `explicit`-gated content
+ * that has not been through the Godkänn-kön must not reach the model as if it had) or
+ * actively meant to be gone (`deleted`, `purged`, and a future `superseded` once track 2
+ * ships it — a corrected fact's superseded text is exactly the thing the correction
+ * removed from view).
+ */
+const RECENT_BODY_ALLOWED: ReadonlySet<HistoryAction> = new Set(['saved', 'updated', 'restored']);
+
+function recentLine(entry: HistoryEntry): string {
+  const date = entry.occurredAt.toISOString().slice(0, 10);
+  const verb = RECENT_LABEL[entry.action] ?? entry.action;
+  const showBody = entry.body && RECENT_BODY_ALLOWED.has(entry.action);
+  const preview = showBody ? `: ${truncatePreview(entry.body!)}` : '';
+  return `- ${date}: ${verb} — ${entry.roomTitle}${preview}`;
+}
+
+function truncatePreview(body: string, maxChars = 60): string {
+  const trimmed = body.trim();
+  return trimmed.length > maxChars ? `${trimmed.slice(0, maxChars - 1)}…` : trimmed;
+}
+
+/**
+ * Packs entries newest-first until `RECENT_TOKEN_BUDGET` runs out, then stops rather
+ * than trailing off with a "left out" note — unlike the room list, missing the tail of
+ * "recent" costs nothing, because nothing here is the only place its subject is named.
+ */
+function renderRecent(recent: HistoryEntry[]): string | null {
+  if (recent.length === 0) return null;
+
+  const lines: string[] = [];
+  let used = estimateTokens(RECENT_PREAMBLE);
+
+  for (const entry of recent) {
+    const line = recentLine(entry);
+    const cost = estimateTokens(`${line}\n`);
+    if (used + cost > RECENT_TOKEN_BUDGET) break;
+    lines.push(line);
+    used += cost;
+  }
+
+  if (lines.length === 0) return null;
+
+  return `${RECENT_PREAMBLE}
+${wrapRoomContent(lines.join('\n'), { label: 'senaste', notice: false })}`;
+}
+
 export interface RenderOptions {
   /** Set false for clients that receive the rules another way, e.g. our own voice app. */
   includeRules?: boolean;
@@ -320,12 +406,18 @@ på något om personen, och nämn inte det här för dem.`,
  *
  * Everything drops at an item or block boundary; nothing is cut mid-sentence, because a
  * rule stated halfway is a puzzle rather than a rule.
+ *
+ * "Recent" is not part of this search at all. It is spent purely out of whatever slack
+ * is left once everything above has already fit, and it is the very first thing to give
+ * way — ahead of headlines, ahead of the active room's brief — because unlike those it
+ * is not the model's only path to something: it is a nicety on top of a package that
+ * already works without it.
  */
-export function renderInstructions(bundle: ContextBundle, options: RenderOptions = {}): string {
-  const includeRules = options.includeRules ?? true;
-  const budget = options.budgetTokens ?? INSTRUCTIONS_TOKEN_BUDGET;
-  const rules = includeRules ? [HOW_TO_CONFIRM, DATA_BOUNDARY, LANGUAGE] : [];
-
+function assembleBlocks(
+  bundle: ContextBundle,
+  budget: number,
+  rules: string[],
+): { blocks: string[]; fits: boolean } {
   const active: string[] = [];
   if (bundle.activeRoom) {
     // No per-payload notice here: `DATA_BOUNDARY` is a few hundred tokens below in the
@@ -340,7 +432,7 @@ export function renderInstructions(bundle: ContextBundle, options: RenderOptions
     );
   }
 
-  let tightest: string | null = null;
+  let tightest: string[] | null = null;
 
   for (const headlines of [true, false]) {
     const rooms = renderRooms(bundle.rooms, { headlines });
@@ -351,17 +443,38 @@ export function renderInstructions(bundle: ContextBundle, options: RenderOptions
       const context = [...(rooms ? [rooms] : []), ...active.slice(0, keep)];
       const reserved = estimateTokens([PREAMBLE, ...context, ...rules].join(SEPARATOR));
       const profile = renderProfile(bundle.profile, Math.max(0, budget - reserved));
-      const out = [PREAMBLE, profile, ...context, ...rules].join(SEPARATOR);
+      const blocks = [PREAMBLE, profile, ...context];
 
-      if (estimateTokens(out) <= budget) return out;
-      tightest = out;
+      if (estimateTokens([...blocks, ...rules].join(SEPARATOR)) <= budget) {
+        return { blocks, fits: true };
+      }
+      tightest = blocks;
     }
   }
 
   // Over budget with nothing left that may be given up. Returning the tightest render
   // beats trimming it: what remains is the rules, the room names and one profile item,
   // and there is no way to cut that which does not cost more than the overrun.
-  return tightest ?? [PREAMBLE, ...rules].join(SEPARATOR);
+  return { blocks: tightest ?? [PREAMBLE], fits: false };
+}
+
+export function renderInstructions(bundle: ContextBundle, options: RenderOptions = {}): string {
+  const includeRules = options.includeRules ?? true;
+  const budget = options.budgetTokens ?? INSTRUCTIONS_TOKEN_BUDGET;
+  const rules = includeRules ? [HOW_TO_CONFIRM, DATA_BOUNDARY, LANGUAGE] : [];
+
+  const { blocks, fits } = assembleBlocks(bundle, budget, rules);
+  const withoutRecent = [...blocks, ...rules].join(SEPARATOR);
+
+  // Only ever attempted once the rest of the package already fits within budget on its
+  // own — see the note above `assembleBlocks`.
+  const recentBlock = fits ? renderRecent(bundle.recent) : null;
+  if (recentBlock) {
+    const withRecent = [...blocks, recentBlock, ...rules].join(SEPARATOR);
+    if (estimateTokens(withRecent) <= budget) return withRecent;
+  }
+
+  return withoutRecent;
 }
 
 const SEPARATOR = '\n\n---\n\n';

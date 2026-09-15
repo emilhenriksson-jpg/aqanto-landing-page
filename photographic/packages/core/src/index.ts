@@ -8,3 +8,4 @@ export * from './routing.js';
 export * from './resolve.js';
 export * from './room-name.js';
 export * from './errors.js';
+export * from './recent.js';
