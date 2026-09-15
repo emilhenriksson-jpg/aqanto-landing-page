@@ -108,7 +108,12 @@ export interface AppDeps {
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const config = deps.config ?? loadConfigFromEnv();
-  const logger = deps.logger ?? createLogger({ level: config.logLevel });
+  const logger =
+    deps.logger ??
+    createLogger({
+      level: config.logLevel,
+      revealSignupCode: config.environment !== 'production',
+    });
   const oauth = deps.oauth ?? createStubOAuthProvider();
 
   const app = new Hono<AppEnv>();
