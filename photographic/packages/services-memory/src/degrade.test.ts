@@ -79,7 +79,9 @@ describe('degrading gracefully with no working embedder', () => {
       personalRoom.id,
       'Bor i Göteborg',
     );
+    // A personal room needs no approval, so the edit applies rather than queueing.
+    if (updated.outcome !== 'updated') throw new Error('expected the edit to apply');
 
-    expect(updated.body).toBe('Bor i Göteborg');
+    expect(updated.item.body).toBe('Bor i Göteborg');
   });
 });
