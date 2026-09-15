@@ -28,10 +28,9 @@ _Agents append here. Do not edit another package to unblock yourself._
 
 ## In progress
 
-- **orchestrator** — morning stretch: design round 3 on `apps/web` (depth after the
-  avatar/hero/Alla pass), invite preview polish, public HTTPS so Claude can connect
-  for real (tunnel or Fly+Postgres), and wiring the demo-off path more deeply once
-  `VITE_USE_DEMO=0` is the default for anyone pointing the web app at REST.
+- **orchestrator** — public HTTPS so Claude can connect for real (tunnel or
+  Fly+Postgres), deeper `VITE_USE_DEMO=0` wiring, design round 4 (invite CTA
+  above-fold confidence, Dokument section, less “status dashboard” on Klienter).
   Deploy scaffolding (`Dockerfile`, `fly.toml`, migrate-on-start, `scripts/deploy.md`)
   is in place; Postgres adapters are assembled and `DATABASE_URL` boots cleanly.
 
@@ -197,3 +196,11 @@ _Agents append here. Do not edit another package to unblock yourself._
 
 - **orchestrator** — `apps/web` component tests now 11 green (was 3), covering the new
   screens and the shared room chrome from round 2.
+
+- **orchestrator** — invite recipient preview at `/i/:token` outside the shell rail:
+  readable room content + one violet “Gå med” (demo join confirm). Growth loop screen
+  from DESIGN.md.
+
+- **orchestrator** — web design round 3: standing-inside-the-room polish (hero depth,
+  Alla foyer, rail calm). Shared rooms gained a sparse Swedish **Aktivitet** feed.
+  REST CORS defaults include `127.0.0.1:5173` so Vite→API works locally. Web tests 15.
