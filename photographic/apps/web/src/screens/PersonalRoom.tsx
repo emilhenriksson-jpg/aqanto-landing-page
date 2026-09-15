@@ -43,7 +43,10 @@ export function PersonalRoom() {
 function PersonalRoomReady({ room }: { room: RoomDetail }) {
   const ceiling = room.tokenCeiling;
   const [tokenCount, setTokenCount] = useState(room.tokenCount);
+  /** Undo tokens from soft-delete; keyed by shortId for the same-turn Ångra. */
   const undoTokens = useRef(new Map<string, string>());
+  /** In-flight forget promises so a fast Ångra can wait for the undo token. */
+  const forgetInFlight = useRef(new Map<string, Promise<string | null>>());
 
   const sections = useMemo(() => {
     return PERSONAL_SECTION_ORDER.map((kind) => ({
@@ -56,19 +59,35 @@ function PersonalRoomReady({ room }: { room: RoomDetail }) {
   async function forget(shortId: string) {
     setTokenCount((n) => Math.max(0, n - 24));
     if (isDemoMode()) return;
-    try {
-      const result = await forgetMemory(shortId, room.id);
-      undoTokens.current.set(shortId, result.undoToken);
-    } catch {
-      // Soft-delete is best-effort from the row; the UI already shows "Borttaget".
-    }
+
+    const pending = (async (): Promise<string | null> => {
+      try {
+        const result = await forgetMemory(shortId, room.id);
+        undoTokens.current.set(shortId, result.undoToken);
+        return result.undoToken;
+      } catch {
+        // Soft-delete is best-effort from the row; the UI already shows "Borttaget".
+        return null;
+      } finally {
+        forgetInFlight.current.delete(shortId);
+      }
+    })();
+
+    forgetInFlight.current.set(shortId, pending);
+    await pending;
   }
 
   async function restore(shortId: string) {
     setTokenCount((n) => Math.min(ceiling, n + 24));
     if (isDemoMode()) return;
-    const token = undoTokens.current.get(shortId);
+
+    let token = undoTokens.current.get(shortId);
+    if (!token) {
+      const pending = forgetInFlight.current.get(shortId);
+      if (pending) token = (await pending) ?? undefined;
+    }
     if (!token) return;
+
     try {
       await undoMemory(token);
       undoTokens.current.delete(shortId);
