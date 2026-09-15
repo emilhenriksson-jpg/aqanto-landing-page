@@ -1011,15 +1011,17 @@ against; flagged rather than assumed working.
   **The check that came before the change: no real account was registered by email.**
   Asked against the live Supabase project rather than reasoned about, because removing
   email from login would lock such a person out permanently and that is a far worse bug
-  than the one being fixed. `app.person` holds four rows, all four with an address and no
-  phone — and all four are `@photographic.test` proof accounts created earlier the same
-  day by the deploy track's own live verification runs (`deploy-proof-…`,
-  `compass-proof-…`, `real-host-…`, `emil-demo-…`), confirmed against that agent's
-  transcript. `app.credential` is empty, `emil.henriksson@me.com` has no account, and
-  `.test` is a reserved TLD that cannot receive mail, so none of the four is a person and
-  none of them is locked out of anything. **Emil himself has no account yet**, which is
-  the other half of why this was safe to ship: the first real one will be made with a
-  number.
+  than the one being fixed. `app.person` held four rows at 13:56 and five when re-checked
+  at the end of the work, every one of them with an address and no phone — and every one
+  of them an `@photographic.test` proof account created the same day by the deploy track's
+  own live verification runs (`deploy-proof-…`, `compass-proof-…`, `real-host-…`,
+  `emil-demo-…`), confirmed against that agent's transcript. The count is rising purely
+  from those runs. `app.credential` is empty,
+  `select count(*) … where email not like '%@photographic.test'` is **0**,
+  `emil.henriksson@me.com` has no account, and `.test` is a reserved TLD that cannot
+  receive mail — so none of these is a person and none of them is locked out of anything.
+  **Emil himself has no account yet**, which is the other half of why this was safe to
+  ship: the first real one will be made with a number.
 
   **The hidden path was the real bug.** `POST /v1/signup/request` still accepted
   `{"email":…}` after the field came off the screen — a saved link, an old client or a
