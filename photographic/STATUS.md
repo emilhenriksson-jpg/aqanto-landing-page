@@ -204,3 +204,7 @@ _Agents append here. Do not edit another package to unblock yourself._
 - **orchestrator** — web design round 3: standing-inside-the-room polish (hero depth,
   Alla foyer, rail calm). Shared rooms gained a sparse Swedish **Aktivitet** feed.
   REST CORS defaults include `127.0.0.1:5173` so Vite→API works locally. Web tests 15.
+
+- **orchestrator** — calm **Dokument** shelf on personal + shared rooms (demo rows,
+  empty copy when none). Room interior now matches DESIGN.md: memories, documents,
+  activity.

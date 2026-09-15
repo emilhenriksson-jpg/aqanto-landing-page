@@ -30,7 +30,7 @@ fly secrets set OPENAI_API_KEY=sk-... PHOTOGRAPHIC_LLM=openai
 ## Fungerar inte
 
 - Fly med durable Postgres + publik HTTPS så Claude Desktop kan ansluta på riktigt
-- Web-appen defaultar fortfarande till demo-data; REST-scaffold finns bakom `VITE_USE_DEMO=0` men är inte djupt inkopplad ännu
+- Web-appen defaultar fortfarande till demo-data; live path: `VITE_USE_DEMO=0` + curls in `scripts/demo-api.md`
 - Riktiga e-post/SMS-koder (dev skriver koden i loggen)
 
 ## Ett kommando
