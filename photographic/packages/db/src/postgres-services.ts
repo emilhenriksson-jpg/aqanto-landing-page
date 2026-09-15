@@ -44,6 +44,7 @@ import { PgRetrieval } from './services/retrieval.js';
 import { PgRooms } from './services/rooms.js';
 import { PgSessions } from './services/sessions.js';
 import { PgTrash } from './services/trash.js';
+import { toVectorLiteral } from './vector.js';
 
 export interface PostgresServicesOptions {
   pool: Pool;
@@ -136,6 +137,39 @@ export async function createPostgresServices(
 
   jobs.work('summarise_document', async (payload) => {
     await documents.summarise(payload['documentId'] as never);
+  });
+
+  /**
+   * The write-side half of the ranking arm in `PgRetrieval` that finds a genuine
+   * paraphrase. Deferred here rather than awaited inline in `PgIngest` so a slow or
+   * failing embedding call can never be the reason a memory fails to save -- see the
+   * comment on `PgIngest.queueEmbedding`. Left `active` only: a memory deleted before
+   * this ran has nothing worth spending an API call embedding, and `PgIngest` never
+   * re-queues on restore because the embedding from before the delete is still valid.
+   *
+   * A thrown error here (an API outage, a missing key) propagates to `PgJobs.runOnce`,
+   * which is exactly what makes this "backfillable" rather than "best-effort and
+   * silently skipped": the job is retried, up to `max_attempts`, rather than the
+   * memory being permanently unsearchable by meaning.
+   */
+  jobs.work('embed_item', async (payload) => {
+    const itemId = payload['itemId'] as string | undefined;
+    if (!itemId) return;
+
+    const row = await pool.query<{ body: string; status: string }>(
+      `SELECT body, status FROM app.item WHERE id = $1`,
+      [itemId],
+    );
+    const item = row.rows[0];
+    if (!item || item.status !== 'active') return;
+
+    const [vector] = await llm.embed([item.body]);
+    if (!vector) return;
+
+    await pool.query(`UPDATE app.item SET embedding = $1::vector WHERE id = $2`, [
+      toVectorLiteral(vector),
+      itemId,
+    ]);
   });
 
   jobs.work('purge_trash', async () => {

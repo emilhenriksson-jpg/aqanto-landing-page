@@ -721,3 +721,74 @@ export const DEMO_HISTORY: HistoryLine[] = [
     body: 'ChatGPT föreslog Bor i Göteborg',
   },
 ];
+
+/**
+ * "Fråga mitt minne" — one shape for a memory, a document or a calendar entry, so the
+ * screen can render all three the same way. Mirrors `AskHitDto` from the live API.
+ */
+export interface AskResultLine {
+  id: string;
+  kind: 'memory' | 'document' | 'event';
+  roomId: string;
+  roomTitle: string;
+  text: string;
+  /** Short id chip for a memory, a relative date for an event. */
+  meta: string;
+}
+
+const DEMO_ROOM_TITLE: Record<string, string> = Object.fromEntries(
+  DEMO_ROOMS.map((room) => [room.id, room.kind === 'personal' ? 'Ditt rum' : room.title]),
+);
+
+/**
+ * A small, honest stand-in for `askMemory` (`packages/core/src/ask.ts`): plain
+ * substring matching across the same demo memories every other screen already shows,
+ * so a demo search never "finds" something the room screens do not also have.
+ */
+export function searchDemoMemory(query: string): AskResultLine[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+
+  const results: AskResultLine[] = [];
+
+  for (const memory of PERSONAL_MEMORIES) {
+    if (memory.body.toLowerCase().includes(needle)) {
+      results.push({
+        id: memory.shortId,
+        kind: 'memory',
+        roomId: 'personal',
+        roomTitle: DEMO_ROOM_TITLE['personal']!,
+        text: memory.body,
+        meta: memory.shortId,
+      });
+    }
+  }
+
+  for (const [roomId, { memories }] of Object.entries(ROOM_MEMORIES)) {
+    for (const memory of memories) {
+      if (!memory.body.toLowerCase().includes(needle)) continue;
+      results.push({
+        id: memory.shortId,
+        kind: 'memory',
+        roomId,
+        roomTitle: DEMO_ROOM_TITLE[roomId] ?? 'okänt rum',
+        text: memory.body,
+        meta: memory.shortId,
+      });
+    }
+  }
+
+  for (const entry of DEMO_HISTORY) {
+    if (!entry.body.toLowerCase().includes(needle)) continue;
+    results.push({
+      id: entry.id,
+      kind: 'event',
+      roomId: 'personal',
+      roomTitle: DEMO_ROOM_TITLE['personal']!,
+      text: entry.body,
+      meta: entry.when,
+    });
+  }
+
+  return results;
+}

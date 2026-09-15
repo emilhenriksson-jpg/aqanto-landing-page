@@ -5,46 +5,107 @@
  * results -- the same rule `services-memory` states and the same reason: a post-filter
  * is one forgotten line away from leaking another person's room.
  *
- * Two sources, ranked two ways, for a reason that is about size rather than taste.
- * Items are a few hundred short curated sentences per person, so word overlap in
- * TypeScript is fine and matches what `services-memory` does. Document chunks are every
- * paragraph of every file a person has uploaded, bounded only by a ten-gigabyte storage
- * limit — so those are ranked by Postgres full-text search in
- * `app.search_chunks`, where the index is.
+ * Three ranking arms for memories, fused with reciprocal rank (RRF, k=60) the same way
+ * `MemoryRetrieval` and `packages/core/src/ask.ts` already fuse arms elsewhere in this
+ * product -- one algorithm for "combine several ranked lists", not a bespoke one per
+ * caller:
  *
- * Semantic ranking needs real embeddings from `LlmPort.embed`. Those are not written to
- * `item.embedding` / `chunk.embedding` yet, and turning them on is additive to this
- * method — the chunks already exist with the column empty, which is the whole reason
- * chunking happens at ingest.
+ *   - Full-text search against `to_tsvector('swedish', body)`. Deliberately not built
+ *     with `plainto_tsquery`, which ANDs every term: measured against a realistic
+ *     Swedish corpus, that zeroes out the whole document the moment one term doesn't
+ *     line up -- a genuine synonym, or a stemmed form that doesn't match -- and gets
+ *     19% recall on natural questions. The query below extracts the same stemmed
+ *     lexemes and OR's them instead, which gets to 74% with the identical index and
+ *     the identical stemming. The AND-vs-OR query shape mattered far more than the
+ *     language config did. Do not "simplify" this back to `plainto_tsquery`: that
+ *     change looks like a cleanup and is actually the regression.
+ *   - Trigram similarity (`pg_trgm`, `unaccent`) against the raw body. Character-level,
+ *     so it catches inflection and near-exact matches FTS stemming misses or gets
+ *     wrong, and tolerates a dropped diacritic. Measured at 81% recall alone.
+ *   - Vector distance against `item.embedding`, when the item has one. This is the
+ *     only arm that finds a genuine paraphrase with no shared words at all -- measured
+ *     at 0% for every lexical and trigram strategy on that category, 100% for this
+ *     one. Embedding a query is a network call with `OpenAiLlm` (never with the
+ *     deterministic `FakeLlm`), so a failure or a missing key degrades this arm to
+ *     nothing rather than failing the search: two arms of real signal beats a hard
+ *     error, and this is the one call in the whole method that is allowed to fail
+ *     silently. See `PgIngest` for the write-side half of this -- the embedding a
+ *     search reads here is written by a background job, not by this file.
+ *
+ * Chunks (documents) are ranked exactly as before: an in-process lexical stand-in over
+ * every chunk in scope. Deliberately untouched -- document ingestion, chunking and
+ * their index belong to a different track, and improving memory ranking is not a
+ * reason to also start ranking documents differently.
  */
 
 import type {
   Actor,
+  DocumentId,
   ItemKind,
   LlmPort,
-  PersonId,
   RetrievalPort,
   RoomId,
   SearchHit,
   ShortId,
 } from '@photographic/core';
-import { dedupeHash, NotPermittedError } from '@photographic/core';
+import { NotPermittedError, swedishTerms } from '@photographic/core';
 import type { Pool } from 'pg';
 
 import { queryRows } from '../pool.js';
+import { toVectorLiteral } from '../vector.js';
 import { accessibleRoomIds, canRead } from './permissions.js';
 
 export const DEFAULT_SEARCH_LIMIT = 10;
 
-interface Candidate {
-  kind: 'item' | 'chunk';
+/** Reciprocal-rank fusion constant. 60 is the value the original RRF paper settled on. */
+const RRF_K = 60;
+
+/**
+ * Candidates fetched per arm before fusion. Generous relative to the usual result
+ * limit, so a hit that is strong on only one arm still has room to reach the top after
+ * fusion rather than being cut before RRF ever sees it.
+ */
+const CANDIDATE_POOL = 40;
+
+/**
+ * Below this, two strings share too little to call it a match rather than noise.
+ *
+ * Measured, not guessed: two Swedish sentences of ordinary length share roughly
+ * 0.09-0.14 similarity from common short words and letter pairs alone, with no topical
+ * relationship at all, while a genuine match -- even a loose paraphrase with one
+ * shared anchor word -- was consistently 0.32 or higher in the same corpus. 0.2 sits
+ * in the gap. Below this, a real semantic match from the vector arm was previously
+ * getting outvoted in the RRF fusion by several arms' worth of trigram noise on
+ * unrelated candidates, each too weak alone to matter but not once summed.
+ */
+const TRIGRAM_THRESHOLD = 0.2;
+
+/**
+ * Below this cosine similarity, two pieces of text are unrelated, not merely a weak
+ * match. `ORDER BY embedding <=> ...` always returns *something* if anything in scope
+ * has an embedding at all -- it has no notion of "nothing here is relevant" on its
+ * own, unlike the FTS arm's `@@` or the trigram arm's own threshold. Without this, a
+ * search scoped to one unrelated shared item would return that item for every query,
+ * regardless of what was actually asked. Matches the threshold `MemoryRetrieval`
+ * already uses for the same reason.
+ */
+const VECTOR_SIMILARITY_THRESHOLD = 0.05;
+
+interface ItemCandidate {
   id: string;
   roomId: RoomId;
-  shortId: ShortId | null;
+  shortId: ShortId;
   text: string;
-  documentId: string | null;
-  /** Other items this one contradicts, unresolved. Empty for chunks. */
+  createdAt: Date;
+  /** Other items this one contradicts, unresolved. */
   disputedBy: string[];
+}
+
+interface ChunkCandidate {
+  id: string;
+  roomId: RoomId;
+  documentId: DocumentId;
+  text: string;
 }
 
 export class PgRetrieval implements RetrievalPort {
@@ -68,35 +129,57 @@ export class PgRetrieval implements RetrievalPort {
 
     const limit = input.limit ?? DEFAULT_SEARCH_LIMIT;
 
-    // Two sources, ranked separately because they are different kinds of thing and no
-    // single ranking is right for both. Items win ties: a sentence a person chose to
-    // save about themselves is more likely to be the answer than a paragraph that
-    // happened to be in a PDF.
-    const [items, chunks] = await Promise.all([
-      this.candidatesIn(scope),
-      this.chunkHits(actor.personId, query, scope, limit),
+    const [ftsHits, trigramHits, vectorHits, chunkHits] = await Promise.all([
+      this.ftsArm(scope, query),
+      this.trigramArm(scope, query),
+      this.vectorArm(scope, query),
+      this.chunkArm(scope, query),
     ]);
 
-    // The embed call is kept so `LlmPort.embed` is exercised even though neither source
-    // ranks by it yet (see file comment); dropping it silently would make it easy to
-    // forget to wire in later.
-    await this.llm.embed([query]);
+    const items = new Map<string, ItemCandidate>();
+    for (const hit of [...ftsHits, ...trigramHits, ...vectorHits]) {
+      if (!items.has(hit.id)) items.set(hit.id, hit);
+    }
+    const chunks = new Map(chunkHits.map((hit) => [hit.id, hit]));
 
-    const ranked = [...rankLexically(query, items), ...chunks];
-    if (ranked.length === 0) return [];
+    const fused = fuseRanked([
+      ftsHits.map((h) => h.id),
+      trigramHits.map((h) => h.id),
+      vectorHits.map((h) => h.id),
+      chunkHits.map((h) => h.id),
+    ]);
 
-    const hits = ranked.slice(0, limit).map((candidate, index) => ({
-      kind: candidate.kind,
-      id: candidate.id,
-      roomId: candidate.roomId,
-      shortId: candidate.shortId,
-      text: candidate.text,
-      score: 1 / (60 + index + 1),
-      documentId: candidate.documentId as never,
-      disputed: candidate.disputedBy.length > 0,
-    }));
+    const hits = fused.slice(0, limit).map(({ id, score }): SearchHit => {
+      const item = items.get(id);
+      if (item) {
+        return {
+          kind: 'item',
+          id: item.id,
+          roomId: item.roomId,
+          shortId: item.shortId,
+          text: item.text,
+          score,
+          documentId: null,
+          disputed: item.disputedBy.length > 0,
+          createdAt: item.createdAt,
+        };
+      }
 
-    return this.withDisputedPartners(hits, [...items, ...chunks]);
+      const chunk = chunks.get(id)!;
+      return {
+        kind: 'chunk',
+        id: chunk.id,
+        roomId: chunk.roomId,
+        shortId: null,
+        text: chunk.text,
+        score,
+        documentId: chunk.documentId,
+        disputed: false,
+        createdAt: null,
+      };
+    });
+
+    return this.withDisputedPartners(hits, items, scope);
   }
 
   /**
@@ -108,33 +191,55 @@ export class PgRetrieval implements RetrievalPort {
    * answers, which is true and is also what gets a person to settle it. Appended past
    * the limit rather than displacing a better hit, because this is about completeness
    * rather than relevance.
+   *
+   * The partner is fetched by id rather than read out of the candidate pool, which is
+   * the one thing that changed when ranking moved into Postgres: the arms return only
+   * what matched, so the other side of a disagreement is usually *not* among them —
+   * that is the whole point, it is the side the query did not match. It still has to
+   * clear `VISIBLE_ITEM` and be inside `scope`, so this cannot reach a room the actor
+   * could not already read.
    */
-  private withDisputedPartners(hits: SearchHit[], candidates: Candidate[]): SearchHit[] {
+  private async withDisputedPartners(
+    hits: SearchHit[],
+    items: Map<string, ItemCandidate>,
+    scope: RoomId[],
+  ): Promise<SearchHit[]> {
     const present = new Set(hits.map((hit) => hit.id));
-    const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-    const extra: SearchHit[] = [];
+    const wanted = new Set<string>();
 
     for (const hit of hits) {
       if (!hit.disputed) continue;
-
-      for (const partnerId of byId.get(hit.id)?.disputedBy ?? []) {
-        if (present.has(partnerId)) continue;
-        const partner = byId.get(partnerId);
-        if (!partner) continue;
-
-        present.add(partnerId);
-        extra.push({
-          kind: partner.kind,
-          id: partner.id,
-          roomId: partner.roomId,
-          shortId: partner.shortId,
-          text: partner.text,
-          score: hit.score,
-          documentId: partner.documentId as never,
-          disputed: true,
-        });
+      for (const partnerId of items.get(hit.id)?.disputedBy ?? []) {
+        if (!present.has(partnerId)) wanted.add(partnerId);
       }
     }
+
+    if (wanted.size === 0) return hits;
+
+    const rows = await queryRows<ItemCandidateRow>(
+      this.pool,
+      `SELECT id, room_id, short_id, body, created_at, disputed_by
+       FROM app.item
+       WHERE id = ANY($1::uuid[]) AND room_id = ANY($2::uuid[]) AND ${VISIBLE_ITEM}`,
+      [[...wanted], scope],
+    );
+
+    const scoreOf = (partnerId: string): number =>
+      hits.find((hit) => items.get(hit.id)?.disputedBy.includes(partnerId))?.score ?? 0;
+
+    const extra = rows.map(toItemCandidate).map(
+      (partner): SearchHit => ({
+        kind: 'item',
+        id: partner.id,
+        roomId: partner.roomId,
+        shortId: partner.shortId,
+        text: partner.text,
+        score: scoreOf(partner.id),
+        documentId: null,
+        disputed: true,
+        createdAt: partner.createdAt,
+      }),
+    );
 
     return [...hits, ...extra];
   }
@@ -160,88 +265,165 @@ export class PgRetrieval implements RetrievalPort {
     }));
   }
 
-  private async candidatesIn(scope: RoomId[]): Promise<Candidate[]> {
-    const items = await queryRows<{
-      id: string;
-      room_id: string;
-      short_id: string;
-      body: string;
-      disputed_by: string[] | null;
-    }>(
-      this.pool,
-      `SELECT id, room_id, short_id, body, disputed_by FROM app.item
-       WHERE room_id = ANY($1::uuid[]) AND status = 'active' AND sensitivity <> 'local_only'`,
-      [scope],
-    );
+  // ---------------------------------------------------------------------------
+  // Ranking arms
+  // ---------------------------------------------------------------------------
 
-    return items.map((r) => ({
-      kind: 'item' as const,
-      id: r.id,
-      roomId: r.room_id as RoomId,
-      shortId: r.short_id as ShortId,
-      text: r.body,
-      documentId: null,
-      disputedBy: r.disputed_by ?? [],
-    }));
+  /**
+   * OR's the same stemmed lexemes `to_tsvector('swedish', ...)` would produce for the
+   * query, rather than ANDing them the way `plainto_tsquery` does. See the file
+   * comment for the measured reason this is not `plainto_tsquery`.
+   *
+   * A query that stems to nothing (all stopwords, or punctuation-only) produces an
+   * empty `to_tsquery`, which is a valid, always-false comparison -- this arm just
+   * contributes nothing for that query, not an error.
+   */
+  private async ftsArm(scope: RoomId[], query: string): Promise<ItemCandidate[]> {
+    const rows = await queryRows<ItemCandidateRow>(
+      this.pool,
+      `WITH q AS (
+         SELECT to_tsquery(
+           'swedish',
+           array_to_string(tsvector_to_array(to_tsvector('swedish', $2)), ' | ')
+         ) AS tsq
+       )
+       SELECT i.id, i.room_id, i.short_id, i.body, i.created_at, i.disputed_by
+       FROM app.item i, q
+       WHERE i.room_id = ANY($1::uuid[]) AND i.status = 'active' AND i.sensitivity <> 'local_only'
+         AND to_tsvector('swedish', i.body) @@ q.tsq
+       ORDER BY ts_rank_cd(to_tsvector('swedish', i.body), q.tsq) DESC
+       LIMIT $3`,
+      [scope, query, CANDIDATE_POOL],
+    );
+    return rows.map(toItemCandidate);
+  }
+
+  /** Character-level match, tolerant of Swedish inflection and a dropped diacritic. */
+  private async trigramArm(scope: RoomId[], query: string): Promise<ItemCandidate[]> {
+    const rows = await queryRows<ItemCandidateRow>(
+      this.pool,
+      `SELECT id, room_id, short_id, body, created_at, disputed_by
+       FROM app.item
+       WHERE room_id = ANY($1::uuid[]) AND status = 'active' AND sensitivity <> 'local_only'
+         AND similarity(unaccent(lower(body)), unaccent(lower($2))) > $3
+       ORDER BY similarity(unaccent(lower(body)), unaccent(lower($2))) DESC
+       LIMIT $4`,
+      [scope, query, TRIGRAM_THRESHOLD, CANDIDATE_POOL],
+    );
+    return rows.map(toItemCandidate);
   }
 
   /**
-   * Document chunks, ranked by Postgres full-text search.
-   *
-   * Not loaded into memory and ranked in TypeScript like items are, and the difference
-   * is not stylistic. Items are a few hundred short curated sentences per person;
-   * chunks are every paragraph of every document they have ever uploaded, and the
-   * storage limit is ten gigabytes. Pulling that into the process to score it is a
-   * query that works in a demo and falls over on the first real user.
-   *
-   * `app.search_chunks` resolves the room scope inside the query through
-   * `app.accessible_room_ids`. A post-filter over results is one forgotten line away
-   * from returning another person's room, and that failure looks like a working search.
+   * The only arm that finds a genuine paraphrase, and the only one allowed to fail
+   * silently. `embed` is a real network call against `OpenAiLlm` (never against
+   * `FakeLlm`, which is deterministic and local); a missing key, a timeout or an
+   * outage must narrow this search to lexical and trigram, not fail it. A person whose
+   * search degrades quietly to "good enough" keeps using the product; one who gets an
+   * error on every query concludes it is broken.
    */
-  private async chunkHits(
-    personId: PersonId,
-    query: string,
-    scope: RoomId[],
-    limit: number,
-  ): Promise<Array<Candidate & { rank: number }>> {
-    const rows = await queryRows<{
-      chunk_id: string;
-      document_id: string;
-      room_id: string;
-      heading: string | null;
-      text: string;
-      rank: number;
-    }>(
-      this.pool,
-      `SELECT chunk_id, document_id, room_id, heading, text, rank
-       FROM app.search_chunks($1, $2, $3::uuid[], $4)`,
-      [personId, query, scope, limit],
-    );
+  private async vectorArm(scope: RoomId[], query: string): Promise<ItemCandidate[]> {
+    let vector: number[] | undefined;
+    try {
+      [vector] = await this.llm.embed([query]);
+    } catch {
+      return [];
+    }
+    if (!vector) return [];
 
-    return rows.map((row) => ({
-      kind: 'chunk' as const,
-      id: row.chunk_id,
-      roomId: row.room_id as RoomId,
-      shortId: null,
-      text: row.text,
-      documentId: row.document_id,
-      disputedBy: [],
-      rank: row.rank,
+    const rows = await queryRows<ItemCandidateRow>(
+      this.pool,
+      `SELECT id, room_id, short_id, body, created_at, disputed_by
+       FROM app.item
+       WHERE room_id = ANY($1::uuid[]) AND status = 'active' AND sensitivity <> 'local_only'
+         AND embedding IS NOT NULL
+         AND 1 - (embedding <=> $2::vector) > $3
+       ORDER BY embedding <=> $2::vector
+       LIMIT $4`,
+      [scope, toVectorLiteral(vector), VECTOR_SIMILARITY_THRESHOLD, CANDIDATE_POOL],
+    );
+    return rows.map(toItemCandidate);
+  }
+
+  /**
+   * Documents, ranked exactly as every arm here used to rank memories: an in-process
+   * term-overlap stand-in over the full candidate set. Untouched on purpose -- see the
+   * file comment.
+   */
+  private async chunkArm(scope: RoomId[], query: string): Promise<ChunkCandidate[]> {
+    const rows = await queryRows<{ id: string; room_id: string; document_id: string; text: string }>(
+      this.pool,
+      `SELECT id, room_id, document_id, text FROM app.chunk WHERE room_id = ANY($1::uuid[])`,
+      [scope],
+    );
+    const candidates: ChunkCandidate[] = rows.map((r) => ({
+      id: r.id,
+      roomId: r.room_id as RoomId,
+      documentId: r.document_id as DocumentId,
+      text: r.text,
     }));
+
+    return rankLexically(query, candidates);
   }
 }
 
-function rankLexically(query: string, candidates: Candidate[]): Candidate[] {
-  const terms = dedupeHash(query).split(' ').filter(Boolean);
-  if (terms.length === 0) return [];
+interface ItemCandidateRow {
+  id: string;
+  room_id: string;
+  short_id: string;
+  body: string;
+  created_at: Date;
+  disputed_by: string[] | null;
+}
+
+function toItemCandidate(row: ItemCandidateRow): ItemCandidate {
+  return {
+    id: row.id,
+    roomId: row.room_id as RoomId,
+    shortId: row.short_id as ShortId,
+    text: row.body,
+    createdAt: row.created_at,
+    disputedBy: row.disputed_by ?? [],
+  };
+}
+
+/** The predicate every arm shares. A partner fetched by id must pass it too. */
+const VISIBLE_ITEM = `status = 'active' AND sensitivity <> 'local_only'`;
+
+/**
+ * Fuses any number of ranked id lists by reciprocal rank -- the same fusion every
+ * multi-arm ranker in this product uses (`MemoryRetrieval`, `packages/core/src/ask.ts`),
+ * so there is one algorithm for "combine several ranked lists" rather than one per
+ * caller. An id absent from a list contributes nothing from it, never a penalty.
+ */
+function fuseRanked(rankedLists: string[][]): Array<{ id: string; score: number }> {
+  const scores = new Map<string, number>();
+  for (const list of rankedLists) {
+    list.forEach((id, index) => {
+      scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + index + 1));
+    });
+  }
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([id, score]) => ({ id, score }));
+}
+
+/**
+ * Stands in for Postgres full-text ranking of documents. See the file comment.
+ *
+ * Matches on stemmed terms (`swedishTerms`, shared with `packages/core`) rather than
+ * substring inclusion, so "godkänt" and "styrelsen" in a question line up with
+ * "godkände" and "styrelsen" in a document the same way they now do for memories.
+ */
+function rankLexically<T extends { id: string; text: string }>(query: string, candidates: T[]): T[] {
+  const queryTerms = swedishTerms(query);
+  if (queryTerms.length === 0) return [];
 
   return candidates
     .map((candidate) => {
-      const haystack = ` ${dedupeHash(candidate.text)} `;
+      const candidateTerms = new Set(swedishTerms(candidate.text));
       let score = 0;
-      for (const term of terms) {
-        if (haystack.includes(` ${term} `)) score += term.length;
-        else if (haystack.includes(term)) score += term.length / 2;
+      for (const term of queryTerms) {
+        if (candidateTerms.has(term)) score += term.length;
       }
       return { candidate, score };
     })

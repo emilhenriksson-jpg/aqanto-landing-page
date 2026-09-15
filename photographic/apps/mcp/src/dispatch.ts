@@ -15,12 +15,13 @@
 
 import { TOOL_NAMES } from '@photographic/agent';
 import type { Actor, RoomId, Services, ShortId } from '@photographic/core';
-import { PhotographicError, resolveRoomRef } from '@photographic/core';
+import { askMemory, PhotographicError, resolveRoomRef } from '@photographic/core';
 import { z } from 'zod';
 
 import type { McpLog } from './deps.js';
 import { SILENT_LOG } from './deps.js';
 import {
+  renderAsk,
   renderForgotten,
   renderHistory,
   renderProvenance,
@@ -72,11 +73,17 @@ const ARGS = {
 
   search_memory: z
     .object({
-      query: z.string().trim().min(1).max(1000),
+      query: z.string().trim().min(1).max(1000).optional(),
       room,
+      since: z.coerce.date().optional(),
+      until: z.coerce.date().optional(),
+      sort: z.enum(['relevance', 'oldest', 'newest']).optional(),
       limit: z.number().int().min(1).max(50).optional(),
     })
-    .strict(),
+    .strict()
+    .refine((value) => Boolean(value.query) || Boolean(value.since) || Boolean(value.until), {
+      message: 'Ange antingen en fråga eller since/until att söka inom.',
+    }),
 
   update_memory: z
     .object({ id: shortId, text: z.string().trim().min(1).max(2000), room })
@@ -216,13 +223,36 @@ async function run<N extends ToolName>(
         ? [await resolveRoomRef(services, actor, { room: input.room })]
         : undefined;
 
+      await services.audit.record({
+        actor,
+        action: 'search',
+        detail: { query: input.query ?? null, since: input.since, until: input.until },
+      });
+
+      // A date-scoped or "when did this start" question needs the calendar as well as
+      // the current state of a memory — see `askMemory`. Everything else keeps the
+      // exact path search_memory has always taken, unchanged.
+      if (input.since || input.until || input.sort === 'oldest') {
+        const hits = await askMemory(services, actor, {
+          ...(input.query ? { query: input.query } : {}),
+          ...(roomIds ? { roomIds } : {}),
+          ...(input.since ? { since: input.since } : {}),
+          ...(input.until ? { until: input.until } : {}),
+          ...(input.sort ? { sort: input.sort } : {}),
+          ...(input.limit ? { limit: input.limit } : {}),
+        });
+
+        return renderAsk(hits, {
+          ...(input.since ? { since: input.since } : {}),
+          ...(input.until ? { until: input.until } : {}),
+        });
+      }
+
       const hits = await services.retrieval.search(actor, {
-        query: input.query,
+        query: input.query!,
         ...(roomIds ? { roomIds } : {}),
         ...(input.limit ? { limit: input.limit } : {}),
       });
-
-      await services.audit.record({ actor, action: 'search', detail: { query: input.query } });
 
       return renderSearch(hits, roomTitleIndex(await services.rooms.listForPerson(actor)));
     }

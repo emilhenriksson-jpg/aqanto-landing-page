@@ -21,8 +21,11 @@ export {
   listRooms,
   uploadRoomDocument,
 } from './rooms.js';
+export { askMemory } from './search.js';
+export type { AskMemoryInput } from './search.js';
 export { listTrash, restoreTrash } from './trash.js';
 export type {
+  AskHitDto,
   BriefDto,
   CalendarDayDto,
   CalendarEntryDto,

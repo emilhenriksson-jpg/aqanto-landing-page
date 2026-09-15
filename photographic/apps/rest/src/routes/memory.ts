@@ -8,6 +8,7 @@
  */
 
 import type { PlacementDecision, ProposalId, RoomId, ShortId } from '@photographic/core';
+import { askMemory } from '@photographic/core';
 import { Hono } from 'hono';
 
 import type { AppContext, AppEnv } from '../context.js';
@@ -23,6 +24,7 @@ import {
   updateSchema,
 } from '../schemas.js';
 import {
+  serialiseAskHit,
   serialiseDispute,
   serialiseItem,
   serialiseProposal,
@@ -270,6 +272,14 @@ export function memoryRoutes(): Hono<AppEnv> {
     return c.json({ item: serialiseItem(item) });
   });
 
+  /**
+   * "Fråga mitt minne" (scope §7) lives here too, behind the same route `q` has always
+   * used. `since`/`until`/`sort` are additive: a plain `q` with none of them takes the
+   * exact path this route has always taken, unchanged, straight through
+   * `RetrievalPort.search`. Only a date-scoped or oldest-first question composes in the
+   * calendar via `askMemory` — see `packages/core/src/ask.ts` for why that composition
+   * lives there rather than in a second implementation per route.
+   */
   routes.get('/search', async (c) => {
     const actor = getActor(c);
     const input = parseQuery(c, searchSchema);
@@ -277,8 +287,21 @@ export function memoryRoutes(): Hono<AppEnv> {
       ? (Array.isArray(input.room) ? input.room : [input.room]).map((id) => id as never)
       : undefined;
 
+    if (input.since || input.until || input.sort === 'oldest') {
+      const hits = await askMemory(getServices(c), actor, {
+        ...(input.q ? { query: input.q } : {}),
+        ...(roomIds ? { roomIds } : {}),
+        ...(input.since ? { since: input.since } : {}),
+        ...(input.until ? { until: input.until } : {}),
+        ...(input.sort ? { sort: input.sort } : {}),
+        ...(input.limit ? { limit: input.limit } : {}),
+      });
+
+      return c.json({ hits: hits.map(serialiseAskHit) });
+    }
+
     const hits = await getServices(c).retrieval.search(actor, {
-      query: input.q,
+      query: input.q!,
       ...(roomIds ? { roomIds } : {}),
       ...(input.limit ? { limit: input.limit } : {}),
     });

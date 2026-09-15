@@ -10,6 +10,7 @@ import { PROFILE_TOKEN_BUDGET } from '@photographic/core';
 
 import {
   ApiError,
+  askMemory,
   getCalendarDay,
   getCalendarEvent,
   getInvite,
@@ -24,6 +25,8 @@ import {
   listTrash,
 } from '../api/index.js';
 import type {
+  AskHitDto,
+  AskMemoryInput,
   CalendarDayDto,
   CalendarEntryDto,
   ClientHealthDto,
@@ -39,6 +42,7 @@ import type {
 } from '../api/index.js';
 import type {
   ApprovalItem,
+  AskResultLine,
   DayEvent,
   DayView,
   DemoClient,
@@ -407,6 +411,34 @@ export function mapHistoryEntry(dto: HistoryEntryDto, now = new Date()): History
 export async function loadHistoryFromApi(): Promise<HistoryLine[]> {
   const { entries } = await listHistory();
   return entries.map((entry) => mapHistoryEntry(entry));
+}
+
+/** "Fråga mitt minne" — GET /v1/search, mapped onto the same shape the demo path uses. */
+export async function searchMemoryFromApi(input: AskMemoryInput): Promise<AskResultLine[]> {
+  const { hits } = await askMemory(input);
+  return hits.map(mapAskHit);
+}
+
+function mapAskHit(dto: AskHitDto): AskResultLine {
+  const id =
+    dto.shortId ?? dto.documentId ?? (dto.seq !== null ? String(dto.seq) : `${dto.roomId}-${dto.text.slice(0, 8)}`);
+
+  return {
+    id,
+    kind: dto.kind,
+    roomId: dto.roomId,
+    roomTitle: dto.roomTitle || 'okänt rum',
+    text: dto.text,
+    meta: askHitMeta(dto),
+  };
+}
+
+function askHitMeta(dto: AskHitDto, now = new Date()): string {
+  if (dto.kind === 'event') {
+    const verb = dto.action ? (HISTORY_ACTION[dto.action] ?? dto.action) : 'hände';
+    return dto.occurredAt ? `${relativeWhenSwedish(dto.occurredAt, now)} · ${verb}` : verb;
+  }
+  return dto.shortId ?? (dto.kind === 'document' ? 'ur ett dokument' : 'utan id');
 }
 
 /**

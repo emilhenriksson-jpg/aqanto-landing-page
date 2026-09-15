@@ -20,7 +20,7 @@ import type {
   SearchHit,
   ShortId,
 } from '@photographic/core';
-import { dedupeHash, NotPermittedError } from '@photographic/core';
+import { NotPermittedError, swedishTerms } from '@photographic/core';
 
 import { MemoryStore } from './store.js';
 
@@ -37,6 +37,8 @@ interface Candidate {
   text: string;
   documentId: import('@photographic/core').DocumentId | null;
   embedding: number[] | null;
+  /** When an item was saved. `null` for a chunk — see `SearchHit.createdAt`. */
+  createdAt: Date | null;
 }
 
 export class MemoryRetrieval implements RetrievalPort {
@@ -65,8 +67,16 @@ export class MemoryRetrieval implements RetrievalPort {
     if (candidates.length === 0) return [];
 
     const lexical = rankLexically(query, candidates);
-    const [queryVector] = await this.llm.embed([query]);
-    const semantic = rankSemantically(queryVector!, candidates);
+    // The only arm allowed to fail silently: a down or unconfigured embedder narrows
+    // this to lexical-only ranking rather than failing the search. See `PgRetrieval`
+    // for the same guarantee on the Postgres path, and why it matters.
+    let queryVector: number[] | undefined;
+    try {
+      [queryVector] = await this.llm.embed([query]);
+    } catch {
+      queryVector = undefined;
+    }
+    const semantic = queryVector ? rankSemantically(queryVector, candidates) : [];
 
     const fused = new Map<string, { candidate: Candidate; score: number }>();
     const contribute = (ranked: Candidate[]) => {
@@ -92,6 +102,7 @@ export class MemoryRetrieval implements RetrievalPort {
         score,
         documentId: candidate.documentId,
         disputed: this.isDisputed(candidate.id),
+        createdAt: candidate.createdAt,
       }));
 
     return this.withDisputedPartners(hits);
@@ -148,6 +159,7 @@ export class MemoryRetrieval implements RetrievalPort {
           score: hit.score,
           documentId: null,
           disputed: true,
+          createdAt: partner.createdAt,
         });
       }
     }
@@ -176,6 +188,7 @@ export class MemoryRetrieval implements RetrievalPort {
         text: item.body,
         documentId: null,
         embedding: this.store.embeddings.get(item.id) ?? null,
+        createdAt: item.createdAt,
       });
     }
 
@@ -189,6 +202,10 @@ export class MemoryRetrieval implements RetrievalPort {
         text: chunk.text,
         documentId: chunk.documentId,
         embedding: chunk.embedding,
+        // Document ingestion does not expose a "when" through search yet — see
+        // `SearchHit.createdAt`. Not this package's concern to add: chunking and its
+        // schema belong to the platform track.
+        createdAt: null,
       });
     }
 
@@ -196,18 +213,23 @@ export class MemoryRetrieval implements RetrievalPort {
   }
 }
 
-/** Stands in for Postgres full-text ranking: term overlap, longer terms worth more. */
+/**
+ * Stands in for Postgres full-text ranking: stemmed term overlap, longer terms worth
+ * more. Matches on `swedishTerms` (shared with `packages/core`, and with `PgRetrieval`'s
+ * own document-ranking fallback) rather than substring inclusion, so this reference
+ * implementation and the real one agree on what "the same word, different inflection"
+ * means instead of each guessing at it separately.
+ */
 function rankLexically(query: string, candidates: Candidate[]): Candidate[] {
-  const terms = dedupeHash(query).split(' ').filter(Boolean);
-  if (terms.length === 0) return [];
+  const queryTerms = swedishTerms(query);
+  if (queryTerms.length === 0) return [];
 
   return candidates
     .map((candidate) => {
-      const haystack = ` ${dedupeHash(candidate.text)} `;
+      const candidateTerms = new Set(swedishTerms(candidate.text));
       let score = 0;
-      for (const term of terms) {
-        if (haystack.includes(` ${term} `)) score += term.length;
-        else if (haystack.includes(term)) score += term.length / 2;
+      for (const term of queryTerms) {
+        if (candidateTerms.has(term)) score += term.length;
       }
       return { candidate, score };
     })

@@ -782,3 +782,140 @@ against; flagged rather than assumed working.
   shared local Postgres does not survive `pnpm -r test`'s parallelism across packages
   that each call `reset(pool)` or expect a stable schema, which is pre-existing and not
   new here).
+## fraga-mitt-minne — one search across memory, rooms and the calendar
+
+- **fraga-mitt-minne** — "Fråga mitt minne" (scope §7): one search, across private
+  memory, every room the person can reach, and the calendar, answering "vad bestämde vi
+  om Photographic igår", "vad pratade jag om förra måndagen", "när började vi diskutera
+  det här", "hur har Buyersclubs strategi förändrats i år", "vad gjorde du med
+  informationen jag gav dig igår".
+  `askMemory()` in `packages/core/src/ask.ts` composes two ports that already enforce
+  room isolation — `RetrievalPort.search` (items + document chunks, unchanged) and
+  `HistoryPort.list` (the calendar) — into one ranked `AskHit[]`, rather than adding a
+  third place that could get the choke point wrong. Nothing new queries a table
+  directly. Deliberately did not touch document ingestion, chunking, or a new FTS
+  index — chunk hits pass through exactly as `RetrievalPort.search` already returns
+  them; a date-scoped ask specifically omits them, honestly, because a chunk carries no
+  date yet (`SearchHit.createdAt` is `null` for a chunk, non-null for an item — the
+  platform track's index is what will change that, on their schedule).
+  `sort: 'oldest'` answers "when did this start" by reaching into history even with no
+  explicit date range, because the first mention of something may since have been
+  deleted or only survive as a later edit — the current item's `createdAt` alone cannot
+  always answer that.
+  Shipped as an *extension* of `search_memory`, not a ninth tool: `since`/`until`/`sort`
+  are new optional parameters, and a plain query with none of them takes the exact code
+  path and rendering (`renderSearch`) the tool has always used, unchanged — every
+  existing test for it still passes untouched. Only a date-scoped or oldest-first call
+  routes through `askMemory` and a new `renderAsk`. Mirrored the same way on
+  `GET /v1/search` (now accepts `since`/`until`/`sort`, `q` now optional) and on a new
+  web screen, `/fraga`, a fifth rail icon — a search box, four quick date chips (Idag /
+  Igår / Den här veckan / I år), results linking back to the room they came from.
+  Two leaks found and closed while building the calendar side, both by the same
+  allowlist (`ASK_BODY_ALLOWED` in `ask.ts` — `saved`/`updated`/`restored` only, the
+  same shape as `HistoryPort`'s own `ACTION_OF` allowlist and for the same reason): a
+  *proposed* instruction still waiting in the Godkänn-kön must not read as decided, and
+  a *deleted* memory's text must not resurface. The second one needed more than the
+  allowlist alone — a memory saved and later deleted inside the same searched window
+  still carried its old `saved` event, which is itself an allowed action, so
+  `collapseToLatestPerItem` keeps only the newest event per memory within the fetched
+  window before the allowlist ever runs. Caught by a unit test before it reached e2e.
+  Did not touch `apps/rest/src/wiring.ts`, domain migrations, the event-log schema,
+  OAuth/scope/`resolveByName`, or the public MCP tool schema. Touched: `packages/core`
+  (the new type + `ask.ts` + `createdAt` threaded onto `SearchHit` in both
+  `RetrievalPort` implementations — a memory-item concern, not a chunking one),
+  `packages/agent`/`apps/mcp` (tool schema + dispatch + `renderAsk`), `apps/rest`
+  (schema + route + serialiser), `apps/web` (new screen + api client + demo data),
+  and one two-line fix in the platform track's own unused-so-far `@photographic/retrieval`
+  package so it kept compiling against the widened `SearchHit` (`toSearchHit` now
+  threads `createdAt` through — nothing about their ranking or indexing changed).
+  Coverage: `packages/core/src/ask.test.ts` (16, the composition itself — date bounds,
+  the oldest-first reach into history, per-arm score normalisation, room-id fan-out,
+  both body leaks and the collapse that closes the second one), `apps/mcp/src/dispatch.test.ts`
+  (+6, against real `MemoryServices` with a controllable clock — a date window, sort
+  oldest, cross-room isolation, the confused-deputy boundary, the empty-request
+  refusal, the deleted-body leak end to end), `apps/rest/src/app.test.ts` (+5, the same
+  shapes over HTTP), `apps/web` (+10 across two files, demo and live, including that a
+  result links to the right room). `e2e/src/journey.test.ts` (+2, both harnesses): one
+  proving a single ask surfaces both a matching memory and the calendar event that
+  recorded it, one proving that ask is exactly as blind to a room-mate's private room
+  as search already is. Typecheck clean; e2e 26 memory + 26 postgres.
+  **Honestly weak, not hidden:** ranking is still the pre-existing lexical stand-in on
+  Postgres (real embeddings only rank in the in-memory reference implementation via
+  `FakeLlm`), so a query has to share actual words with what was saved — "vad bestämde
+  vi" will not find "Vi beslutade" on its own. "How has X changed" only sees
+  `item.updated` events; `item.superseded` is not emitted yet (a track-2 gap already on
+  record), so a clean correction chain does not exist to show. A calendar-scoped
+  history scan is capped at 300 events per room before filtering — a very long-lived
+  room's oldest mentions can fall outside that window, and `collapseToLatestPerItem`
+  above only sees what was fetched, so a deletion that lands just after an `until`
+  bound is not there to suppress the save that precedes it inside the window. And "what
+  did you do with what I told you" for something later deleted says *that* it was
+  deleted, never *what* — a deliberate privacy trade-off, not an oversight.
+
+- **fraga-mitt-minne-search-quality** — closed the lexical-only gap the entry above
+  called out, after measuring it rather than estimating it (full corpus and numbers:
+  `internal/swedish-search-quality-measurement.md` in the project store). The one
+  number that mattered: on genuine paraphrase — the actual shape of "ask something you
+  don't remember phrasing" — every lexical and trigram strategy scored 0%, real
+  embeddings scored 100%. Three changes, done in the order that measurement justified:
+  1. **The `to_tsvector('simple', …)` landmine.** The frozen schema's own GIN index
+     used no stemming at all — wiring it up exactly as specified would have scored 4%
+     on realistic Swedish questions. Migration `0003_swedish_search.sql` replaces it
+     with `'swedish'` config. `PgRetrieval` queries it with an OR'd tsquery built from
+     the same stemmed lexemes `to_tsvector` would produce, not `plainto_tsquery`, which
+     ANDs every term and was measured as the bigger source of misses than the language
+     config (19% with AND, 74% with OR, same index, same stemming) — commented in
+     place so it doesn't get "simplified" back.
+  2. **The embedding gap in `PgRetrieval`/`PgIngest`.** It already computed a query
+     embedding on every search and threw it away; the in-memory reference
+     implementation already wrote and used one on every ingest write. Made the
+     Postgres path match: `item.embedding` is written by a deferred `embed_item` job
+     (registered in `postgres-services.ts`, retried automatically by the existing
+     `PgJobs` attempts/backoff — nothing new needed there), never inline with the
+     write, so a slow or failing embed call can never be the reason a memory fails to
+     save — the row commits first, the embedding backfills after. `vector.ts` formats
+     the pgvector literal by hand rather than adding a client dependency for one
+     conversion. Both `PgRetrieval`'s vector arm and `MemoryRetrieval`'s existing
+     inline one now degrade to lexical/trigram-only on a thrown `embed()` — a missing
+     key or an outage narrows the search, it does not fail it. Two real bugs found
+     while measuring the actual shipped result rather than trusting the design on
+     paper: the vector arm had no similarity floor, so it returned *something*
+     whenever anything in scope had an embedding regardless of relevance (this is what
+     the `never leaks the personal room` e2e test caught); and the trigram arm's
+     threshold (0.1) was low enough that ordinary Swedish sentences shared that much
+     character overlap from common short words alone, and several such matches
+     summed in RRF fusion were enough to outrank a single confident, correct vector
+     match — raised to 0.2 after measuring the actual gap between genuine matches
+     (0.33+) and cross-sentence noise (0.09–0.14) in the same corpus. With both fixed,
+     the real shipped code (`createPostgresServices` + `PgRetrieval`, a real
+     `OPENAI_API_KEY`) scores 100% top-3 on the full 27-question corpus, including
+     every paraphrase case; the same code with no key configured (`FakeLlm`, the
+     default) scores 81%, from the trigram and stemmed-FTS arms alone.
+  3. **A shared Swedish stemmer, because a second one just appeared.** PR #3's
+     automatic room-routing matcher hand-strips a few Swedish suffixes for the same
+     reason ("ledningen" -> "Ledning") and its own author flagged it as something to
+     replace once a search index existed, rather than grow in place. Did not touch
+     that file — two independent branches, already two conflict rounds — but built
+     `packages/core/src/swedish.ts` so there is one suffix list rather than a second
+     one drifting apart from the first. Implements the suffix-removal steps (R1 region,
+     step 1 and step 2) of the actual Swedish Snowball algorithm — the same one
+     Postgres's own `'swedish'` dictionary is built from — checked directly against
+     `to_tsvector('swedish', …)` output rather than assumed, including matching its
+     real gaps (it does not unify every tense/participle pair either, e.g. "godkände"
+     and "godkänt" stay distinct in both). `swedishTerms()` (tokenize + stem) now
+     backs every in-process lexical arm that is actually mine to touch: document-chunk
+     ranking in `PgRetrieval`, `MemoryRetrieval`'s reference-implementation ranking,
+     and calendar/history text matching in `packages/core/src/ask.ts` — replacing
+     substring-inclusion scoring with real stemmed-term matching in all three. Not
+     wired into PR #3's matcher, and not asked to be yet; it is what that file should
+     import when the two branches are no longer both in flight.
+  Coverage: `packages/core/src/swedish.test.ts` (9, including line-by-line agreement
+  with Postgres's real stemming behaviour), `packages/db/src/services/retrieval.test.ts`
+  (new file, 8 — plain match, Swedish inflection via the real SQL path, room isolation,
+  the embedding backfill job, re-embed on update, graceful degradation on a throwing
+  `LlmPort`, the vector-floor regression, and one test gated behind `OPENAI_API_KEY`
+  that is skipped rather than failed without one), `packages/services-memory/src/degrade.test.ts`
+  (new file, 3, mirroring the same degrade guarantee on the reference implementation).
+  Typecheck clean; e2e and every package suite green, run sequentially — the shared
+  local Postgres does not survive `pnpm -r test`'s parallelism, unrelated to this
+  change and already recorded above.

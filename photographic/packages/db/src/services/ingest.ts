@@ -877,6 +877,7 @@ export class PgIngest implements IngestPort {
     });
 
     await this.markStale(input.roomId, actor);
+    await this.queueEmbedding(item.id);
     return item;
   }
 
@@ -914,6 +915,10 @@ export class PgIngest implements IngestPort {
     });
 
     await this.markStale(item.roomId, actor);
+    // The body changed, so the stored embedding now describes text that is gone. Queued
+    // here rather than in `update`, because this is the method the body actually changes
+    // in — an edit that went to the approval queue instead has nothing to re-embed yet.
+    await this.queueEmbedding(item.id);
     return { ...item, body: next, tokenEstimate: estimateTokens(next) };
   }
 
@@ -1158,6 +1163,28 @@ export class PgIngest implements IngestPort {
       }
       throw error;
     }
+  }
+
+  /**
+   * Embedding happens after the row is committed, never inline with the write, and
+   * only as a job -- not an inline `await this.llm.embed(...)` the way the in-memory
+   * reference implementation does it. Two things are true of this path that are not
+   * true of the reference one: embedding a real memory is a network call with
+   * `OpenAiLlm`, and this write has to stay fast and succeed regardless of whether
+   * that call is slow or down. A memory the model just saved must exist the instant
+   * this method returns; ranking a little better once the embedding lands a second
+   * later is a fine trade, losing the memory because an API call was slow is not.
+   *
+   * `PgJobs` already retries a failing job up to `max_attempts` before giving up, so a
+   * transient outage backfills itself without anything here needing to know that
+   * happened.
+   */
+  private async queueEmbedding(itemId: ItemId): Promise<void> {
+    await this.jobs.enqueue({
+      kind: 'embed_item',
+      payload: { itemId },
+      dedupeKey: `embed:${itemId}`,
+    });
   }
 
   private async queueProposal(
