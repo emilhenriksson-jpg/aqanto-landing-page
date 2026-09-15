@@ -1,6 +1,6 @@
 # Godmorgon
 
-Kort: API + MCP går att köra lokalt **mot Postgres** eller in-memory. Riktig LLM och publik HTTPS för Claude saknas fortfarande.
+Kort: API + MCP går att köra lokalt **mot Postgres** eller in-memory. Riktig OpenAI-LLM finns bakom env-flagga. Publik HTTPS för Claude saknas fortfarande.
 
 ## Fungerar nu
 
@@ -19,11 +19,14 @@ export PHOTOGRAPHIC_LLM=openai
 export OPENAI_API_KEY=sk-...
 ```
 
-Utan dem körs FakeLlm (tester och `pnpm dev` förblir deterministiska).
+Utan dem körs FakeLlm (tester och `pnpm dev` förblir deterministiska). På Fly:
+
+```bash
+fly secrets set OPENAI_API_KEY=sk-... PHOTOGRAPHIC_LLM=openai
+```
 
 ## Fungerar inte
 
-- Riktig OpenAI-LLM i processen (FakeLlm svarar deterministiskt; flagga saknas)
 - Fly med durable Postgres + publik HTTPS så Claude Desktop kan ansluta på riktigt
 - Web-appen är inte kopplad till REST ännu (demo-data)
 - Riktiga e-post/SMS-koder (dev skriver koden i loggen)
@@ -58,4 +61,4 @@ Lägg till `/mcp` på https-URL:en. Claude: Customize → Connectors → custom 
 
 ## Om du bara ska veta en sak
 
-Persistensen är på plats lokalt. Det som saknas för “Claude svarar om dig” är en publik HTTPS-URL och (valfritt) riktig LLM bakom flaggan.
+Persistensen är på plats lokalt. Det som saknas för “Claude svarar om dig” är en publik HTTPS-URL. Riktig LLM: `PHOTOGRAPHIC_LLM=openai` + `OPENAI_API_KEY`.
