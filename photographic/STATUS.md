@@ -215,10 +215,9 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
   `/v1/rooms`, `/v1/profile`). Web client paths already match; no client fixes needed.
 
 - **orchestrator** — morning MCP smoke verified green: `./scripts/mcp-smoke.sh`
-  (connect-flow + e2e postgres). Live `:8787` also green: OAuth → `POST /mcp`
-  `initialize` instructions contain seeded `ketchup` for `emil@photographic.me`.
-  Gated suite: `LIVE_MCP=1 LIVE_MCP_LOG=/tmp/rest-demo-api.log pnpm --filter
-  @photographic/e2e test` → `e2e/src/live-mcp.smoke.test.ts` (skipped by default).
-  Seed refills empty demo facts if e2e reset left the email without ketchup.
-  (connect-flow 15 + e2e postgres 22 with ketchup in instructions). Live `/mcp`
-  needs OAuth access token (session token alone → 401); documented in mcp-smoke.md.
+  (connect-flow 15 + e2e postgres 22 with ketchup in instructions). Live `:8787`
+  also green: OAuth → `POST /mcp` `initialize` instructions contain seeded `ketchup`
+  for `emil@photographic.me`. Gated suite: `LIVE_MCP=1 LIVE_MCP_LOG=/tmp/rest-demo-api.log
+  pnpm --filter @photographic/e2e test` → `e2e/src/live-mcp.smoke.test.ts` (skipped by
+  default). Seed refills empty demo facts if e2e reset left the email without ketchup.
+  Session token alone → 401; OAuth access token required (mcp-smoke.md).
