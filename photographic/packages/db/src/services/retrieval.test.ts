@@ -62,9 +62,9 @@ async function newActorWithRoom(title: string) {
 
 describe('PgRetrieval', () => {
   itIfDb('still finds a plain, near-exact match', async () => {
-    const { actor, room } = await newActorWithRoom(`Ledning ${randomUUID()}`);
+    const { actor, personalRoom } = await newActorWithRoom(`Ledning ${randomUUID()}`);
     await wired!.services.ingest.remember(actor, {
-      roomId: room.id,
+      roomId: personalRoom.id,
       body: 'Vi beslutade att skjuta förvärvet till Q3',
       kind: 'decision',
       explicit: true,
@@ -78,9 +78,9 @@ describe('PgRetrieval', () => {
     // "godkänt" (perfect participle) vs "godkände" (past) in the stored text -- the
     // exact category `to_tsvector('simple', ...)` cannot bridge and 'swedish' + OR
     // terms, or trigram, does. Neither arm needs a real embedding for this.
-    const { actor, room } = await newActorWithRoom(`Ledning ${randomUUID()}`);
+    const { actor, personalRoom } = await newActorWithRoom(`Ledning ${randomUUID()}`);
     await wired!.services.ingest.remember(actor, {
-      roomId: room.id,
+      roomId: personalRoom.id,
       body: 'Styrelsen godkände budgeten för nästa kvartal',
       kind: 'decision',
       explicit: true,
@@ -96,9 +96,9 @@ describe('PgRetrieval', () => {
     // "nothing here is relevant" unless a similarity floor is applied. A search
     // scoped to one embedded, wholly unrelated item was returning that item for
     // every query.
-    const { actor, room } = await newActorWithRoom(`Ledning ${randomUUID()}`);
+    const { actor, personalRoom } = await newActorWithRoom(`Ledning ${randomUUID()}`);
     const result = await wired!.services.ingest.remember(actor, {
-      roomId: room.id,
+      roomId: personalRoom.id,
       body: 'Vi beslutade att skjuta förvärvet till Q3',
       kind: 'decision',
       explicit: true,
@@ -131,9 +131,9 @@ describe('PgRetrieval', () => {
   });
 
   itIfDb('backfills the embedding after the write, not during it', async () => {
-    const { actor, room } = await newActorWithRoom(`Ledning ${randomUUID()}`);
+    const { actor, personalRoom } = await newActorWithRoom(`Ledning ${randomUUID()}`);
     const result = await wired!.services.ingest.remember(actor, {
-      roomId: room.id,
+      roomId: personalRoom.id,
       body: 'Ett minne som ska bli embeddat i bakgrunden',
       explicit: true,
     });
@@ -155,16 +155,16 @@ describe('PgRetrieval', () => {
   });
 
   itIfDb('re-embeds on update, keyed so a rapid second edit does not queue twice', async () => {
-    const { actor, room } = await newActorWithRoom(`Ledning ${randomUUID()}`);
+    const { actor, personalRoom } = await newActorWithRoom(`Ledning ${randomUUID()}`);
     const result = await wired!.services.ingest.remember(actor, {
-      roomId: room.id,
+      roomId: personalRoom.id,
       body: 'Första lydelsen',
       explicit: true,
     });
     if (result.outcome !== 'auto') throw new Error('expected an auto save');
     await wired!.runJobsToCompletion();
 
-    await wired!.services.ingest.update(actor, result.item.shortId, room.id, 'Andra lydelsen, omskriven');
+    await wired!.services.ingest.update(actor, result.item.shortId, personalRoom.id, 'Andra lydelsen, omskriven');
     const ran = await wired!.runJobsToCompletion();
     expect(ran).toBeGreaterThan(0);
 
@@ -229,16 +229,15 @@ describe('PgRetrieval', () => {
       const real = await createPostgresServices({ pool: pool2, baseUrl: 'https://photographic.test', llm });
 
       try {
-        const { room, actor } = await (async () => {
+        const { personalRoom, actor } = await (async () => {
           const email = `retrieval-real-${randomUUID()}@example.com`;
-          const { person } = await real.services.identity.register({ email, displayName: 'Test' });
+          const { person, personalRoom } = await real.services.identity.register({ email, displayName: 'Test' });
           const actor = real.actorFor(person.id, 'claude-desktop');
-          const room = await real.services.rooms.create(actor, { title: `Ledning ${randomUUID()}` });
-          return { room, actor };
+          return { personalRoom, actor };
         })();
 
         await real.services.ingest.remember(actor, {
-          roomId: room.id,
+          roomId: personalRoom.id,
           body: 'Vi ska inte längre använda Slack, all kommunikation sker i Photographic',
           explicit: true,
           kind: 'decision',

@@ -32,10 +32,13 @@
  *     silently. See `PgIngest` for the write-side half of this -- the embedding a
  *     search reads here is written by a background job, not by this file.
  *
- * Chunks (documents) are ranked exactly as before: an in-process lexical stand-in over
- * every chunk in scope. Deliberately untouched -- document ingestion, chunking and
- * their index belong to a different track, and improving memory ranking is not a
- * reason to also start ranking documents differently.
+ * Chunks (documents) keep the ranking their own track gave them: Postgres full-text
+ * plus the trigram fallback, through `app.search_chunks`. Deliberately untouched --
+ * document ingestion, chunking and their index belong to a different track, and
+ * improving memory ranking is not a reason to also start ranking documents
+ * differently. (This arm was an in-process lexical stand-in when these three memory
+ * arms were written, because `app.search_chunks` did not exist on that branch yet;
+ * "untouched" means the other track's version, which is now the indexed one.)
  */
 
 import type {
@@ -43,12 +46,13 @@ import type {
   DocumentId,
   ItemKind,
   LlmPort,
+  PersonId,
   RetrievalPort,
   RoomId,
   SearchHit,
   ShortId,
 } from '@photographic/core';
-import { NotPermittedError, swedishTerms } from '@photographic/core';
+import { NotPermittedError } from '@photographic/core';
 import type { Pool } from 'pg';
 
 import { queryRows } from '../pool.js';
@@ -133,7 +137,7 @@ export class PgRetrieval implements RetrievalPort {
       this.ftsArm(scope, query),
       this.trigramArm(scope, query),
       this.vectorArm(scope, query),
-      this.chunkArm(scope, query),
+      this.chunkArm(actor.personId, scope, query),
     ]);
 
     const items = new Map<string, ItemCandidate>();
@@ -345,24 +349,42 @@ export class PgRetrieval implements RetrievalPort {
   }
 
   /**
-   * Documents, ranked exactly as every arm here used to rank memories: an in-process
-   * term-overlap stand-in over the full candidate set. Untouched on purpose -- see the
-   * file comment.
+   * Documents, ranked by Postgres through `app.search_chunks` -- full-text on the
+   * Swedish config with the trigram fallback migration 0012 added for the cases
+   * stemming cannot reach (a compound like "uppsägningstiden" against a query for
+   * "uppsägning", and a definite form like "förvärvet" against "förvärv", both of
+   * which the Snowball stemmer leaves unbridged).
+   *
+   * Not an in-process term-overlap pass over every chunk in scope, which is what this
+   * arm was before the three memory arms below it moved into SQL. The difference is not
+   * stylistic: items are a few hundred short curated sentences per person, chunks are
+   * every paragraph of every document they have uploaded and the storage limit is ten
+   * gigabytes. Pulling that into the process to score it is a query that works in a
+   * demo and falls over on the first real user.
+   *
+   * `app.search_chunks` resolves the room scope inside the query through
+   * `app.accessible_room_ids`, so isolation is enforced where the rows are selected
+   * rather than filtered afterwards.
    */
-  private async chunkArm(scope: RoomId[], query: string): Promise<ChunkCandidate[]> {
-    const rows = await queryRows<{ id: string; room_id: string; document_id: string; text: string }>(
+  private async chunkArm(personId: PersonId, scope: RoomId[], query: string): Promise<ChunkCandidate[]> {
+    const rows = await queryRows<{
+      chunk_id: string;
+      document_id: string;
+      room_id: string;
+      text: string;
+    }>(
       this.pool,
-      `SELECT id, room_id, document_id, text FROM app.chunk WHERE room_id = ANY($1::uuid[])`,
-      [scope],
+      `SELECT chunk_id, document_id, room_id, text
+       FROM app.search_chunks($1, $2, $3::uuid[], $4)`,
+      [personId, query, scope, CANDIDATE_POOL],
     );
-    const candidates: ChunkCandidate[] = rows.map((r) => ({
-      id: r.id,
+
+    return rows.map((r) => ({
+      id: r.chunk_id,
       roomId: r.room_id as RoomId,
       documentId: r.document_id as DocumentId,
       text: r.text,
     }));
-
-    return rankLexically(query, candidates);
   }
 }
 
@@ -407,27 +429,3 @@ function fuseRanked(rankedLists: string[][]): Array<{ id: string; score: number 
     .map(([id, score]) => ({ id, score }));
 }
 
-/**
- * Stands in for Postgres full-text ranking of documents. See the file comment.
- *
- * Matches on stemmed terms (`swedishTerms`, shared with `packages/core`) rather than
- * substring inclusion, so "godkänt" and "styrelsen" in a question line up with
- * "godkände" and "styrelsen" in a document the same way they now do for memories.
- */
-function rankLexically<T extends { id: string; text: string }>(query: string, candidates: T[]): T[] {
-  const queryTerms = swedishTerms(query);
-  if (queryTerms.length === 0) return [];
-
-  return candidates
-    .map((candidate) => {
-      const candidateTerms = new Set(swedishTerms(candidate.text));
-      let score = 0;
-      for (const term of queryTerms) {
-        if (candidateTerms.has(term)) score += term.length;
-      }
-      return { candidate, score };
-    })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map((x) => x.candidate);
-}
