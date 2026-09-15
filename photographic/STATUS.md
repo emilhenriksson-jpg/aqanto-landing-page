@@ -1623,3 +1623,66 @@ for every phone account and a shared room's members cannot be listed by name. "K
 av Anna och Jacob" therefore degrades to "Kan läsas av alla 3 i Buyersclub Ledning" in
 production today. All-or-nothing on purpose: a list quietly missing the two members who
 never entered a name would understate who can read it.
+## observabilitet — larm som når en människa, och en bevisad återställning
+
+- **`@photographic/ops`** (nytt paket). Fem kontroller en gång per minut i processen, och
+  ett meddelande när en av dem *ändrar sig* — inte ett mätvärde till: reservläget
+  (minnesimplementation eller lokal disk i produktion), migrationsliggaren mot det schema
+  den påstår, jobbkön, exporter som hängt, och upprepade misslyckade utskick. Kanaler är
+  webhook (Slack/Discord/ntfy) och SMS över samma 46elks-konto som inloggningskoderna;
+  SMS bara för `critical`, en timmes cooldown, och ett meddelande när det löser sig.
+  `HEARTBEAT_URL` pingas på varje frisk körning och medvetet *inte* när en kritisk
+  kontroll faller — den enda larmvägen som fungerar när maskinen är borta. Variablerna
+  står i `scripts/deploy.md`.
+- **Migrationskontrollen litar inte på liggaren.** Varje rad prövas mot något migrationen
+  faktiskt skapade (`MIGRATION_ARTIFACTS`), för att `migrate.ts` stämplar alla filer som
+  körda när liggaren är tom och `app.person` finns — reproducerat: schemat stannade på
+  0004, liggaren fick elva rader, noll filer kördes, och eftersom köraren bara läser
+  liggaren rättas det aldrig. Ett test failar om en ny migration saknar artefakt.
+- **Återställning körd, inte antagen.** 2 202 minnen, 2 892 händelser, 401 förslag och 80
+  dokument (20,9 MB) skrivna genom produktens egna tjänster, säkerhetskopierade och
+  återställda till ett scratch-mål: `pg_dump -Fc` 0,4 s → 2,1 MB, `pg_restore` 6,8 s,
+  varje tabell och varje dokument identiskt (`pnpm --filter @photographic/ops
+  verify-restore`, som hämtar och hashar om varje dokument, inte bara räknar rader).
+  Samma läsvägar gav samma svar mot originalet och mot kopian.
+- **Två fällor mätta.** `pg_restore --data-only` mot ett migrerat schema återställer
+  *ingenting* — tabellerna laddas i bokstavsordning, så varje barntabell faller på sin
+  främmande nyckel innan `person` och `room` finns. Och Supabases säkerhetskopior
+  innehåller inte Storage, bara metadata om objekten, så dokumenten behöver en egen kopia.
+
+### dokumentarkivet — den halva Supabase inte säkerhetskopierar
+
+Supabases egen dokumentation säger att deras säkerhetskopior **inte** innehåller objekt som
+lagras via Storage-API:t; databasen innehåller bara metadata om dem. Alltså: minnen,
+händelser, rum och förslag kommer tillbaka från en daglig kopia, och de uppladdade
+originalen kommer inte tillbaka alls. Det var den enda delen av en persons minne som inte
+gick att återställa, och asymmetrin syns inte utifrån.
+
+- **`backup-documents`** går igenom `app.document` i stället för att lista bucketen, så den
+  kan inte hoppa över en fil produkten fortfarande refererar. Varje objekt prövas mot sin
+  egen nyckel på vägen (nyckeln *är* innehållets sha256); ett objekt som inte stämmer
+  rapporteras och kopieras medvetet **inte** — att arkivera det under originalets namn
+  skulle göra ett upptäckbart fel permanent. Inkrementell: andra körningen kopierar noll.
+- **`assertOffSite`** vägrar de två konfigurationer som ser ut som en säkerhetskopia och
+  inte är det: en bucket i samma Supabase-projekt (raderas med projektet) och en katalog på
+  Fly-maskinen (byts vid varje deploy).
+- **Schemat ligger i `.github/workflows/document-archive.yml`**, alltså utanför både
+  Supabase-projektet och Fly-maskinen. Nattligt inkrementellt, veckovis omhashning av hela
+  arkivet. Tre oberoende sätt att märka att det slutat: GitHub mejlar vid misslyckad
+  schemalagd körning, jobbet pingar `BACKUP_HEARTBEAT_URL` bara vid en ren körning, och
+  API:t läser själv manifestets ålder.
+- **`document_backup`** är den sjunde kontrollen: ingen kopia alls, en kopia som slutat
+  röra sig, ett färskt manifest över ett arkiv som saknar objekt, och ett original som
+  försvunnit ur Storage — med besked om det går att hämta tillbaka eller inte.
+- **`restore-documents`** skriver tillbaka genom produktens egen `BlobStore`, alltså genom
+  Storage-API:t som återskapar metadatan i `storage.objects`, och avslutar med att verifiera
+  varje rad mot lagringen.
+- **Övat:** 80 dokument (20,9 MB) kopierade i 0,6 s, hela bucketen raderad, allt återställt i
+  0,4 s, verifiering 80/80 utan saknade eller skadade, `avtal-78.txt` serverad igen av
+  produkten med samma sha256 som före raderingen, och jämförelsen mot produktionsavtrycket
+  `identical: true`.
+- **`scripts/restore-database.sh`** gör den uppmätta fällan onåbar i stället för varnad för:
+  `pg_restore --data-only` mot ett migrerat schema återställer *ingenting*. Skriptet väljer
+  flaggorna, vägrar ett mål som redan har minnen utan `--into-existing`, vägrar produktion
+  utan uttryckligt medgivande, och avslutar med fel om resultatet är tomt eller om liggaren
+  påstår migreringar som schemat saknar (verifierat: avslutskod 66, 70 och 71).
