@@ -17,8 +17,8 @@
  */
 
 import type { AskHit, AskHitKind, HistoryAction, HistoryEntry, RoomId } from './domain.js';
-import { dedupeHash } from './policy.js';
 import type { Actor, HistoryPort, RetrievalPort, RoomPort } from './ports.js';
+import { swedishTerms } from './swedish.js';
 
 export type AskSort = 'relevance' | 'oldest' | 'newest';
 
@@ -222,22 +222,23 @@ function collapseToLatestPerItem(entries: HistoryEntry[]): HistoryEntry[] {
 }
 
 /**
- * The same term-overlap stand-in `MemoryRetrieval`/`PgRetrieval` use for lexical
- * ranking, applied to history bodies. An entry with no body (a room being created, a
- * member joining) or a redacted one cannot match text and is correctly absent rather
- * than scored zero-but-included.
+ * The same stemmed-term-overlap stand-in `MemoryRetrieval`/`PgRetrieval` use for
+ * lexical ranking, applied to history bodies via the shared `swedishTerms` — one
+ * suffix list, used everywhere something needs to know that "godkänt" and "godkände"
+ * are close enough to count. An entry with no body (a room being created, a member
+ * joining) or a redacted one cannot match text and is correctly absent rather than
+ * scored zero-but-included.
  */
 function lexicallyScore(query: string, entries: HistoryEntry[]): Array<{ entry: HistoryEntry; score: number }> {
-  const terms = dedupeHash(query).split(' ').filter(Boolean);
-  if (terms.length === 0) return [];
+  const queryTerms = swedishTerms(query);
+  if (queryTerms.length === 0) return [];
 
   return entries
     .map((entry) => {
-      const haystack = ` ${dedupeHash(entry.body ?? '')} `;
+      const entryTerms = new Set(swedishTerms(entry.body ?? ''));
       let score = 0;
-      for (const term of terms) {
-        if (haystack.includes(` ${term} `)) score += term.length;
-        else if (haystack.includes(term)) score += term.length / 2;
+      for (const term of queryTerms) {
+        if (entryTerms.has(term)) score += term.length;
       }
       return { entry, score };
     })
