@@ -60,3 +60,48 @@ _Agents append here. Do not edit another package to unblock yourself._
   Verified against Postgres: the redaction flag does not leak, DELETE is refused even
   mid-purge, unrelated events survive intact, and text is gone from every referencing
   event after a purge.
+
+- **orchestrator** — `apps/rest`: the HTTP API over the ports, with the middleware order
+  stated once and load-bearing (context, CORS, rate limit, auth, immediately in front of
+  the routes that need it). `createApp` constructs nothing itself, so the same app runs
+  against the reference implementation and against Postgres without a line changing.
+  36 tests.
+  Verified: every 404 is padded to a floor, because "exists but you may not see it" and
+  "does not exist" have to be indistinguishable and response time leaks the difference
+  for free.
+
+- **orchestrator** — `apps/mcp`: the MCP server, mounted at `/mcp` on the same origin as
+  the API. Per-person instructions in `InitializeResult`, so a model has the profile
+  before the person types anything, one session per connection rather than per request,
+  and the data boundary applied to every read. 39 tests, including the real client SDK
+  over a socket.
+  One origin, not two: a client discovers the authorization server from the MCP
+  endpoint's own metadata, and splitting the hosts would mean maintaining two OAuth
+  deployments to serve one login.
+
+- **orchestrator** — `@photographic/auth`: OAuth 2.1 with PKCE and open dynamic
+  registration, which is what makes one-click connection possible — nobody visits a
+  developer console to use their own memory. Registration being open is also why the
+  redirect rules are the only thing between us and a code delivered to an attacker, so
+  they are exact-matched at authorize time, plain `http` is refused off loopback, and
+  PKCE is required with no downgrade path. Private-use schemes like `cursor://` are
+  allowed, because RFC 8252 recommends reverse-DNS and no shipping client follows it;
+  what protects them is PKCE, not the scheme check. 34 tests, written against the
+  attacks rather than the happy path.
+  `/oauth/authorize` splits in two because Photographic has no passwords: it validates
+  everything, parks the request, and sends the browser to a login page that approves it
+  with a session token. Fixing the redirect URI and the challenge *before* the person
+  sees a login screen is the part that matters — nothing afterwards can move where the
+  code goes.
+  Verified end to end on a socket and again in `apps/rest/src/connect-flow.test.ts`: a
+  401 from `/mcp`, discovery, registration, PKCE, login, approval, code exchange, refresh
+  rotation, `initialize` with a real profile, a tool call that writes and finds it again —
+  and then the parts that must stop working, a revoked token and a replayed refresh token
+  taking its whole family down.
+
+- **orchestrator** — `createWiring`: the composition root, extracted from `server.ts`.
+  Builds everything and starts nothing, so the wiring is testable; `server.ts` reads the
+  environment, builds it and serves it. This found two seam bugs that every unit test had
+  been passing over: the login page pointed at an origin that serves no HTML, and the MCP
+  endpoint advertised a scope set with no `offline_access`, which would have handed every
+  client an hour of access and no way to renew it.
