@@ -75,7 +75,19 @@ export interface RateLimitConfig {
   unauthenticated: RateLimitRule;
   /** The unauthenticated invite preview is the one endpoint a stranger can enumerate. */
   invitePreview: RateLimitRule;
+  /** OAuth dynamic client registration. Open by design, so metered by address. */
   register: RateLimitRule;
+  /**
+   * Sign-up, per client address, across both requesting a code and verifying one.
+   *
+   * Its own rule rather than sharing OAuth registration's, because the two are tuned
+   * against different things and will move apart: this one is the only endpoint that
+   * sends mail to an address a stranger chose, which is someone else's inbox and
+   * someone else's sending reputation. The per-address budget in
+   * `@photographic/connect` (`MAX_REQUESTS_PER_HOUR`) is the other half — that one stops
+   * one inbox being flooded, this one stops one sender walking a list of them.
+   */
+  signup: RateLimitRule;
 }
 
 export const DEFAULT_CONFIG: RestConfig = {
@@ -103,6 +115,9 @@ export const DEFAULT_CONFIG: RestConfig = {
     unauthenticated: { limit: 120, windowMs: 60_000 },
     invitePreview: { limit: 20, windowMs: 60_000 },
     register: { limit: 20, windowMs: 3_600_000 },
+    // Covers request and verify together. A person signing up needs two or three calls;
+    // five mistyped codes and a resend is still well inside it.
+    signup: { limit: 20, windowMs: 3_600_000 },
   },
 };
 

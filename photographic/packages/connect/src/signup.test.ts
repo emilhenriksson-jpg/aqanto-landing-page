@@ -1,11 +1,29 @@
 import { describe, expect, it } from 'vitest';
 
+import type { AuthError } from '@photographic/core';
 import type { Room, RoomId } from '@photographic/core';
 
 import { createHarness } from './testing/index.js';
-import { hashCode, MAX_ATTEMPTS, MAX_REQUESTS_PER_HOUR, requestCode, verifyCode } from './signup.js';
+import {
+  CODE_REJECTED,
+  hashCode,
+  MAX_ATTEMPTS,
+  MAX_REQUESTS_PER_HOUR,
+  requestCode,
+  verifyCode,
+} from './signup.js';
 
 const EMAIL = 'emil@example.com';
+
+/** The rejection, or a failure saying there wasn't one. Never the success value. */
+async function failureOf(run: () => Promise<unknown>): Promise<Error> {
+  const caught = await run().then(
+    () => null,
+    (error: unknown) => error as Error,
+  );
+  if (!caught) throw new Error('förväntade att verifieringen skulle avvisas');
+  return caught;
+}
 
 function sharedRoom(): Room {
   return {
@@ -125,7 +143,7 @@ describe('verifying a code', () => {
     const h = createHarness({ fixedCode: '424242' });
     const { requestId } = await requestCode(h.deps, { email: EMAIL });
 
-    await expect(verifyCode(h.deps, { requestId, code: '000000' })).rejects.toThrow(/Fel kod/i);
+    await expect(verifyCode(h.deps, { requestId, code: '000000' })).rejects.toThrow(CODE_REJECTED);
     expect(h.codes.raw(requestId)?.attempts).toBe(1);
     expect(h.codes.raw(requestId)?.consumedAt).toBeNull();
   });
@@ -138,9 +156,20 @@ describe('verifying a code', () => {
       await expect(verifyCode(h.deps, { requestId, code: '000000' })).rejects.toThrow();
     }
     // Even the right code is refused once the attempt budget is gone.
-    await expect(verifyCode(h.deps, { requestId, code: '424242' })).rejects.toThrow(
-      /Begär en ny kod/i,
-    );
+    await expect(verifyCode(h.deps, { requestId, code: '424242' })).rejects.toThrow(CODE_REJECTED);
+  });
+
+  it('stops counting attempts once the budget is gone', async () => {
+    // Otherwise the counter climbs forever on a row nobody can use, and a flood against
+    // one request id is a write per guess.
+    const h = createHarness({ fixedCode: '424242' });
+    const { requestId } = await requestCode(h.deps, { email: EMAIL });
+
+    for (let i = 0; i < MAX_ATTEMPTS + 3; i += 1) {
+      await expect(verifyCode(h.deps, { requestId, code: '000000' })).rejects.toThrow();
+    }
+
+    expect(h.codes.raw(requestId)?.attempts).toBe(MAX_ATTEMPTS);
   });
 
   it('rejects an expired code', async () => {
@@ -148,7 +177,7 @@ describe('verifying a code', () => {
     const { requestId } = await requestCode(h.deps, { email: EMAIL });
 
     h.setNow(new Date(h.now().getTime() + 11 * 60 * 1000));
-    await expect(verifyCode(h.deps, { requestId, code: '424242' })).rejects.toThrow(/gått ut/i);
+    await expect(verifyCode(h.deps, { requestId, code: '424242' })).rejects.toThrow(CODE_REJECTED);
   });
 
   it('refuses to reuse a code', async () => {
@@ -156,16 +185,43 @@ describe('verifying a code', () => {
     const { requestId } = await requestCode(h.deps, { email: EMAIL });
 
     await verifyCode(h.deps, { requestId, code: '424242' });
-    await expect(verifyCode(h.deps, { requestId, code: '424242' })).rejects.toThrow(
-      /redan använd/i,
-    );
+    await expect(verifyCode(h.deps, { requestId, code: '424242' })).rejects.toThrow(CODE_REJECTED);
   });
 
   it('rejects an unknown request id', async () => {
     const h = createHarness();
     await expect(verifyCode(h.deps, { requestId: 'nope', code: '424242' })).rejects.toThrow(
-      /inte längre giltig/i,
+      CODE_REJECTED,
     );
+  });
+
+  it('answers every failure identically, so none of them is a probe', async () => {
+    // A publicly reachable endpoint that mints sessions. "Already used" would tell
+    // someone holding a stolen request id that the code was real and the person got in;
+    // "expired" would tell them when to stop guessing. Both are the same sentence here,
+    // and this is the test that keeps them that way.
+    const h = createHarness({ fixedCode: '424242' });
+
+    const wrongId = (await requestCode(h.deps, { email: EMAIL })).requestId;
+    const wrong = await failureOf(() => verifyCode(h.deps, { requestId: wrongId, code: '000000' }));
+
+    const usedId = (await requestCode(h.deps, { email: 'a@example.com' })).requestId;
+    await verifyCode(h.deps, { requestId: usedId, code: '424242' });
+    const used = await failureOf(() => verifyCode(h.deps, { requestId: usedId, code: '424242' }));
+
+    const expiredId = (await requestCode(h.deps, { email: 'b@example.com' })).requestId;
+    h.setNow(new Date(h.now().getTime() + 11 * 60 * 1000));
+    const expired = await failureOf(() =>
+      verifyCode(h.deps, { requestId: expiredId, code: '424242' }),
+    );
+
+    const unknown = await failureOf(() =>
+      verifyCode(h.deps, { requestId: 'nope', code: '424242' }),
+    );
+
+    const failures = [wrong, used, expired, unknown];
+    expect(new Set(failures.map((e) => e.message))).toEqual(new Set([CODE_REJECTED]));
+    expect(new Set(failures.map((e) => (e as AuthError).status))).toEqual(new Set([401]));
   });
 });
 

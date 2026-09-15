@@ -768,6 +768,7 @@ describe('limits', () => {
           unauthenticated: { limit: 120, windowMs: 60_000 },
           invitePreview: { limit: 2, windowMs: 60_000 },
           register: { limit: 20, windowMs: 3_600_000 },
+          signup: { limit: 20, windowMs: 3_600_000 },
         },
       }),
       logger: silentLogger(),
@@ -785,6 +786,66 @@ describe('limits', () => {
     const limited = await call();
     expect(limited.status).toBe(429);
     expect(limited.headers.get('retry-after')).toBeTruthy();
+  });
+
+  it('meters sign-up per client address, across request and verify alike', async () => {
+    // The per-address budget in `@photographic/connect` stops one inbox being flooded.
+    // This is the other half: it stops one sender walking a list of inboxes, which is
+    // the abuse that costs someone else their morning and us our sending reputation.
+    const connectDeps: ConnectDeps = {
+      identity: f.wired.services.identity,
+      invites: f.wired.services.invites,
+      sessions: f.wired.services.sessions,
+      codes: new MemoryCodeStore(),
+      sender: new MemoryCodeSender(),
+      issuer: new MemorySessionIssuer(),
+      codeSecret: 'test-secret',
+      clock: () => new Date(),
+      randomCode: () => '424242',
+      randomId: () => `rl-${Math.random()}`,
+    };
+
+    const app = createApp({
+      services: f.wired.services,
+      config: resolveConfig({
+        environment: 'test',
+        notFoundFloorMs: 0,
+        rateLimits: {
+          authenticated: { limit: 600, windowMs: 60_000 },
+          unauthenticated: { limit: 120, windowMs: 60_000 },
+          invitePreview: { limit: 20, windowMs: 60_000 },
+          register: { limit: 20, windowMs: 3_600_000 },
+          signup: { limit: 2, windowMs: 3_600_000 },
+        },
+      }),
+      logger: silentLogger(),
+      oauth: fakeOAuth(f.tokens),
+      connect: { deps: connectDeps },
+    });
+
+    const request = (path: string, body: unknown) =>
+      app.request(`https://photographic.test${path}`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.42' },
+      });
+
+    expect((await request('/v1/signup/request', { email: 'a@example.com' })).status).toBe(200);
+    expect((await request('/v1/signup/request', { email: 'b@example.com' })).status).toBe(200);
+
+    // Verify shares the budget: otherwise the cheap half is metered and the half that
+    // guesses codes is not.
+    const limited = await request('/v1/signup/verify', { requestId: 'x', code: '000000' });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('retry-after')).toBeTruthy();
+
+    // A different address is unaffected.
+    const elsewhere = await app.request('https://photographic.test/v1/signup/request', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'c@example.com' }),
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.7' },
+    });
+    expect(elsewhere.status).toBe(200);
   });
 
   it('pads a denial so response time does not reveal what exists', async () => {

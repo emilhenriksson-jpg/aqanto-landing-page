@@ -167,7 +167,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
   if (deps.connect) {
     app.use('/v1/signup/*', rateLimit({
-      rule: config.rateLimits.register,
+      rule: config.rateLimits.signup,
       key: (c) => `signup:${clientAddress(c)}`,
     }));
     app.use('/v1/connect', anonymous);

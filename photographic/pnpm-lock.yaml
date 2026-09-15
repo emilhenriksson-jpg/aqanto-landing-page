@@ -127,6 +127,9 @@ importers:
       '@photographic/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@photographic/delivery':
+        specifier: workspace:*
+        version: link:../../packages/delivery
       '@photographic/llm':
         specifier: workspace:*
         version: link:../../packages/llm
@@ -366,6 +369,25 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.13
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.2)(jsdom@30.0.1)(lightningcss@1.33.0)
+
+  packages/delivery:
+    dependencies:
+      '@photographic/connect':
+        specifier: workspace:*
+        version: link:../connect
+      '@photographic/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.2
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

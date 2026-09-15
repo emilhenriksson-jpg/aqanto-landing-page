@@ -20,6 +20,7 @@
     "@photographic/connect": "workspace:*",
     "@photographic/core": "workspace:*",
     "@photographic/db": "workspace:*",
+    "@photographic/delivery": "workspace:*",
     "@photographic/llm": "workspace:*",
     "@photographic/mcp": "workspace:*",
     "@photographic/services-memory": "workspace:*",
