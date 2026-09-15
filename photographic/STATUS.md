@@ -113,9 +113,16 @@ think about.
   null until Track 3 moves the client store to Postgres — an honest gap rather than a
   confident guess.
 
-Green: monorepo typecheck clean; core 38, agent 54, auth 34, connect 89, llm 9, web 45,
-services-memory 7, db 3, onboarding 24, mcp 40, rest 55; e2e 39 memory + 39 postgres
-(22 journey + 17 calendar), and the gated `LIVE_MCP=1` smoke.
+Rebased onto the foundation tip at `d8731c7` (real email delivery + public HTTPS), so
+these numbers include that work. Two conflicts, both resolved by keeping the union:
+`STATUS.md` (this section under its own heading, theirs left untouched) and
+`e2e/vitest.config.ts` — they excluded the live smoke from the default run and gave it
+`test:live`, I set `fileParallelism: false`; both are needed and the merged file says why.
+
+Green: monorepo typecheck clean; core 38, agent 54, auth 34, connect 91, delivery 28,
+llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 39 memory +
+39 postgres (22 journey + 17 calendar), plus `pnpm --filter @photographic/e2e test:live`
+against a running process.
 
 ### Verified against a running system, not only by tests
 
@@ -131,6 +138,14 @@ services-memory 7, db 3, onboarding 24, mcp 40, rest 55; e2e 39 memory + 39 post
   non-explicit insert into a shared room, and a second member in a personal room.
 - **`pg_policies` in schema `app` is empty** and `relrowsecurity` is false on `item`,
   `document`, `chunk`, `brief` and `event`.
+- **Bottom clearance on the calendar, measured rather than eyeballed.** `.shell__main`
+  computes `padding-bottom: 140px` at 420px wide, and at the true bottom of the page the
+  last card sits 210px above the fixed tab bar with the footer link clear too. On desktop
+  the last card and footer are both fully visible and the 64px rail ends well left of the
+  content. Worth writing down because a *mid-scroll* screenshot of a page with a fixed tab
+  bar always looks like a clipping bug — the bar paints over whatever is under it at that
+  moment. `media/kalender-mobil.png` in the project store is therefore a full-page capture,
+  where the bar appears once at the real bottom and cannot be misread.
 - **Running `src/calendar.test.ts` alone against Postgres** leaves `item.disputed`,
   `item.dispute_resolved`, `item.superseded` and `member.left` rows in the log, one
   `membership.left_at` written, `disputed` present in `app.memory_event`, and two authors
