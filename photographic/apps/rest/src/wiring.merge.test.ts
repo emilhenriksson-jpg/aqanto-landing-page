@@ -131,6 +131,56 @@ describe('OAuth state falls back to memory only when there is no database', () =
   });
 });
 
+describe('a job failure surfaces through runJobs rather than being silent', () => {
+  it('does not throw, and reports the kind and the error', async () => {
+    vi.stubEnv('DATABASE_URL', '');
+    const built = await wiring();
+
+    // Drains the recurring purge_trash/expire_invites jobs this composition root
+    // bootstraps with their real handlers first, so the override below only ever
+    // touches the one job this test enqueues itself. This test is about what
+    // `runJobs` does with a failure, not about trash retention -- see
+    // `packages/services-memory/src/jobs.test.ts` and
+    // `packages/db/src/postgres-services.test.ts` for the producer itself actually
+    // reaching `purgeExpired`/`expireOverdue`.
+    await built.runJobs();
+
+    built.services.jobs.work('purge_trash', async () => {
+      throw new Error('kaboom: simulerat jobbfel');
+    });
+    await built.services.jobs.enqueue({ kind: 'purge_trash', dedupeKey: 'test-failure' });
+
+    // The point of this test: `wiring.runJobs()` used to be `Promise<unknown>`, called
+    // from `server.ts` as `.catch(...)` on the promise itself. A handler's rejection
+    // never reached that `.catch` -- `PgJobs`/`MemoryJobs` already caught it, which is
+    // what stopped it taking the process down -- so it simply stopped existing anywhere
+    // a person could see it. A rejection here, rather than the assertion below running
+    // at all, is the regression this guards against.
+    const result = await built.runJobs();
+
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toMatchObject({ kind: 'purge_trash' });
+    expect(String(result.failures[0]?.error)).toContain('kaboom');
+  });
+
+  it('is drained rather than accumulated, so a long-lived process does not leak it', async () => {
+    vi.stubEnv('DATABASE_URL', '');
+    const built = await wiring();
+    await built.runJobs();
+
+    built.services.jobs.work('purge_trash', async () => {
+      throw new Error('kaboom');
+    });
+    await built.services.jobs.enqueue({ kind: 'purge_trash', dedupeKey: 'test-failure' });
+    const first = await built.runJobs();
+    expect(first.failures).toHaveLength(1);
+
+    // Nothing new failed since; a second read must not repeat the first.
+    const second = await built.runJobs();
+    expect(second.failures).toHaveLength(0);
+  });
+});
+
 describe('sign-up codes go through the delivery port', () => {
   it('defaults to the log rather than pretending to send mail', () => {
     const selection = createCodeSenderFromEnv({}, { logger: silentLogger() });
