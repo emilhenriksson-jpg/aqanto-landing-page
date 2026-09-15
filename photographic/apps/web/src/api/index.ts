@@ -12,6 +12,7 @@ export { forgetMemory, undoMemory } from './memory.js';
 export { getProfile } from './profile.js';
 export { listProposals, resolveProposal } from './proposals.js';
 export { getRoom, listRoomItems, listRooms } from './rooms.js';
+export { listTrash, restoreTrash } from './trash.js';
 export type {
   BriefDto,
   ClientHealthDto,
@@ -26,4 +27,5 @@ export type {
   RoomItemDto,
   RoomMemberDto,
   RoomSummaryDto,
+  TrashEntryDto,
 } from './types.js';

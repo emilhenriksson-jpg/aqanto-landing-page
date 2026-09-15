@@ -6,6 +6,7 @@ import {
   mapInvitePreview,
   mapProposal,
   mapRoomSummary,
+  mapTrashEntry,
 } from './load.js';
 
 describe('API → UI mapping', () => {
@@ -63,6 +64,28 @@ describe('API → UI mapping', () => {
       profileDelivered: true,
       deliveryMethod: 'mcp_instructions',
       degraded: false,
+    });
+  });
+
+  it('maps trash DTOs onto quiet shelf lines with days remaining', () => {
+    const line = mapTrashEntry({
+      shortId: 'p-old1',
+      roomId: 'room-1',
+      roomTitle: 'Ditt rum',
+      kind: 'fact',
+      body: 'Bor i Malmö',
+      deletedAt: '2026-09-01T12:00:00.000Z',
+      deletedByClient: 'claude-desktop',
+      deleteReason: 'Flyttade till Stockholm',
+      purgeAfter: '2026-10-01T12:00:00.000Z',
+      daysRemaining: 28,
+    });
+    expect(line).toMatchObject({
+      shortId: 'p-old1',
+      roomTitle: 'Ditt rum',
+      body: 'Bor i Malmö',
+      daysLabel: '28 dagar kvar',
+      deleteReason: 'Flyttade till Stockholm',
     });
   });
 

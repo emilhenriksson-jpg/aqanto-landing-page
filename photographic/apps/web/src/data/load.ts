@@ -17,6 +17,7 @@ import {
   listProposals,
   listRoomItems,
   listRooms,
+  listTrash,
 } from '../api/index.js';
 import type {
   ClientHealthDto,
@@ -25,6 +26,7 @@ import type {
   RoomItemDto,
   RoomMemberDto,
   RoomSummaryDto,
+  TrashEntryDto,
 } from '../api/index.js';
 import type {
   ApprovalItem,
@@ -33,6 +35,7 @@ import type {
   MemoryLine,
   RoomCard,
   RoomDetail,
+  TrashLine,
 } from './demo.js';
 
 export function mapRoomSummary(summary: RoomSummaryDto): RoomCard {
@@ -214,6 +217,25 @@ export function mapProposal(dto: ProposalDto): ApprovalItem {
 export async function loadApprovalsFromApi(): Promise<ApprovalItem[]> {
   const { proposals } = await listProposals();
   return proposals.map(mapProposal);
+}
+
+export function mapTrashEntry(dto: TrashEntryDto): TrashLine {
+  const days = dto.daysRemaining;
+  const daysLabel =
+    days <= 0 ? 'Försvinner snart' : days === 1 ? '1 dag kvar' : `${days} dagar kvar`;
+
+  return {
+    shortId: dto.shortId,
+    roomTitle: dto.roomTitle,
+    body: dto.body,
+    daysLabel,
+    deleteReason: dto.deleteReason,
+  };
+}
+
+export async function loadTrashFromApi(): Promise<TrashLine[]> {
+  const { entries } = await listTrash();
+  return entries.map(mapTrashEntry);
 }
 
 function clientLabel(agentClient: string | null): string {

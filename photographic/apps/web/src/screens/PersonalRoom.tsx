@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { forgetMemory, isDemoMode, undoMemory } from '../api/index.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
@@ -139,6 +140,12 @@ function PersonalRoomReady({ room }: { room: RoomDetail }) {
       </div>
 
       <DocumentsSection roomId={room.id} />
+
+      <footer className="page-foot">
+        <Link to="/papperskorg" className="page-foot__link">
+          Papperskorg
+        </Link>
+      </footer>
     </article>
   );
 }

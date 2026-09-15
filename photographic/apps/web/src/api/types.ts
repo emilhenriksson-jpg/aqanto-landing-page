@@ -109,3 +109,17 @@ export interface ProposalDto {
   proposedByClient: string | null;
   createdAt: string;
 }
+
+/** GET /v1/trash — soft-deleted memories still recoverable. */
+export interface TrashEntryDto {
+  shortId: string;
+  roomId: string;
+  roomTitle: string;
+  kind: string;
+  body: string;
+  deletedAt: string;
+  deletedByClient: string | null;
+  deleteReason: string | null;
+  purgeAfter: string;
+  daysRemaining: number;
+}

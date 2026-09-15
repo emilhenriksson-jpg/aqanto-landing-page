@@ -378,3 +378,33 @@ export const DEMO_DOCUMENTS: Record<string, DocumentLine[]> = {
     },
   ],
 };
+
+/**
+ * Soft-deleted lines waiting in the trash. Sparse on purpose — this screen should
+ * feel like a quiet shelf, not a dump. Live path: GET /v1/trash.
+ */
+export interface TrashLine {
+  shortId: string;
+  roomTitle: string;
+  body: string;
+  /** Swedish meta, e.g. "28 dagar kvar". */
+  daysLabel: string;
+  deleteReason: string | null;
+}
+
+export const DEMO_TRASH: TrashLine[] = [
+  {
+    shortId: 'p-old1',
+    roomTitle: 'Ditt rum',
+    body: 'Bor i Malmö',
+    daysLabel: '28 dagar kvar',
+    deleteReason: 'Flyttade till Stockholm',
+  },
+  {
+    shortId: 'r-old2',
+    roomTitle: 'Buyersclub Ledning',
+    body: 'Vi siktar på förvärv i Q2',
+    daysLabel: '12 dagar kvar',
+    deleteReason: 'Skjutits till Q3',
+  },
+];

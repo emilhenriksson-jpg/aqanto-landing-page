@@ -7,10 +7,12 @@ import { InvitePreview } from './screens/InvitePreview.js';
 import { PersonalRoom } from './screens/PersonalRoom.js';
 import { Rooms } from './screens/Rooms.js';
 import { SharedRoom } from './screens/SharedRoom.js';
+import { Trash } from './screens/Trash.js';
 
 /**
  * Consumer app: open it and you are standing inside your personal room.
  * Secondary nav is rooms, client health, and approvals — not a dashboard home.
+ * Papperskorg lives off a quiet personal-room footer link (not a fifth rail icon).
  *
  * Invite landing sits outside the shell: recipients are not logged in yet.
  *
@@ -26,6 +28,7 @@ export function AppRoutes() {
         <Route path="rum/:roomId" element={<SharedRoom />} />
         <Route path="klienter" element={<ClientHealth />} />
         <Route path="godkann" element={<Approvals />} />
+        <Route path="papperskorg" element={<Trash />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

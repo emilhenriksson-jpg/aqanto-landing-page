@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadRoom } from '../data/demo.js';
@@ -26,6 +27,14 @@ vi.mock('../hooks/useRoomData.js', () => ({
   },
 }));
 
+function renderPersonalRoom() {
+  return render(
+    <MemoryRouter>
+      <PersonalRoom />
+    </MemoryRouter>,
+  );
+}
+
 describe('PersonalRoom live forget / undo', () => {
   beforeEach(() => {
     forgetMemory.mockReset();
@@ -46,7 +55,7 @@ describe('PersonalRoom live forget / undo', () => {
 
   it('calls forgetMemory then undoMemory on Ta bort / Ångra', async () => {
     const user = userEvent.setup();
-    render(<PersonalRoom />);
+    renderPersonalRoom();
 
     await user.click(screen.getByRole('button', { name: 'Ta bort p-h58j' }));
     expect(screen.getByText('Borttaget')).toBeInTheDocument();
@@ -76,7 +85,7 @@ describe('PersonalRoom live forget / undo', () => {
     );
 
     const user = userEvent.setup();
-    render(<PersonalRoom />);
+    renderPersonalRoom();
 
     await user.click(screen.getByRole('button', { name: 'Ta bort p-h58j' }));
     await user.click(screen.getByRole('button', { name: 'Ångra' }));
