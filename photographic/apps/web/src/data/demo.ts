@@ -37,6 +37,11 @@ export const DEMO_PERSON = {
   email: 'emil@example.com',
 };
 
+/** GET /v1/account, demo shape — the account screen's own first name. */
+export function loadAccountDemo(): { firstName: string | null } {
+  return { firstName: DEMO_PERSON.displayName };
+}
+
 export const DEMO_ROOMS: RoomCard[] = [
   {
     id: 'personal',
@@ -44,7 +49,7 @@ export const DEMO_ROOMS: RoomCard[] = [
     title: 'Ditt rum',
     headline: 'Det Claude och ChatGPT läser om dig innan de svarar',
     memberCount: 1,
-    memberNames: ['Emil'],
+    memberNames: [],
     unseenCount: 0,
   },
   {
@@ -53,7 +58,9 @@ export const DEMO_ROOMS: RoomCard[] = [
     title: 'Buyersclub Ledning',
     headline: 'Ledningsgruppen i Buyersclub. Beslut, underlag och styrelsematerial.',
     memberCount: 3,
-    memberNames: ['Emil', 'Anna', 'Jacob'],
+    // The other members, not including the viewer — see `memberDisplayName` in
+    // `data/load.ts` for why the live path is shaped the same way.
+    memberNames: ['Anna', 'Jacob'],
     unseenCount: 2,
   },
   {
@@ -62,7 +69,7 @@ export const DEMO_ROOMS: RoomCard[] = [
     title: 'Villan',
     headline: 'Renovering av villan: offerter, hantverkare och tidplan',
     memberCount: 2,
-    memberNames: ['Emil', 'Vera'],
+    memberNames: ['Vera'],
     unseenCount: 1,
   },
   {
@@ -71,7 +78,7 @@ export const DEMO_ROOMS: RoomCard[] = [
     title: 'Tomt rum',
     headline: 'Inget sparat än',
     memberCount: 1,
-    memberNames: ['Emil'],
+    memberNames: [],
     unseenCount: 0,
   },
 ];

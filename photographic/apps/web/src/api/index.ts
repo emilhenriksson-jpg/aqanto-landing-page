@@ -1,3 +1,4 @@
+export { getAccount, setFirstName } from './account.js';
 export { getCalendarDay, getCalendarEvent } from './calendar.js';
 export { ApiError, apiFetch, apiUpload } from './client.js';
 export { listClients } from './clients.js';
@@ -25,6 +26,7 @@ export { askMemory } from './search.js';
 export type { AskMemoryInput } from './search.js';
 export { listTrash, restoreTrash } from './trash.js';
 export type {
+  AccountDto,
   AskHitDto,
   BriefDto,
   CalendarDayDto,

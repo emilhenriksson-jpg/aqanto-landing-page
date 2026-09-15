@@ -12,6 +12,7 @@ import { compassPrincipleLabel, PROFILE_TOKEN_BUDGET } from '@photographic/core'
 import {
   ApiError,
   askMemory,
+  getAccount,
   getCalendarDay,
   getCalendarEvent,
   getInvite,
@@ -57,6 +58,15 @@ import type {
   HistoryLine,
   TrashLine,
 } from './demo.js';
+
+export interface AccountView {
+  firstName: string | null;
+}
+
+export async function loadAccountFromApi(): Promise<AccountView> {
+  const account = await getAccount();
+  return { firstName: account.firstName };
+}
 
 export function mapRoomSummary(summary: RoomSummaryDto): RoomCard {
   return {
@@ -108,9 +118,10 @@ export async function loadSharedRoomFromApi(roomId: string): Promise<RoomDetail 
     ]);
     if (room.kind === 'personal') return null;
 
-    const memberNames = members
-      .map((member) => memberDisplayName(member))
-      .filter((name): name is string => Boolean(name));
+    // Other members, not the viewer themselves — "delad med" already means "with other
+    // people", and `isSelf` is computed server-side so the client never has to guess
+    // its own identity to tell the two apart.
+    const memberNames = members.filter((member) => !member.isSelf).map(memberDisplayName);
 
     return {
       id: room.id,
@@ -161,9 +172,16 @@ function pushSection(
   }
 }
 
-function memberDisplayName(member: RoomMemberDto): string | null {
+/**
+ * A member's name for display, falling back to "Någon" — the same word every other
+ * unknown-person surface uses (invites, disputes, provenance) — rather than dropping
+ * the member from the list or leaving a blank. A shared room member with no name set
+ * yet is still a person the room is shared with, and hiding them undercounts who is
+ * actually there.
+ */
+function memberDisplayName(member: RoomMemberDto): string {
   const name = member.displayName?.trim();
-  return name && name.length > 0 ? name : null;
+  return name && name.length > 0 ? name : 'Någon';
 }
 
 export async function loadInviteFromApi(token: string): Promise<InvitePreviewData | null> {

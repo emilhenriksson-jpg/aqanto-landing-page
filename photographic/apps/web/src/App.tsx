@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 import { Shell } from './components/Shell.js';
+import { Account } from './screens/Account.js';
 import { Approvals } from './screens/Approvals.js';
 import { ClientHealth } from './screens/ClientHealth.js';
 import { FragaMittMinne } from './screens/FragaMittMinne.js';
@@ -38,6 +39,7 @@ export function AppRoutes() {
         <Route path="papperskorg" element={<Trash />} />
         <Route path="historik" element={<Historik />} />
         <Route path="kompass" element={<Kompass />} />
+        <Route path="konto" element={<Account />} />
         {/*
           The calendar is a rail destination, not a footer link: the scope calls it a
           central part of the app rather than something internal to the AI. `/kalender`

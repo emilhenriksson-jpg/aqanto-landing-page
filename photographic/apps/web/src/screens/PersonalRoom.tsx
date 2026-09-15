@@ -166,6 +166,9 @@ function PersonalRoomReady({
         <Link to="/papperskorg" className="page-foot__link">
           Papperskorg
         </Link>
+        <Link to="/konto" className="page-foot__link">
+          Konto
+        </Link>
       </footer>
     </article>
   );
