@@ -16,27 +16,24 @@ import { randomUUID } from 'node:crypto';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { createHarness } from './harness.js';
+
+// `any` for the reason written out in `journey.test.ts`.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let harness: any;
 
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgres://photographic:photographic@127.0.0.1:5432/photographic';
 
+// Static import and no skip branch, for the reason written out at the top of
+// `journey.test.ts`: a harness that cannot be built has to fail, not report green.
 beforeAll(async () => {
-  const mod = await import('./harness.js').catch(() => null);
-  if (!mod) return;
-  harness = await mod.createHarness({ databaseUrl: DATABASE_URL });
+  harness = await createHarness({ databaseUrl: DATABASE_URL });
 });
 
 afterAll(async () => {
-  await harness?.teardown?.();
+  await harness?.teardown();
 });
-
-const itWhenWired = (name: string, fn: () => Promise<void>) =>
-  it(name, async (ctx) => {
-    if (!harness) ctx.skip();
-    await fn();
-  });
 
 /** `YYYY-MM-DD` for right now, on the clock the calendar uses. */
 function today(): string {
@@ -51,7 +48,7 @@ function today(): string {
 describe('the day, as a view over the log', () => {
   const email = `kalender-${randomUUID()}@example.com`;
 
-  itWhenWired('puts a private save in the day it happened, with its reason', async () => {
+  it('puts a private save in the day it happened, with its reason', async () => {
     const person = await harness.registerPerson(email, 'Emil');
     const actor = harness.actorFor(person.person, 'claude-desktop');
     const room = await harness.services.identity.personalRoomOf(actor.personId);
@@ -80,7 +77,7 @@ describe('the day, as a view over the log', () => {
     expect(saved.provenance.source.kind).toBe('conversation');
   });
 
-  itWhenWired('shows a correction and the value it corrected, on one line', async () => {
+  it('shows a correction and the value it corrected, on one line', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const room = await harness.services.identity.personalRoomOf(actor.personId);
 
@@ -106,7 +103,7 @@ describe('the day, as a view over the log', () => {
     expect(edit.previousBody).toBe('Lanseringen är 15 oktober');
   });
 
-  itWhenWired('reads a day forwards and steps to a day that has something in it', async () => {
+  it('reads a day forwards and steps to a day that has something in it', async () => {
     const actor = await harness.actorForEmail(email);
 
     const day = await harness.services.calendar.day(actor, { date: today() });
@@ -124,7 +121,7 @@ describe('the day, as a view over the log', () => {
     expect(empty.nextDate).toBe(today());
   });
 
-  itWhenWired('zooms from the day to the event to the source it came from', async () => {
+  it('zooms from the day to the event to the source it came from', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const day = await harness.services.calendar.day(actor, { date: today() });
     const edit = day.entries.find((entry: { kind: string }) => entry.kind === 'updated');
@@ -143,7 +140,7 @@ describe('the day, as a view over the log', () => {
     expect(detail.source.kind).toBe('conversation');
   });
 
-  itWhenWired('answers "how do you know that about me?" with a source and a reason', async () => {
+  it('answers "how do you know that about me?" with a source and a reason', async () => {
     const actor = await harness.actorForEmail(email);
     const day = await harness.services.calendar.day(actor, { date: today() });
     const saved = day.entries.find((entry: { kind: string }) => entry.kind === 'saved_private');
@@ -155,7 +152,7 @@ describe('the day, as a view over the log', () => {
     expect(provenance.changed).toBe(false);
   });
 
-  itWhenWired('keeps the deleted event in the day it was deleted', async () => {
+  it('keeps the deleted event in the day it was deleted', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const room = await harness.services.identity.personalRoomOf(actor.personId);
 
@@ -184,7 +181,7 @@ describe('the day, as a view over the log', () => {
     expect(entry.deleteReason).toBe('Flyttade till Stockholm');
   });
 
-  itWhenWired('holds one trash entry after delete, undo, delete', async () => {
+  it('holds one trash entry after delete, undo, delete', async () => {
     // The reason the trash is derived rather than stored. Two records of the same fact is
     // one record and one thing that drifts from it, and you find out they disagree when a
     // person sees something they restored last week.
@@ -214,7 +211,7 @@ describe('what automation may not do', () => {
   const owner = `agare-${randomUUID()}@example.com`;
   const member = `medlem-${randomUUID()}@example.com`;
 
-  itWhenWired('refuses to place a memory in a shared room without a person saying so', async () => {
+  it('refuses to place a memory in a shared room without a person saying so', async () => {
     const person = await harness.registerPerson(owner, 'Emil');
     const actor = harness.actorFor(person.person, 'claude-desktop');
     const room = await harness.services.rooms.create(actor, { title: 'Buyersclub Ledning' });
@@ -232,7 +229,7 @@ describe('what automation may not do', () => {
     expect(await harness.services.retrieval.listForRoom(actor, room.id)).toHaveLength(0);
   });
 
-  itWhenWired('records who wrote what, and shows it in the room owner’s day', async () => {
+  it('records who wrote what, and shows it in the room owner’s day', async () => {
     const emil = await harness.personByEmail(owner);
     const emilActor = harness.actorFor(emil, 'web');
     const room = await harness.roomByTitle(emilActor, 'Buyersclub Ledning');
@@ -283,7 +280,7 @@ describe('what automation may not do', () => {
     ).toBe(true);
   });
 
-  itWhenWired('will not let one member quietly delete another member’s contribution', async () => {
+  it('will not let one member quietly delete another member’s contribution', async () => {
     const emil = await harness.personByEmail(owner);
     const anna = await harness.personByEmail(member);
     const emilActor = harness.actorFor(emil, 'web');
@@ -305,7 +302,7 @@ describe('what automation may not do', () => {
     );
   });
 
-  itWhenWired('lets an invitation be redeemed exactly once', async () => {
+  it('lets an invitation be redeemed exactly once', async () => {
     const emil = await harness.personByEmail(owner);
     const emilActor = harness.actorFor(emil, 'web');
     const room = await harness.roomByTitle(emilActor, 'Buyersclub Ledning');
@@ -329,7 +326,7 @@ describe('what automation may not do', () => {
     expect(await harness.services.invites.peek(token)).toBeNull();
   });
 
-  itWhenWired('keeps a departing member’s contributions in the room', async () => {
+  it('keeps a departing member’s contributions in the room', async () => {
     const emil = await harness.personByEmail(owner);
     const anna = await harness.personByEmail(member);
     const emilActor = harness.actorFor(emil, 'web');
@@ -359,7 +356,7 @@ describe('two members who disagree', () => {
   const owner = `tvist-a-${randomUUID()}@example.com`;
   const other = `tvist-b-${randomUUID()}@example.com`;
 
-  itWhenWired('keeps both statements and settles nothing on its own', async () => {
+  it('keeps both statements and settles nothing on its own', async () => {
     const emil = await harness.registerPerson(owner, 'Emil');
     const emilActor = harness.actorFor(emil.person, 'web');
     const room = await harness.services.rooms.create(emilActor, { title: 'Lansering' });
@@ -401,7 +398,7 @@ describe('two members who disagree', () => {
     ]);
   });
 
-  itWhenWired('never hands a model one side of a disagreement alone', async () => {
+  it('never hands a model one side of a disagreement alone', async () => {
     const emil = await harness.personByEmail(owner);
     const emilActor = harness.actorFor(emil, 'claude-desktop');
 
@@ -414,7 +411,7 @@ describe('two members who disagree', () => {
     expect(disputed.length).toBeGreaterThanOrEqual(2);
   });
 
-  itWhenWired('shows the disagreement as its own kind of day, not as an edit', async () => {
+  it('shows the disagreement as its own kind of day, not as an edit', async () => {
     const emil = await harness.personByEmail(owner);
     const emilActor = harness.actorFor(emil, 'web');
     const room = await harness.roomByTitle(emilActor, 'Lansering');
@@ -429,7 +426,7 @@ describe('two members who disagree', () => {
     expect(dispute.byOtherMember).toBe(true);
   });
 
-  itWhenWired('lets a person settle it, and only a person', async () => {
+  it('lets a person settle it, and only a person', async () => {
     const emil = await harness.personByEmail(owner);
     const emilActor = harness.actorFor(emil, 'web');
 
@@ -471,7 +468,7 @@ describe('two members who disagree', () => {
 describe('deciding where a memory belongs', () => {
   const email = `routing-${randomUUID()}@example.com`;
 
-  itWhenWired('keeps something about the person private, and says why in Swedish', async () => {
+  it('keeps something about the person private, and says why in Swedish', async () => {
     const person = await harness.registerPerson(email, 'Emil');
     const actor = harness.actorFor(person.person, 'claude-desktop');
 
@@ -496,7 +493,7 @@ describe('deciding where a memory belongs', () => {
     expect(saved.provenance.motivation).toBe('Sparat privat eftersom det handlar om dig.');
   });
 
-  itWhenWired('finds the room a memory is plainly about — and still asks first', async () => {
+  it('finds the room a memory is plainly about — and still asks first', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const room = await harness.services.rooms.create(actor, { title: 'Villan' });
     await harness.services.rooms.describe(
@@ -539,7 +536,7 @@ describe('deciding where a memory belongs', () => {
     expect(bodies).not.toContain('Hantverkarna lämnar offert på tidplanen för villan');
   });
 
-  itWhenWired('records the routing reason once the person approves', async () => {
+  it('records the routing reason once the person approves', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const [pending] = await harness.services.ingest.listProposals(actor);
     const item = await harness.services.ingest.resolveProposal(actor, pending.id, true);
@@ -553,7 +550,7 @@ describe('deciding where a memory belongs', () => {
     expect(placed.provenance.motivation).toMatch(/^Hör till Villan eftersom det nämner /);
   });
 
-  itWhenWired('stays private when two rooms match about equally', async () => {
+  it('stays private when two rooms match about equally', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const second = await harness.services.rooms.create(actor, { title: 'Villan i Dalarna' });
     await harness.services.rooms.describe(
@@ -580,7 +577,7 @@ describe('deciding where a memory belongs', () => {
     expect(decision.routing.uncertainty).toMatch(/både/);
   });
 
-  itWhenWired('never routes into a room the person only reads', async () => {
+  it('never routes into a room the person only reads', async () => {
     // A viewer cannot write, so the router must not consider the room at all — otherwise
     // automatic placement becomes a way to attempt a write that would be refused.
     const owner = await harness.registerPerson(`agare-${randomUUID()}@example.com`, 'Anna');
@@ -611,7 +608,7 @@ describe('deciding where a memory belongs', () => {
 describe('what the trash promises', () => {
   const email = `radering-${randomUUID()}@example.com`;
 
-  itWhenWired('erases the quotation a correction kept, not just the memory', async () => {
+  it('erases the quotation a correction kept, not just the memory', async () => {
     // A correction records what it replaced, on the *new* memory's event. Purging the old
     // one therefore has to reach an event that is not about it, or the trash kept half a
     // promise: the row is gone and the sentence is still in an append-only payload.
