@@ -224,11 +224,16 @@ app's shape.
                    ELKS_API_USERNAME=... ELKS_API_PASSWORD=... \
                    SMS_FROM=Photografic                         # SMS delivery
    ```
-   Each one fails differently when it is missing, and each failure is quiet:
+   `SESSION_SECRET` belongs with these and is set in the block above, not this one. It is
+   listed there because it is required for the process to start at all rather than for
+   sign-in to work; unset, it falls back to `CODE_SECRET`, so the two blocks together are
+   what a working deploy needs.
+
+   Each of these fails differently when it is missing:
 
    | Missing | What happens | How you notice |
    | --- | --- | --- |
-   | `CODE_SECRET` | A new key per boot, so every code in flight stops working at a restart. | `code_secret_ephemeral` at `warn`, every boot. |
+   | `CODE_SECRET` | **The process refuses to start** in production, and Fly rolls the deploy back. Outside production it is a fresh key per boot, so every code in flight stops verifying at a restart. | The boot log names the variable and exits non-zero. Outside production, `secret_ephemeral` at `warn`. |
    | `BREAK_GLASS_SECRET` | Nödinloggning accepts nothing, so with SMS also unconfigured nobody can sign in at all. | `break_glass_unavailable` at `warn`, every boot. |
    | The 46elks three | The SMS channel refuses at send: a person trying to sign up gets a visible, retryable failure rather than a code that went to a log. | `code_delivery_inert` at `error`, every boot, naming the channel and the fix. |
 
