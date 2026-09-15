@@ -1034,18 +1034,24 @@ against; flagged rather than assumed working.
   `packages/connect/src/routes.test.ts`. No URL parameter prefills sign-up: `main.tsx`
   reads `/invite/<token>` and `?auth_request=` and nothing else.
 
-  **Two things confirmed against the running system rather than inferred.** Probed
-  `https://mcp.photographic.space/v1/signup/request` before this branch is deployed:
+  **The hidden path, confirmed against the running system rather than inferred.** Probed
+  `https://mcp.photographic.space/v1/signup/request` twice, at 14:33 and 14:55, before
+  this branch is deployed: `{"email":"…"}` answers `200` with a request id and
+  `"channel":"email"`. The same body against this branch answers `400`.
 
-  - `{"email":"…"}` answers `200` with a request id and `"channel":"email"`. That is the
-    hidden path, on production, today.
-  - `{"phone":"070-123 45 67"}` answers `200` — and the old `normalisePhone` stores that
-    as **`+0701234567`**, because it prefixed `+` to a national number without ever
-    reading the trunk zero. That is not an E.164 number and 46elks could not have
-    delivered to it, so the SMS path was already broken for the way a Swede writes their
-    own number. Worse, `+46 70 123 45 67` stored `+46701234567`, so the same person
-    signing up from two tabs became two accounts with two personal rooms. Fixed by the
-    same normalisation as everything else here.
+  **A correction, recorded because it was first written down wrong.** This entry
+  originally also claimed production stored `070-123 45 67` as `+0701234567` — the trunk
+  zero kept where the country code belongs, a number valid nowhere, and a second account
+  for the same person signing up from another tab. The bug was real, but it was **already
+  fixed on `main` before this branch existed** (`132802f`, 13:55) and that fix is
+  **already deployed**. This checkout was a pre-built snapshot at `4803dd0` and had not
+  seen it, so the claim came from reading stale local code rather than from the running
+  system, and the masked hint (`***4567` either way) could not tell the two apart.
+  Settled empirically instead: five requests for `0701234567` exhaust the per-destination
+  allowance and `+46 70 123 45 67` is then refused with `För många försök`, which only
+  happens if production already resolves both spellings to one destination. It does.
+  `phone.ts` still has to get the trunk zero right, but as the same rule the narrower fix
+  established — not as a discovery, and not as a live bug.
 
   **Swedish numbers, read the way people write them.** `packages/connect/src/phone.ts`
   is a new dependency-free module — the one piece of `@photographic/connect` the browser
