@@ -1,14 +1,21 @@
 -- ---------------------------------------------------------------------------
--- 0016 — what the write path needs to be atomic
+-- 0017 — what the write path needs to be atomic
 -- ---------------------------------------------------------------------------
 
 /*
  * Two additions, both in service of the same promise: the log is the truth, and a
  * half-finished operation must not be able to make it a half-truth.
  *
- * Numbered 0016 because `main` carries migrations through 0015. Nothing here touches a
- * table another track is mid-change on: `app.proposal.intent` is a check constraint added
- * in 0003, and `app.account_deletion` came in with 0013.
+ * Renumbered from 0016 on merge: `main` had gained `0016_app_role_grants.sql` in the
+ * meantime, and that one is already applied to production, so this is the file that
+ * moves. Filename order is what the runner sorts on and the ledger keys on, so two
+ * files sharing a number is deterministic but unreadable — and renaming an *applied*
+ * migration re-runs it, which is why the unapplied one renumbers and never the other
+ * way round.
+ *
+ * No ordering dependency either way: nothing here touches a table another track is
+ * mid-change on. `app.proposal.intent` is a check constraint added in 0003, and
+ * `app.account_deletion` came in with 0013.
  */
 
 -- ---------------------------------------------------------------------------
