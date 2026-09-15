@@ -1,0 +1,45 @@
+{
+  "$comment": [
+    "Floors on what each suite group must run, and ceilings on what it may skip.",
+    "Read by scripts/run-suites.mjs; surfaced per job by the ci gate in the workflow.",
+    "",
+    "Why a count and not just an exit code: when journey.test.ts cannot reach a database",
+    "its beforeAll throws, and vitest reports '3 failed' files but '62 skipped' tests. A",
+    "suite that stopped running therefore looks one word away from a suite that ran, in",
+    "the line a person actually reads. The exit code separates them only because the hook",
+    "throws -- one try/catch in the wrong place and the numbers are all that is left.",
+    "",
+    "minPassed is a ratchet: adding tests raises the actual above the floor and passes,",
+    "while a suite that quietly stops running drops below it and fails. Raising a floor",
+    "is optional. Lowering one has to be a deliberate line in a diff.",
+    "",
+    "maxSkipped is set to exactly what is skipped today, so a new skip fails the build. A",
+    "skipped test is a test nobody runs, and the only two in this repository are skipped",
+    "because they need a credential CI cannot have.",
+    "",
+    "Measured in CI, not on a laptop, and that distinction cost a red build. The machine",
+    "this was first measured on had OPENAI_API_KEY injected, so the retrieval test gated",
+    "behind it ran there and skipped in CI: 216 passed / 2 skipped locally against 215 / 3",
+    "in CI. A floor of 216 would have been a floor that only holds where a key happens to",
+    "exist. CI is the authority for these numbers; a local run may exceed them."
+  ],
+  "groups": {
+    "unit": {
+      "minPassed": 676,
+      "maxSkipped": 0
+    },
+    "e2e-memory": {
+      "minPassed": 62,
+      "maxSkipped": 0
+    },
+    "db": {
+      "minPassed": 263,
+      "maxSkipped": 3,
+      "whySkipped": "packages/db: two tls.test.ts tests behind LIVE_SUPABASE=1, and one retrieval test behind OPENAI_API_KEY. All three need a credential CI cannot have. The third runs on any machine that does have a key -- 264 passed there against 263 in CI -- which is why the floor is CI's number."
+    },
+    "e2e-postgres": {
+      "minPassed": 62,
+      "maxSkipped": 0
+    }
+  }
+}

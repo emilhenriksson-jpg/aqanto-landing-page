@@ -1,0 +1,19 @@
+{
+  // `scripts/break-glass-signin.ts` belonged to no tsconfig, which meant two things that
+  // both only showed up once a linter existed: type-aware ESLint could not parse it at
+  // all ("was not found by the project service"), and `pnpm -r run typecheck` skipped it
+  // because `scripts/` is not a workspace package. So the one file that exists to get a
+  // locked-out person back into their account was the only source file in the repository
+  // with no type checking.
+  //
+  // Giving it a project is better than adding it to ESLint's ignore list, which was the
+  // cheaper way to make `pnpm lint` green and would have left it unchecked.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}

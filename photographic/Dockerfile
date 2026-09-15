@@ -114,4 +114,17 @@ EXPOSE 8080
 # No claim is made here about migrations being safe in general — this only guarantees that
 # a migration which exits non-zero stops the boot. Concurrency is handled separately by
 # the advisory lock in `packages/db/src/migrate.ts`.
-CMD ["sh", "-c", "set -e; if [ -n \"$DATABASE_URL\" ]; then pnpm db:migrate || { echo 'db:migrate failed; refusing to start against a partial schema' >&2; exit 1; }; fi; exec node --import tsx apps/rest/src/server.ts"]
+#
+# The migration is invoked as a plain node script rather than through `pnpm db:migrate`,
+# and that is about availability rather than style. `corepack enable` in the base stage
+# only installs shims; the pnpm tarball itself is fetched on first use and cached in
+# `/root/.cache/node/corepack`, which `COPY --from=build /app /app` does not carry over.
+# So the runtime image had the shim and not the package, and every boot downloaded pnpm
+# from npmjs.org before serving anything — turning an npm outage into our outage at the
+# one moment we can least afford it, a restart. Removing the call is better than
+# pre-seeding the cache, because the running app has no reason to need a package manager.
+#
+# `pnpm db:migrate` resolved to `tsx src/migrate.ts` with pnpm setting the working
+# directory to `packages/db`. Nothing here depends on that: `MIGRATIONS_DIR` is resolved
+# from `import.meta.url`, so the file list is the same from any cwd.
+CMD ["sh", "-c", "set -e; if [ -n \"$DATABASE_URL\" ]; then node --import tsx packages/db/src/migrate.ts || { echo 'db:migrate failed; refusing to start against a partial schema' >&2; exit 1; }; fi; exec node --import tsx apps/rest/src/server.ts"]
