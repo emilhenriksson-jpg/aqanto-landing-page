@@ -6,12 +6,14 @@ export {
   getSessionToken,
   isDemoMode,
 } from './config.js';
+export { getInvite } from './invites.js';
 export { forgetMemory, undoMemory } from './memory.js';
 export { getProfile } from './profile.js';
 export { getRoom, listRooms } from './rooms.js';
 export type {
   BriefDto,
   ForgetResponse,
+  InvitePreviewDto,
   ItemDto,
   ProfileDto,
   ProfileSectionsDto,

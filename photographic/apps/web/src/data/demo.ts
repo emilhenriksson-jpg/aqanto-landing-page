@@ -263,3 +263,47 @@ export const DEMO_APPROVALS: ApprovalItem[] = [
     reason: 'Preferenser som styr hur modeller svarar granskas innan de sparas.',
   },
 ];
+
+/**
+ * What a recipient sees before they have an account: the room itself, readable,
+ * with one violet action to join. Growth loop — polish this hard.
+ */
+export interface InvitePreviewData {
+  token: string;
+  roomTitle: string;
+  brief: string | null;
+  invitedByName: string;
+  /** A few lines from the room — enough to know what you are joining. */
+  lines: MemoryLine[];
+}
+
+/** Any `/i/:token` in demo mode resolves to this invite (Buyersclub Ledning). */
+export const DEMO_INVITE: InvitePreviewData = {
+  token: 'demo-ledning',
+  roomTitle: 'Buyersclub Ledning',
+  brief:
+    'Ledningsgruppen arbetar mot en Q3-förvärvsplan. Senaste beslutet: skjuta due diligence till efter sommaren. Styrelsematerial ligger i rummet.',
+  invitedByName: 'Emil',
+  lines: [
+    {
+      shortId: 'r-8k2m',
+      kind: 'decision',
+      body: 'Vi beslutade att skjuta förvärvet till Q3',
+    },
+    {
+      shortId: 'r-3n9p',
+      kind: 'note',
+      body: 'Due diligence-paketet skickas till styrelsen 12 juni',
+    },
+    {
+      shortId: 'r-6t4w',
+      kind: 'fact',
+      body: 'Anna äger due diligence, Jacob tar styrelsepaketet',
+    },
+  ],
+};
+
+export function loadInvitePreview(token: string): InvitePreviewData | null {
+  if (!token.trim()) return null;
+  return { ...DEMO_INVITE, token };
+}

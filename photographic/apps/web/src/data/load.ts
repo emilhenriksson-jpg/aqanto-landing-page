@@ -9,9 +9,9 @@
 
 import { PROFILE_TOKEN_BUDGET } from '@photographic/core';
 
-import { ApiError, getProfile, getRoom, listRooms } from '../api/index.js';
+import { ApiError, getInvite, getProfile, getRoom, listRooms } from '../api/index.js';
 import type { ProfileSectionsDto, RoomMemberDto, RoomSummaryDto } from '../api/index.js';
-import type { MemoryLine, RoomCard, RoomDetail } from './demo.js';
+import type { InvitePreviewData, MemoryLine, RoomCard, RoomDetail } from './demo.js';
 
 export function mapRoomSummary(summary: RoomSummaryDto): RoomCard {
   return {
@@ -108,6 +108,46 @@ function pushSection(
 function memberDisplayName(member: RoomMemberDto): string | null {
   const name = member.displayName?.trim();
   return name && name.length > 0 ? name : null;
+}
+
+export async function loadInviteFromApi(token: string): Promise<InvitePreviewData | null> {
+  try {
+    const dto = await getInvite(token);
+    return mapInvitePreview(token, dto);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export function mapInvitePreview(
+  token: string,
+  dto: {
+    room: { title: string; description: string | null };
+    invitedByName: string | null;
+    preview: string | null;
+  },
+): InvitePreviewData {
+  return {
+    token,
+    roomTitle: dto.room.title,
+    brief: dto.room.description,
+    invitedByName: dto.invitedByName?.trim() || 'Någon',
+    lines: previewLines(dto.preview),
+  };
+}
+
+function previewLines(preview: string | null): MemoryLine[] {
+  if (!preview) return [];
+  return preview
+    .split('\n')
+    .map((body) => body.trim())
+    .filter((body) => body.length > 0)
+    .map((body, index) => ({
+      shortId: `i-${index + 1}`,
+      kind: 'note' as const,
+      body,
+    }));
 }
 
 export function calmErrorMessage(error: unknown): string {

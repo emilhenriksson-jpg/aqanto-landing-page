@@ -71,3 +71,13 @@ export interface ForgetResponse {
   undoToken: string;
   daysRecoverable: number;
 }
+
+/** Public GET /v1/invites/:token — no auth, harder rate limit. */
+export interface InvitePreviewDto {
+  room: { title: string; description: string | null };
+  invitedByName: string | null;
+  /** Newline-separated memory bodies, capped server-side. */
+  preview: string | null;
+  role: string;
+  expiresAt: string;
+}

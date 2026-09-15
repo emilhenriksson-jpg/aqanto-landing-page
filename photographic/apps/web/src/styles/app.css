@@ -740,3 +740,172 @@
     transform: none;
   }
 }
+
+/* --------------------------------------------------------------- invite */
+
+/*
+ * Recipient landing — outside the shell rail. Full-bleed calm surface: the room
+ * content is the page, one violet CTA to join. Shop.app restraint; Swedish.
+ */
+.invite {
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  background:
+    radial-gradient(
+      90% 55% at 12% -8%,
+      color-mix(in srgb, var(--brand-soft) 70%, transparent) 0%,
+      transparent 58%
+    ),
+    radial-gradient(
+      60% 40% at 88% 8%,
+      color-mix(in srgb, var(--surface) 80%, var(--canvas)) 0%,
+      transparent 50%
+    ),
+    var(--canvas);
+}
+
+.invite__page {
+  width: 100%;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: var(--space-12) var(--space-6) calc(var(--space-20) + 4.5rem);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  animation: rise var(--dur-slow) var(--ease-spring) both;
+}
+
+.invite__page--joined {
+  min-height: 100dvh;
+  justify-content: center;
+  padding-bottom: var(--space-20);
+  gap: var(--space-8);
+}
+
+.invite__hero {
+  animation: room-enter var(--dur-slow) var(--ease-spring) both;
+}
+
+.invite__hero .wordmark {
+  margin-bottom: var(--space-10);
+}
+
+.invite__from {
+  margin: 0 0 var(--space-3);
+}
+
+.invite__title {
+  font: var(--type-display);
+  letter-spacing: var(--track-display);
+  font-size: clamp(1.75rem, 4.5vw, 2.25rem);
+  font-weight: 600;
+  margin: 0 0 var(--space-5);
+}
+
+.invite__brief {
+  color: var(--ink-muted);
+  max-width: 34rem;
+  margin: 0;
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
+.invite__content {
+  animation: rise var(--dur-base) var(--ease-spring) both;
+  animation-delay: 40ms;
+}
+
+.invite__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.invite__line {
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.invite__line:last-child {
+  border-bottom: 0;
+}
+
+.invite__line-body {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  margin: 0;
+}
+
+.invite__empty {
+  margin: 0;
+}
+
+.invite__cta {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-5) var(--space-6) calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--canvas) 0%, transparent) 0%,
+    color-mix(in srgb, var(--canvas) 92%, transparent) 28%,
+    var(--canvas) 100%
+  );
+  animation: rise var(--dur-slow) var(--ease-spring) both;
+  animation-delay: 80ms;
+}
+
+.invite__join {
+  min-width: 12rem;
+  padding: 14px 28px;
+  font-size: 0.9375rem;
+}
+
+.invite__join:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--brand-shadow), var(--shadow-lift);
+}
+
+.invite__confirm {
+  font: var(--type-heading);
+  letter-spacing: var(--track-heading);
+  color: var(--ink);
+  margin: 0;
+  animation: rise var(--dur-base) var(--ease-spring) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invite__page,
+  .invite__hero,
+  .invite__content,
+  .invite__cta,
+  .invite__confirm {
+    animation: none;
+  }
+
+  .invite__join:hover {
+    transform: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .invite__page {
+    padding: var(--space-8) var(--space-4) calc(var(--space-16) + 4.5rem);
+    gap: var(--space-10);
+  }
+
+  .invite__hero .wordmark {
+    margin-bottom: var(--space-8);
+  }
+}
