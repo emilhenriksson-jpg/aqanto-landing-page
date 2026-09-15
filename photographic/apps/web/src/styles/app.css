@@ -1043,6 +1043,17 @@
   border-bottom: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
 }
 
+/* A deleted file reads as a file. Same shelf, same thirty days, one glance to tell apart —
+   the filename is set in the monospace face the document shelf uses, because that is what
+   makes it recognisable as a file rather than as something somebody typed. */
+.trash-row--document .trash-row__body {
+  font-family: var(--font-mono);
+  /* Same size `.mono` uses, written out for the same reason it is there: there is no
+     font-size token, and inventing one for a single rule would be a token nobody else uses. */
+  font-size: 0.8125rem;
+  word-break: break-word;
+}
+
 .trash-row:last-child {
   border-bottom: none;
 }

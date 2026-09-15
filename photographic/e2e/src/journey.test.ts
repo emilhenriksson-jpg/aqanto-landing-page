@@ -19,16 +19,24 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 
-import { askMemory, RECENT_ACTIVITY_LIMIT } from '@photographic/core';
+import { askMemory, RECENT_ACTIVITY_LIMIT, trashHandleFor } from '@photographic/core';
 
 import { createHarness } from './harness.js';
 
 // Still `any`, and not because nobody tried. `let harness: Harness` typechecks the
-// harness surface but surfaces 24 strict-null errors inside the assertions below
-// (`'proposal' is possibly 'undefined'`, `Property 'item' does not exist on type
-// 'WriteDecision'`) — real narrowing that the test bodies never did. Fixing those is
-// worth doing and is not a CI change: done here it would mean rewriting two dozen
-// assertions in someone else's acceptance test to land a workflow.
+// harness surface but surfaces real strict-null and narrowing errors inside the assertions
+// below (`'proposal' is possibly 'undefined'`, `Property 'item' does not exist on type
+// 'WriteDecision'`) — narrowing the test bodies never did.
+//
+// Re-measured while unifying the trash, because the previous estimate of "two dozen" was
+// optimistic: it is 31 errors here and 70 more in `calendar.test.ts`, which has the same
+// `any`. Worth doing, and worth doing on its own rather than inside a change that has to
+// stay reviewable.
+//
+// The cost of leaving it is not hypothetical. `TrashPort.restore` changed shape in the trash
+// unification, every typed consumer in the repo reported it at compile time, and the two
+// call sites in this file did not — they failed at runtime instead, in a suite whose whole
+// job is to notice that kind of thing early.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let harness: any;
 
@@ -319,12 +327,14 @@ describe('the trash and the record', () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const [entry] = await harness.services.trash.list(actor);
 
-    const restored = await harness.services.trash.restore(actor, entry.shortId);
+    // By handle, because the trash holds documents too now and they are named differently.
+    const restored = await harness.services.trash.restore(actor, trashHandleFor(entry));
     await harness.runJobsToCompletion();
 
     // The id has to survive, or "ta tillbaka p-7k2m" stops meaning anything.
-    expect(restored.shortId).toBe(entry.shortId);
-    expect(restored.status).toBe('active');
+    expect(restored.type).toBe('memory');
+    expect(restored.item.shortId).toBe(entry.shortId);
+    expect(restored.item.status).toBe('active');
     expect(await harness.services.trash.list(actor)).toHaveLength(0);
 
     const bundle = await harness.services.bundle.build(actor);
@@ -604,5 +614,20 @@ describe('sharing a room with someone else', () => {
     // data boundary that tells the model not to act on it.
     expect(rendered).toMatch(/data|information/i);
     expect(rendered).not.toMatch(/^Ignore previous instructions/m);
+  });
+});
+
+/**
+ * The invariant every test above depends on without saying so.
+ *
+ * Placed last on purpose: by the time it runs, this file has driven saves, approvals,
+ * corrections, deletions, restores, moves, shares and disputes through whichever backend is
+ * selected. Rebuilding each memory and each document from `app.event` and comparing it to the
+ * projection is therefore one assertion over all of it — and it is the check that gives
+ * `AGENTS.md`'s claim that the tables are projections something behind it.
+ */
+describe('the log and the projections agree', () => {
+  it('has nothing to report after everything above', async () => {
+    expect(await harness.divergences()).toEqual([]);
   });
 });

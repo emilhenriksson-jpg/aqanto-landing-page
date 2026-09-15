@@ -13,6 +13,7 @@ import type {
   AgentClient,
   ClientSession,
   DeliveryMethod,
+  DocumentId,
   EventSeq,
   Invite,
   InviteId,
@@ -171,12 +172,22 @@ export function mapItem(row: ItemRow): Item {
  * item is the memory's current value and the deadline is a decision taken at the moment
  * of deletion rather than something derivable.
  */
+/**
+ * One row of `app.trash`, which is a union: the columns only one half has are NULL on the
+ * other. `entry_type` is what decides which, and `mapTrashEntry` turns that back into a
+ * discriminated union so nothing downstream has to check a nullable field to find out what
+ * it is holding.
+ */
 export interface TrashEntryRow {
-  short_id: string;
+  entry_type: 'memory' | 'document';
+  short_id: string | null;
+  document_id: string | null;
+  filename: string | null;
+  byte_size: string | number | null;
   room_id: string;
   room_title: string;
-  kind: ItemKind;
-  body: string;
+  kind: ItemKind | null;
+  body: string | null;
   deleted_at: Date;
   deleted_by: string | null;
   deleted_by_client: AgentClient | null;
@@ -185,12 +196,9 @@ export interface TrashEntryRow {
 }
 
 export function mapTrashEntry(row: TrashEntryRow, now: Date): TrashEntry {
-  return {
-    shortId: row.short_id as ShortId,
+  const shared = {
     roomId: row.room_id as RoomId,
     roomTitle: row.room_title,
-    kind: row.kind,
-    body: row.body,
     deletedAt: row.deleted_at,
     deletedBy: row.deleted_by as PersonId | null,
     deletedByClient: row.deleted_by_client,
@@ -200,6 +208,24 @@ export function mapTrashEntry(row: TrashEntryRow, now: Date): TrashEntry {
       0,
       Math.ceil((row.purge_after.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
     ),
+  };
+
+  if (row.entry_type === 'document') {
+    return {
+      type: 'document',
+      documentId: (row.document_id ?? '') as DocumentId,
+      filename: row.filename ?? '',
+      byteSize: Number(row.byte_size ?? 0),
+      ...shared,
+    };
+  }
+
+  return {
+    type: 'memory',
+    shortId: (row.short_id ?? '') as ShortId,
+    kind: row.kind ?? 'note',
+    body: row.body ?? '',
+    ...shared,
   };
 }
 

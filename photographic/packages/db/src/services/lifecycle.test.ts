@@ -21,7 +21,7 @@
  */
 
 import type { Actor, ItemId, ItemStatus, RoomId, ShortId } from '@photographic/core';
-import { divergencesFrom, replayItemLifecycle } from '@photographic/core';
+import { divergencesFrom, isTrashedMemory, replayItemLifecycle } from '@photographic/core';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createPool, createPostgresServices, reset, type PostgresServices } from '../index.js';
@@ -119,7 +119,7 @@ describe('soft delete is one transaction', () => {
     await wired.services.ingest.forget(emil, shortId, personalRoom, 'inte längre sant');
 
     const trash = await wired.services.trash.list(emil);
-    expect(trash.map((entry) => entry.shortId)).toContain(shortId);
+    expect(trash.filter(isTrashedMemory).map((entry) => entry.shortId)).toContain(shortId);
     expect(trash[0]?.deleteReason).toBe('inte längre sant');
     expect(await divergences()).toEqual([]);
   });
@@ -164,10 +164,12 @@ describe('restore and undo are idempotent', () => {
     const shortId = await save(emil, personalRoom, 'Allergisk mot ketchup');
     await wired.services.ingest.forget(emil, shortId, personalRoom);
 
-    await wired.services.trash.restore(emil, shortId, personalRoom);
+    await wired.services.trash.restore(emil, { type: 'memory', shortId }, personalRoom);
     // The second attempt is the retry a lost response produces. `PgTrash` refuses it because
     // the log says the memory is not in the trash any more.
-    await expect(wired.services.trash.restore(emil, shortId, personalRoom)).rejects.toThrow();
+    await expect(
+      wired.services.trash.restore(emil, { type: 'memory', shortId }, personalRoom),
+    ).rejects.toThrow();
 
     expect((await eventTypes(shortId)).filter((type) => type === 'item.restored')).toHaveLength(1);
     expect(await divergences()).toEqual([]);
@@ -284,7 +286,7 @@ describe('the right to delete is not the right to republish', () => {
     await wired.services.ingest.forget(emil, shortId, sharedRoom, 'inte relevant längre');
 
     const trash = await wired.services.trash.list(elias, { roomId: sharedRoom });
-    expect(trash.map((entry) => entry.shortId)).toContain(shortId);
+    expect(trash.filter(isTrashedMemory).map((entry) => entry.shortId)).toContain(shortId);
   });
 
   it('refuses to let that owner move it into another room', async () => {

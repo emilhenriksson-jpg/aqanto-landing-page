@@ -121,7 +121,8 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   ['PATCH', '/memory/:shortId', SCOPE_MEMORY_WRITE],
   ['DELETE', '/memory/:shortId', SCOPE_MEMORY_WRITE],
   ['POST', '/memory/undo', SCOPE_MEMORY_WRITE],
-  ['POST', '/trash/:shortId/restore', SCOPE_MEMORY_WRITE],
+  // `:handle` is a short id or a document uuid: one trash, so one route per verb.
+  ['POST', '/trash/:handle/restore', SCOPE_MEMORY_WRITE],
 
   /**
    * Asking to share or move a memory. Both queue a proposal and neither can place anything.
@@ -139,7 +140,7 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   // destroys something unrecoverably, so it carries the write scope like any other
   // mutation — the extra protection it needs is a confirmation in the UI, not a scope
   // nothing else uses.
-  ['DELETE', '/trash/:shortId', SCOPE_MEMORY_WRITE],
+  ['DELETE', '/trash/:handle', SCOPE_MEMORY_WRITE],
 
   // -------------------------------------------------------------------------
   // Documents
@@ -159,7 +160,9 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   ['DELETE', '/documents/:documentId', SCOPE_MEMORY_WRITE],
   ['POST', '/documents/:documentId/restore', SCOPE_MEMORY_WRITE],
 
-  // What is recoverable and until when. A read of memory, like the memory trash.
+  // Kept as a narrower door onto the same trash: documents only, for a caller that wants
+  // exactly that. `GET /trash` is the one a person's Papperskorg reads, and both derive from
+  // the same lifecycle events, so they cannot disagree about what is recoverable.
   ['GET', '/documents/trash', SCOPE_MEMORY_READ],
 
   // The extraction and the original file. Same scope as any other read of the person's

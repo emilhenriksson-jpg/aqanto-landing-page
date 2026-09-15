@@ -234,7 +234,12 @@ export function renderTrash(entries: TrashEntry[]): string {
     return 'Papperskorgen är tom. Inget är borttaget som går att få tillbaka.';
   }
 
-  const { kept, dropped } = withinBudget(entries, (entry) => entry.body);
+  // A document is named by its filename and a memory by its text, so the budget counts
+  // whichever one this entry actually has rather than assuming a body.
+  const describe = (entry: TrashEntry): string =>
+    entry.type === 'document' ? entry.filename : entry.body;
+
+  const { kept, dropped } = withinBudget(entries, describe);
 
   const lines = kept.map((entry) => {
     const reason = entry.deleteReason ? ` — "${entry.deleteReason}"` : '';
@@ -244,7 +249,13 @@ export function renderTrash(entries: TrashEntry[]): string {
         ? 'raderas permanent inom ett dygn'
         : `${entry.daysRemaining} dagar kvar`;
 
-    return `[${entry.shortId}] ${entry.roomTitle}: ${entry.body}${reason}${by} (${days})`;
+    // The handle a person would use to get it back, and the word for what it is. A file and
+    // a memory look different in the list on purpose: "återställ kontrakt.md" and "återställ
+    // p-7k2m" are different sentences, and rendering both as an id would make the model
+    // guess which.
+    const handle = entry.type === 'document' ? `dokument ${entry.documentId}` : entry.shortId;
+
+    return `[${handle}] ${entry.roomTitle}: ${describe(entry)}${reason}${by} (${days})`;
   });
 
   return [

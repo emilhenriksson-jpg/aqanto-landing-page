@@ -324,18 +324,44 @@ export function serialiseDocument(doc: DocumentSummary) {
   };
 }
 
+/**
+ * One entry in the trash, memory or document.
+ *
+ * `type` and `handle` are both on the wire on purpose. `type` is what lets a screen render a
+ * file as a filename rather than as an empty body, and `handle` is the single string a client
+ * puts back in the path to restore it — so the `Papperskorg` screen does not have to know that
+ * a memory is addressed by short id and a document by uuid. Without those two fields a client
+ * has to infer the distinction from which optional fields happen to be null, which is exactly
+ * the guessing this unification removes.
+ */
 export function serialiseTrashEntry(entry: TrashEntry) {
-  return {
-    shortId: entry.shortId,
+  const shared = {
+    type: entry.type,
     roomId: entry.roomId,
     roomTitle: entry.roomTitle,
-    kind: entry.kind,
-    body: entry.body,
     deletedAt: entry.deletedAt.toISOString(),
     deletedByClient: entry.deletedByClient,
     deleteReason: entry.deleteReason,
     purgeAfter: entry.purgeAfter.toISOString(),
     daysRemaining: entry.daysRemaining,
+  };
+
+  if (entry.type === 'document') {
+    return {
+      ...shared,
+      handle: entry.documentId,
+      documentId: entry.documentId,
+      filename: entry.filename,
+      byteSize: entry.byteSize,
+    };
+  }
+
+  return {
+    ...shared,
+    handle: entry.shortId,
+    shortId: entry.shortId,
+    kind: entry.kind,
+    body: entry.body,
   };
 }
 

@@ -382,6 +382,10 @@ describe('deleting and getting it back', () => {
     const trash = await (await f.get('/v1/trash', token)).json();
     expect(trash.retentionDays).toBe(30);
     expect(trash.entries[0]).toMatchObject({
+      // `type` and `handle` are on the wire so a screen renders the right shape and restores
+      // it without knowing that a memory is addressed by short id and a document by uuid.
+      type: 'memory',
+      handle: saved.item.shortId,
       shortId: saved.item.shortId,
       body: 'Allergisk mot ketchup',
       daysRemaining: 30,
@@ -389,8 +393,10 @@ describe('deleting and getting it back', () => {
     });
 
     const restored = await f.post(`/v1/trash/${saved.item.shortId}/restore`, {}, token);
+    const body = await restored.json();
     // The id has to survive, or "ta tillbaka p-7k2m" stops meaning anything.
-    expect((await restored.json()).item.shortId).toBe(saved.item.shortId);
+    expect(body.type).toBe('memory');
+    expect(body.item.shortId).toBe(saved.item.shortId);
     expect((await (await f.get('/v1/trash', token)).json()).entries).toHaveLength(0);
   });
 
@@ -406,6 +412,59 @@ describe('deleting and getting it back', () => {
   it('refuses a short id that is not a short id', async () => {
     const { token } = await register(f, 'emil@example.com', 'Emil');
     expect((await f.del('/v1/memory/not-an-id', token)).status).toBe(400);
+  });
+
+  /**
+   * One trash, over HTTP.
+   *
+   * The point being asserted is what a person experiences: a deleted document turns up in the
+   * same list as a deleted memory, and comes back through the same route. A document used to
+   * have its own listing that no screen called, so it was recoverable in principle and
+   * invisible in practice.
+   */
+  it('lists a deleted document beside a deleted memory, and restores it the same way', async () => {
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+    const saved = await (await f.post('/v1/memory', { body: 'Bor i Malmö' }, token)).json();
+    await f.del(`/v1/memory/${saved.item.shortId}`, token);
+
+    // Multipart, as the route takes it — the JSON write path is a different door.
+    const form = new FormData();
+    form.set('file', new File(['Villans kontrakt'], 'kontrakt.md', { type: 'text/markdown' }));
+    const upload = await f.app.request('https://photographic.test/v1/documents', {
+      method: 'POST',
+      body: form,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(upload.status).toBe(201);
+    const uploaded = (await upload.json()) as { document: { id: string } };
+    expect((await f.del(`/v1/documents/${uploaded.document.id}`, token)).status).toBe(200);
+
+    const trash = await (await f.get('/v1/trash', token)).json();
+    const kinds = trash.entries.map((entry: { type: string }) => entry.type).sort();
+    expect(kinds).toEqual(['document', 'memory']);
+
+    const document = trash.entries.find((entry: { type: string }) => entry.type === 'document');
+    expect(document).toMatchObject({ filename: 'kontrakt.md', handle: uploaded.document.id });
+
+    // Same route, discriminated response — no branch in the client on what kind it is.
+    const restored = await f.post(`/v1/trash/${document.handle}/restore`, {}, token);
+    expect(restored.status).toBe(200);
+    expect((await restored.json()).type).toBe('document');
+
+    const after = await (await f.get('/v1/trash', token)).json();
+    expect(after.entries.map((entry: { type: string }) => entry.type)).toEqual(['memory']);
+  });
+
+  it('answers a handle that is neither shape the same way as one that does not exist', async () => {
+    // Denied and nonexistent look alike everywhere else, and a trash handle is no different:
+    // an unparseable segment must not tell a caller that it got the shape wrong.
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+
+    const nonsense = await f.post('/v1/trash/not-a-handle/restore', {}, token);
+    const missing = await f.post('/v1/trash/p-7k2m/restore', {}, token);
+
+    expect(nonsense.status).toBe(404);
+    expect(missing.status).toBe(404);
   });
 });
 

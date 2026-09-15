@@ -9,9 +9,18 @@ import { loadTrashFromApi } from '../data/load.js';
 import { useRoomData } from '../hooks/useRoomData.js';
 
 /**
- * Soft-deleted memories still recoverable for 30 days.
+ * Everything still recoverable for 30 days — memories and deleted documents in one shelf.
+ *
+ * One place to look, because "where did the thing I deleted go" is one question and a person
+ * does not sort their own regret by data type. Documents used to have their own listing with
+ * no screen at all, so a deleted file was recoverable in principle and invisible in practice.
+ *
+ * A file shows its filename and a paperclip; a memory shows its text and its speakable id.
+ * The rows differ because the things differ — but they interleave by when they were deleted,
+ * which is the order a person remembers doing it in.
+ *
  * Quiet shelf, not a dump — one Wordmark, lines with Återställ.
- * Live: GET /v1/trash + POST /v1/trash/:shortId/restore behind VITE_USE_DEMO=0.
+ * Live: GET /v1/trash + POST /v1/trash/:handle/restore behind VITE_USE_DEMO=0.
  */
 export function Trash() {
   const state = useRoomData(
@@ -31,11 +40,11 @@ export function Trash() {
 function TrashReady({ initial }: { initial: TrashLine[] }) {
   const [entries, setEntries] = useState(initial);
 
-  async function restore(shortId: string) {
-    setEntries((current) => current.filter((entry) => entry.shortId !== shortId));
+  async function restore(handle: string) {
+    setEntries((current) => current.filter((entry) => entry.handle !== handle));
     if (isDemoMode()) return;
     try {
-      await restoreTrash(shortId);
+      await restoreTrash(handle);
     } catch {
       // Row already cleared locally; network restore is best-effort.
     }
@@ -47,7 +56,8 @@ function TrashReady({ initial }: { initial: TrashLine[] }) {
         <Wordmark />
         <h1 className="page-head__title">Papperskorg</h1>
         <p className="page-head__lede">
-          Borttaget ligger kvar i 30 dagar. Återställ det du vill ha tillbaka.
+          Borttaget ligger kvar i 30 dagar — både minnen och dokument. Återställ det du vill ha
+          tillbaka.
         </p>
       </header>
 
@@ -56,9 +66,15 @@ function TrashReady({ initial }: { initial: TrashLine[] }) {
       ) : (
         <ul className="trash-list">
           {entries.map((entry) => (
-            <li key={entry.shortId} className="trash-row">
+            <li
+              key={entry.handle}
+              className={`trash-row${entry.type === 'document' ? ' trash-row--document' : ''}`}
+            >
               <div className="trash-row__main">
-                <p className="trash-row__body">{entry.body}</p>
+                <p className="trash-row__body">
+                  {entry.type === 'document' ? '📄 ' : ''}
+                  {entry.body}
+                </p>
                 <p className="meta">
                   {entry.roomTitle}
                   {entry.deleteReason ? ` · ${entry.deleteReason}` : ''}
@@ -66,11 +82,15 @@ function TrashReady({ initial }: { initial: TrashLine[] }) {
                 </p>
               </div>
               <div className="trash-row__actions">
-                <span className="mono chip">{entry.shortId}</span>
+                {/* A memory's short id is speakable and worth showing; a document's uuid is
+                    neither, so the row says what it is instead of printing 36 characters. */}
+                <span className="mono chip">
+                  {entry.type === 'document' ? 'dokument' : entry.shortId}
+                </span>
                 <button
                   type="button"
                   className="btn btn--quiet"
-                  onClick={() => void restore(entry.shortId)}
+                  onClick={() => void restore(entry.handle)}
                 >
                   Återställ
                 </button>

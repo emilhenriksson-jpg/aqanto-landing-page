@@ -23,6 +23,7 @@ import {
   isCompassPrincipleKey,
   PhotographicError,
   resolveRoomRef,
+  trashHandleOf,
   ValidationError,
 } from '@photographic/core';
 import { z } from 'zod';
@@ -333,8 +334,17 @@ async function run<N extends ToolName>(
         ? await resolveRoomRef(services, actor, { room: input.room })
         : undefined;
 
-      const item = await services.trash.restore(actor, input.id as ShortId, roomId);
-      return renderRestored(item);
+      // The trash holds documents too now, and they are named by uuid rather than by a short
+      // id. `trashHandleOf` reads whichever the caller gave — the two shapes cannot collide —
+      // so a model restoring what it just listed does not have to know the difference.
+      const handle = input.id ? trashHandleOf(input.id) : null;
+      if (!handle) throw new ValidationError('Det där ser inte ut som ett id i papperskorgen.');
+
+      const restored = await services.trash.restore(actor, handle, roomId);
+      if (restored.type === 'document') {
+        return `${restored.document.filename} är tillbaka i rummet.`;
+      }
+      return renderRestored(restored.item);
     }
 
     case 'list_trash': {

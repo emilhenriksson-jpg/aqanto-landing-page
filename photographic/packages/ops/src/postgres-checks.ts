@@ -64,6 +64,11 @@ export const MIGRATION_ARTIFACTS: Record<string, string> = {
   // `check-app-role-grants.ts`, which enumerates every object; this asserts the migration
   // that creates the role ran at all, which is what the ledger is being cross-examined on.
   '0020_app_role_and_grants.sql': `EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'photographic_app')`,
+  // A column on a view rather than a new relation: 0021 replaces `app.trash` with a union
+  // over memories and documents, so `to_regclass('app.trash')` — which 0004 already claims —
+  // is true either way. `entry_type` is the discriminator the union added, and it is exactly
+  // what a database still on the old view does not have.
+  '0021_one_trash.sql': column('trash', 'entry_type'),
 };
 
 /**

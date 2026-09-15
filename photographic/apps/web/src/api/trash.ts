@@ -1,18 +1,26 @@
 import { apiFetch } from './client.js';
-import type { ItemDto, TrashEntryDto } from './types.js';
+import type { ItemDto, RoomDocumentDto, TrashEntryDto } from './types.js';
 
-/** Soft-deleted memories still recoverable — GET /v1/trash. */
+/** Everything still recoverable — memories and documents together. GET /v1/trash. */
 export function listTrash(): Promise<{ entries: TrashEntryDto[]; retentionDays: number }> {
   return apiFetch('/v1/trash');
 }
 
-/** Restore from the trash shelf — POST /v1/trash/:shortId/restore. */
+/**
+ * Restore whatever the person is looking at — POST /v1/trash/:handle/restore.
+ *
+ * Takes the entry's `handle` rather than a short id, because the trash holds two kinds of
+ * thing and they are addressed differently. The two id shapes cannot collide, so one route
+ * serves both and this client needs no branch.
+ */
 export function restoreTrash(
-  shortId: string,
+  handle: string,
   roomId?: string,
-): Promise<{ item: ItemDto }> {
+): Promise<
+  { type: 'memory'; item: ItemDto } | { type: 'document'; document: RoomDocumentDto }
+> {
   const query = roomId ? `?roomId=${encodeURIComponent(roomId)}` : '';
-  return apiFetch(`/v1/trash/${encodeURIComponent(shortId)}/restore${query}`, {
+  return apiFetch(`/v1/trash/${encodeURIComponent(handle)}/restore${query}`, {
     method: 'POST',
   });
 }

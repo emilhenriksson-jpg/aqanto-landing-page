@@ -103,7 +103,8 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
   const bundle = new MemoryBundle(store, projection, rooms, history);
   const retrieval = new MemoryRetrieval(store, llm);
   const documents = new MemoryDocuments(store, llm, projection, jobs);
-  const trash = new MemoryTrash(store, ingest, projection);
+  // After `documents`: the trash is one surface over memories and documents.
+  const trash = new MemoryTrash(store, ingest, projection, documents);
   const events = new MemoryEvents(store);
   const calendar = new MemoryCalendar(store);
   const sessions = new MemorySessions(store);

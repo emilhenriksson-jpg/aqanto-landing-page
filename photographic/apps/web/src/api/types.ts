@@ -195,18 +195,40 @@ export interface ProvenanceDto {
 }
 
 /** GET /v1/trash — soft-deleted memories still recoverable. */
-export interface TrashEntryDto {
-  shortId: string;
+/**
+ * One entry in the trash. Memories and documents share it, discriminated on `type`.
+ *
+ * `handle` is the one string the client puts back in the path to restore or purge — a short
+ * id for a memory, a uuid for a document — so this screen never has to know which shape
+ * addresses which kind of thing.
+ */
+interface TrashEntrySharedDto {
+  type: 'memory' | 'document';
+  handle: string;
   roomId: string;
   roomTitle: string;
-  kind: string;
-  body: string;
   deletedAt: string;
   deletedByClient: string | null;
   deleteReason: string | null;
   purgeAfter: string;
   daysRemaining: number;
 }
+
+export interface TrashedMemoryDto extends TrashEntrySharedDto {
+  type: 'memory';
+  shortId: string;
+  kind: string;
+  body: string;
+}
+
+export interface TrashedDocumentDto extends TrashEntrySharedDto {
+  type: 'document';
+  documentId: string;
+  filename: string;
+  byteSize: number;
+}
+
+export type TrashEntryDto = TrashedMemoryDto | TrashedDocumentDto;
 
 /** The eight things that can happen to a memory, as the calendar names them. */
 export type MemoryEventKindDto =
