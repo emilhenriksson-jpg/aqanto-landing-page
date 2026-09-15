@@ -1180,8 +1180,10 @@ rather than a signed Supabase URL, because a signed URL cannot be counted or rev
 
 Migrations `0016` and `0017`. New suites: `packages/db/src/services/jobs.test.ts` (10),
 `exports.test.ts` (14), `documents-lifecycle.test.ts` (12),
-`packages/export/src/near-limit.test.ts` (2), `apps/rest/src/durability.test.ts` (10), plus
-`e2e/src/documents.test.ts` +2 running on both drivers. Monorepo typecheck clean; every
+`packages/documents/src/streaming.test.ts` (7, including the S3 multipart request sequence
+against a fake signer), `packages/export/src/near-limit.test.ts` (2),
+`apps/rest/src/durability.test.ts` (10), plus `e2e/src/documents.test.ts` +2 running on both
+drivers. Monorepo typecheck clean; every
 package suite green; `e2e` 64 on `HARNESS=memory` and 64 on `HARNESS=postgres`.
 
 **Left deliberately.** Finding 8's proposal/deletion state machines were not touched: they
