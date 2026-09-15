@@ -222,6 +222,10 @@ export function serialiseProfile(profile: Profile) {
   return {
     rendered: profile.rendered,
     sections: profile.sections,
+    // Always six entries, default or personal — see `compassEntriesFrom` in
+    // @photographic/core. The web client's Compass screen reads this directly rather
+    // than parsing it back out of `rendered`.
+    compass: profile.compass,
     tokenCount: profile.tokenCount,
     itemCount: profile.itemCount,
     version: profile.version,
