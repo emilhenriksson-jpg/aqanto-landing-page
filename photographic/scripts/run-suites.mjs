@@ -261,6 +261,29 @@ const expectations = JSON.parse(readFileSync(EXPECTATIONS_FILE, 'utf8'));
  * actual above the floor and passes; a suite that quietly stops running drops below it
  * and fails. Lowering a floor is then a deliberate line in a diff.
  */
+/**
+ * A test gated on `OPENAI_API_KEY` runs on a machine that has one and skips on a machine
+ * that does not, so a flat floor cannot be right in both places. Twice in one evening a
+ * key-gated test landed and moved numbers CI could not reproduce locally — the second
+ * time it left `main` red, which is worse than a wrong number because a permanently red
+ * trunk hides the next real regression behind a benign one.
+ *
+ * So `minPassed`/`maxSkipped` are the **keyless** figures, which is what CI sees, and
+ * `openAiGated` says how many tests in the group swap sides when a key is present. A
+ * machine with a key then has to pass that many more and skip that many fewer, which
+ * makes a local run assert more rather than less.
+ */
+function bounds(expected) {
+  const gated = expected.openAiGated ?? 0;
+  const keyed = Boolean(process.env.OPENAI_API_KEY) && gated > 0;
+  return {
+    keyed,
+    gated,
+    minPassed: expected.minPassed + (keyed ? gated : 0),
+    maxSkipped: expected.maxSkipped - (keyed ? gated : 0),
+  };
+}
+
 function checkCounts(group, counts) {
   const expected = expectations.groups[group.name];
   const problems = [];
@@ -269,6 +292,11 @@ function checkCounts(group, counts) {
     problems.push(`${group.name} saknas i ${path.relative(ROOT, EXPECTATIONS_FILE)}.`);
     return problems;
   }
+
+  const limits = bounds(expected);
+  const mode = limits.gated
+    ? ` (${limits.keyed ? 'med' : 'utan'} OPENAI_API_KEY: ${limits.gated} test byter sida)`
+    : '';
   if (counts.suites === 0) {
     problems.push(
       `Kunde inte läsa några testantal ur utdatan för ${group.name}. Antingen körde inget, ` +
@@ -276,18 +304,20 @@ function checkCounts(group, counts) {
         `scripts/run-suites.mjs måste uppdateras. Det här är medvetet ett fel och inte en nolla.`,
     );
   }
-  if (counts.passed < expected.minPassed) {
+  if (counts.passed < limits.minPassed) {
     problems.push(
-      `${group.name}: ${counts.passed} godkända tester, golvet är ${expected.minPassed}. ` +
+      `${group.name}: ${counts.passed} godkända tester, golvet är ${limits.minPassed}${mode}. ` +
         `En svit har slutat köras. Sänk golvet i ${path.relative(ROOT, EXPECTATIONS_FILE)} ` +
         `bara om du menar att testerna skulle bort.`,
     );
   }
-  if (counts.skipped > expected.maxSkipped) {
+  if (counts.skipped > limits.maxSkipped) {
     problems.push(
-      `${group.name}: ${counts.skipped} överhoppade tester, taket är ${expected.maxSkipped}` +
+      `${group.name}: ${counts.skipped} överhoppade tester, taket är ${limits.maxSkipped}${mode}` +
         `${expected.whySkipped ? ` (${expected.whySkipped})` : ''}. ` +
-        `Ett överhoppat test är ett test ingen kör.`,
+        `Ett överhoppat test är ett test ingen kör. Är det nytt och nyckelberoende, ` +
+        `räkna upp openAiGated i stället för att höja taket — då gäller siffran båda ` +
+        `maskinerna.`,
     );
   }
 
