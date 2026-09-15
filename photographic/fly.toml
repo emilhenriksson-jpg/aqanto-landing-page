@@ -9,7 +9,11 @@
 # the deploy itself but wrong for anything meant to persist.
 
 app = "photographic"
-primary_region = "arn"
+# Frankfurt, not Stockholm: Supabase's project landed in eu-central-1, and a request
+# makes one round trip to the client but several to Postgres (permission checks and
+# reads are per-query, not batched) -- co-locating with the database wins over shaving
+# the one client-facing hop. See scripts/deploy.md.
+primary_region = "fra"
 
 [build]
   dockerfile = "Dockerfile"

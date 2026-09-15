@@ -39,8 +39,16 @@ either.
 **What is already prepared in this repo**, so this section is steps rather than design:
 `fly.toml`'s `PUBLIC_URL` is fixed at `https://mcp.photographic.space` (not the
 `*.fly.dev` origin), `auto_stop_machines = "off"` plus `min_machines_running = 1` (never
-scaled down, ever), and the existing `/health` check Fly uses to restart a machine that
-stops responding.
+scaled down, ever), the existing `/health` check Fly uses to restart a machine that
+stops responding, and `primary_region = "fra"` — Frankfurt, not Stockholm, because the
+Supabase project (track 3) landed in `eu-central-1` (Frankfurt) rather than the
+Stockholm this repo originally assumed. A single request is one round trip to the
+client but several to Postgres — permission checks and reads are resolved per query, not
+batched into one round trip (see `apps/mcp/src/dispatch.ts`: a single tool call routinely
+makes three or more sequential calls into `services.*`, each at least one query) — so
+co-locating the app with the database wins over shaving the one client-facing hop.
+Stockholm would only win if most requests never touched Postgres, which is not this
+app's shape.
 
 ### Steps
 
@@ -132,13 +140,18 @@ not true in practice until it lands, no matter how solid the hosting is.
 ### Cost, honestly
 
 The `fly.toml` in this repo requests `shared-cpu-2x` with 2GB RAM. Run continuously —
-which "always-on" requires, by definition — that is currently about **$11–12/month** on
-Fly's per-second billing (no free tier covers one machine kept running around the clock).
-No Fly-managed Postgres is added here; Supabase (track 3) is a separate line the platform
-track owns. A dedicated IPv4 (~$2/month) is optional and not needed for the CNAME-based
-custom domain in step 5. This needs a Fly account with a payment method attached — I do
-not have access to Emil's Fly account or billing, and could not run any `fly` command in
-the steps above myself.
+which "always-on" requires, by definition — that is **$13.15/month in `fra`** (Fly's own
+pricing table, checked 2026-09-15), not the $11.83 Stockholm (`arn`) figure Emil approved
+before the region moved: Fly's per-second compute rate is region-dependent, and Frankfurt
+carries a small markup over Stockholm — about $1.32/month more, roughly 11%. Real, but
+small next to what co-location saves on every request (see above); not something to
+re-litigate the region decision over, but worth Emil seeing the actual number rather than
+the one he approved. No Fly-managed Postgres is added here; Supabase (track 3) is a
+separate line the platform track owns, and its own regional pricing is a question for
+that track, not this one. A dedicated IPv4 (~$2/month) is optional and not needed for the
+CNAME-based custom domain in step 5. This needs a Fly account with a payment method
+attached — I do not have access to Emil's Fly account or billing, and could not run any
+`fly` command in the steps above myself.
 
 ### What is still blocking a permanent endpoint
 
