@@ -149,6 +149,9 @@ function PersonalRoomReady({
       <DocumentsSection roomId={room.id} documents={documents} />
 
       <footer className="page-foot">
+        <Link to="/historik" className="page-foot__link">
+          Historik
+        </Link>
         <Link to="/papperskorg" className="page-foot__link">
           Papperskorg
         </Link>

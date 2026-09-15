@@ -341,7 +341,8 @@ export const DEMO_ACTIVITY: Record<string, ActivityLine[]> = {
 
 /**
  * Sparse room documents — calm titles, not a file manager.
- * Live path: `loadDocumentsFromApi` maps GET /v1/rooms/:id/documents onto this shape.
+ * Live path: `loadDocumentsFromApi` maps GET /v1/rooms/:id/documents
+ * (title = filename, meta = "Dokument").
  */
 export interface DocumentLine {
   id: string;
@@ -406,5 +407,35 @@ export const DEMO_TRASH: TrashLine[] = [
     body: 'Vi siktar på förvärv i Q2',
     daysLabel: '12 dagar kvar',
     deleteReason: 'Skjutits till Q3',
+  },
+];
+
+/**
+ * Sparse personal history — honesty about what changed, not an audit log.
+ * Live path: `loadHistoryFromApi` maps GET /v1/history onto this shape.
+ */
+export interface HistoryLine {
+  id: string;
+  /** Relative Swedish meta, e.g. "Igår", "2 timmar sedan". */
+  when: string;
+  /** Calm Swedish line: who did what. */
+  body: string;
+}
+
+export const DEMO_HISTORY: HistoryLine[] = [
+  {
+    id: 'hist-1',
+    when: 'Igår',
+    body: 'Claude sparade Dottern heter Vera, 4 år',
+  },
+  {
+    id: 'hist-2',
+    when: '3 dagar sedan',
+    body: 'Du tog bort Bor i Malmö',
+  },
+  {
+    id: 'hist-3',
+    when: 'Förra veckan',
+    body: 'ChatGPT föreslog Bor i Göteborg',
   },
 ];

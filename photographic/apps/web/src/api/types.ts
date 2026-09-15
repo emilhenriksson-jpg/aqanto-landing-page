@@ -129,3 +129,18 @@ export interface TrashEntryDto {
   purgeAfter: string;
   daysRemaining: number;
 }
+
+/** GET /v1/history — sparse change log, not an audit dump. */
+export interface HistoryEntryDto {
+  seq: number;
+  action: string;
+  occurredAt: string;
+  roomId: string;
+  roomTitle: string;
+  shortId: string | null;
+  body: string | null;
+  agentClient: string | null;
+  actorName: string | null;
+  wasApproved: boolean;
+  redacted: boolean;
+}

@@ -18,6 +18,7 @@ import {
   listRoomDocuments,
   listRoomItems,
   listRooms,
+  listHistory,
   listTrash,
 } from '../api/index.js';
 import type {
@@ -28,6 +29,7 @@ import type {
   RoomItemDto,
   RoomMemberDto,
   RoomSummaryDto,
+  HistoryEntryDto,
   TrashEntryDto,
 } from '../api/index.js';
 import type {
@@ -38,6 +40,7 @@ import type {
   MemoryLine,
   RoomCard,
   RoomDetail,
+  HistoryLine,
   TrashLine,
 } from './demo.js';
 
@@ -248,6 +251,41 @@ export function mapTrashEntry(dto: TrashEntryDto): TrashLine {
     daysLabel,
     deleteReason: dto.deleteReason,
   };
+}
+
+
+export function mapHistoryEntry(dto: HistoryEntryDto): HistoryLine {
+  const when = relativeSwedish(dto.occurredAt);
+  const who = dto.actorName?.trim() || clientLabel(dto.agentClient);
+  const what = dto.body?.trim() || dto.action;
+  const verb =
+    dto.action === 'deleted' || dto.action === 'purged'
+      ? 'tog bort'
+      : dto.action === 'approved' || dto.wasApproved
+        ? 'godkände'
+        : 'sparade';
+  return {
+    id: String(dto.seq),
+    when,
+    body: `${who} ${verb} ${what}`,
+  };
+}
+
+export async function loadHistoryFromApi(): Promise<HistoryLine[]> {
+  const { entries } = await listHistory();
+  return entries.map(mapHistoryEntry);
+}
+
+function relativeSwedish(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return 'Nyligen';
+  const hours = Math.max(0, Math.round((Date.now() - then) / 3_600_000));
+  if (hours < 1) return 'Nyss';
+  if (hours < 24) return hours === 1 ? '1 timme sedan' : `${hours} timmar sedan`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return 'Igår';
+  if (days < 7) return `${days} dagar sedan`;
+  return 'Förra veckan';
 }
 
 export async function loadTrashFromApi(): Promise<TrashLine[]> {

@@ -8,6 +8,7 @@ export {
   isDemoMode,
 } from './config.js';
 export { getInvite } from './invites.js';
+export { listHistory } from './history.js';
 export { forgetMemory, undoMemory } from './memory.js';
 export { getProfile } from './profile.js';
 export { listProposals, resolveProposal } from './proposals.js';
@@ -17,6 +18,7 @@ export type {
   BriefDto,
   ClientHealthDto,
   ForgetResponse,
+  HistoryEntryDto,
   InvitePreviewDto,
   ItemDto,
   ProfileDto,

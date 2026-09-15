@@ -33,7 +33,7 @@ describe('DocumentsSection', () => {
 
   it('loads via GET /v1/rooms/:id/documents when VITE_USE_DEMO=0', async () => {
     vi.stubEnv('VITE_USE_DEMO', '0');
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       Response.json({
         documents: [{ id: 'doc-live-1', filename: 'Styrelseunderlag juni.pdf' }],
       }),
@@ -48,8 +48,7 @@ describe('DocumentsSection', () => {
       expect(screen.getByText('Styrelseunderlag juni.pdf')).toBeInTheDocument();
     });
     expect(screen.getByText('Dokument', { selector: '.meta' })).toBeInTheDocument();
-    expect(String(fetchMock.mock.calls[0]![0])).toBe(
-      'http://127.0.0.1:8787/v1/rooms/room-live-1/documents',
-    );
+    const call = fetchMock.mock.calls[0]!;
+    expect(String(call[0])).toBe('http://127.0.0.1:8787/v1/rooms/room-live-1/documents');
   });
 });
