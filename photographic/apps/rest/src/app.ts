@@ -51,6 +51,7 @@ import { documentRoutes } from './routes/documents.js';
 import { historyRoutes } from './routes/history.js';
 import { memoryRoutes } from './routes/memory.js';
 import { oauthRoutes } from './routes/oauth.js';
+import { opsRoutes, type QueueSource } from './routes/ops.js';
 import { publicInviteRoutes, roomRoutes } from './routes/rooms.js';
 import { trashRoutes } from './routes/trash.js';
 import { AUTH_APP_ROUTES, mountWebApp, PRODUCT_APP_ROUTES } from './web-app.js';
@@ -93,6 +94,15 @@ export interface AppDeps {
    */
   exports?: ExportService | null;
   accounts?: AccountService | null;
+
+  /**
+   * Queue depth, stuck claims and failures, for `GET /v1/ops/queue`.
+   *
+   * Absent without a database: the in-memory queue is this process's own array, and
+   * reporting its depth would answer a question about the harness rather than about the
+   * product.
+   */
+  queue?: QueueSource | null;
 }
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
@@ -279,6 +289,10 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   // export a person's whole memory or delete their account.
   authenticated.route('/', accountRoutes({ exports: deps.exports ?? null }));
   authenticated.route('/', deletionRoutes({ accounts: deps.accounts ?? null }));
+
+  // First-party too, though for a different reason: it says nothing about anyone's
+  // memory, and there is no client that has any business asking.
+  authenticated.route('/', opsRoutes({ queue: deps.queue ?? null }));
 
   app.route('/v1', authenticated);
 

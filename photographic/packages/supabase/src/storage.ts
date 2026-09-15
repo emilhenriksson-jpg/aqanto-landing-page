@@ -18,9 +18,14 @@
  * permissions in two places that can drift.
  */
 
+import { createReadStream } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Readable } from 'node:stream';
+
 import { NotFoundError } from '@photographic/core';
-import type { BlobStore, StoredBlob } from '@photographic/documents';
-import { blobKeyFor, checksumOf } from '@photographic/documents';
+import type { BlobStore, BlobUpload, StoredBlob } from '@photographic/documents';
+import { blobKeyFor, checksumOf, createSpooledUpload } from '@photographic/documents';
 
 const MISSING_BLOB_MESSAGE = 'Filen finns inte längre i lagringen.';
 
@@ -35,16 +40,35 @@ export interface SupabaseStorageOptions {
   bucket: string;
   /** Injected so tests run offline. */
   fetch?: FetchLike;
+  /** Where a streamed upload is spooled. Defaults under the temp directory. */
+  spoolDir?: string;
+  /** Ceiling for a spooled upload. Defaults to `DEFAULT_SPOOL_MAX_BYTES`. */
+  spoolMaxBytes?: number;
 }
+
+/**
+ * How large a spooled export may get before this refuses.
+ *
+ * Two gibibytes, which is what a Fly machine's disk can be relied on to have free. It is
+ * below the product's ten, and deliberately: refusing with an instruction beats filling
+ * the disk out from under the database connection and the request path.
+ */
+export const DEFAULT_SPOOL_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 
 export class SupabaseStorageBlobStore implements BlobStore {
   private readonly base: string;
   private readonly headers: Record<string, string>;
   private readonly fetch: FetchLike;
   private readonly bucket: string;
+  private readonly spoolDir: string;
+  private readonly spoolMaxBytes: number;
 
   constructor(options: SupabaseStorageOptions) {
     this.bucket = options.bucket;
+    this.spoolDir = options.spoolDir ?? join(tmpdir(), 'photographic-export-spool');
+    this.spoolMaxBytes =
+      options.spoolMaxBytes ??
+      Number(process.env.SUPABASE_EXPORT_SPOOL_MAX_BYTES ?? DEFAULT_SPOOL_MAX_BYTES);
     this.base = `${options.url.replace(/\/+$/, '')}/storage/v1/object`;
     this.fetch = options.fetch ?? ((url, init) => globalThis.fetch(url, init));
     this.headers = {
@@ -97,6 +121,65 @@ export class SupabaseStorageBlobStore implements BlobStore {
     if (!response.ok) throw await storageError('GET', key, response);
 
     return new Uint8Array(await response.arrayBuffer());
+  }
+
+  getStream(key: string): AsyncIterable<Uint8Array> {
+    const request = () => this.fetch(this.urlFor(key), { method: 'GET', headers: this.headers });
+    return {
+      async *[Symbol.asyncIterator]() {
+        const response = await request();
+        if (response.status === 404) throw new NotFoundError(MISSING_BLOB_MESSAGE);
+        if (!response.ok) throw await storageError('GET', key, response);
+        if (!response.body) return;
+        for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+          yield chunk;
+        }
+      },
+    };
+  }
+
+  /**
+   * A streamed upload, spooled to disk first.
+   *
+   * The Storage REST API takes one request with a length, so there is no way to hand it
+   * an archive as it is produced. What this can guarantee is the part that matters on a
+   * two-gigabyte machine: nothing is held in the process. The spool file is written as
+   * the zip is produced and streamed off disk at the end.
+   *
+   * `SUPABASE_EXPORT_SPOOL_MAX_BYTES` bounds it below the machine's disk rather than
+   * letting ENOSPC decide. Above that, the answer is an S3-compatible endpoint — Supabase
+   * publishes one for this bucket — where `S3BlobStore` does a real multipart upload with
+   * no ceiling but the product's.
+   */
+  async createUpload(options: { key: string; contentType?: string }): Promise<BlobUpload> {
+    const send = async (spooled: { path: string; byteSize: number }): Promise<void> => {
+      const file = createReadStream(spooled.path);
+      const response = await this.fetch(this.urlFor(options.key), {
+        method: 'POST',
+        headers: {
+          ...this.headers,
+          'content-type': options.contentType || 'application/octet-stream',
+          'content-length': String(spooled.byteSize),
+          'x-upsert': 'true',
+        },
+        // A stream, so the bytes go from disk to socket without a copy in between.
+        // `duplex` is required by the fetch spec for a streaming body.
+        body: Readable.toWeb(file) as unknown as RequestInit['body'],
+        duplex: 'half',
+      } as RequestInit);
+
+      if (!response.ok && response.status !== 409) {
+        throw await storageError('POST', options.key, response);
+      }
+    };
+
+    return createSpooledUpload({
+      key: options.key,
+      ...(options.contentType ? { contentType: options.contentType } : {}),
+      spoolDir: this.spoolDir,
+      maxBytes: this.spoolMaxBytes,
+      send,
+    });
   }
 
   async exists(key: string): Promise<boolean> {

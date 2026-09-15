@@ -133,8 +133,10 @@ describe('export', () => {
 
     const resolved = await exports.resolveDownload(link!.token);
     expect(resolved?.filename).toMatch(/^photographic-export-.*\.zip$/);
-    // A real zip, not an error page.
-    expect(Buffer.from(resolved!.bytes.subarray(0, 2)).toString()).toBe('PK');
+    // A real zip, not an error page. Read from the stream, because the archive is handed
+    // over in pieces now rather than as one buffer.
+    const first = await resolved!.stream[Symbol.asyncIterator]().next();
+    expect(Buffer.from(first.value!.subarray(0, 2)).toString()).toBe('PK');
   });
 
   it('stores only a hash of the download token', async () => {

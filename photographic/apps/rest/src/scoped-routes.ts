@@ -224,4 +224,13 @@ export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
   ['GET', '/account/deletion'],
   ['POST', '/account/deletion'],
   ['DELETE', '/account/deletion'],
+
+  /**
+   * Whether the background work is keeping up.
+   *
+   * Counts and kinds, no memory content and no error strings. First-party rather than
+   * scoped because there is no client that has any business asking how deep our queue is,
+   * and because the answer is about the deployment rather than about the person.
+   */
+  ['GET', '/ops/queue'],
 ] as const;
