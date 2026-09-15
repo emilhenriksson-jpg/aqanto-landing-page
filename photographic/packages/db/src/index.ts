@@ -1,8 +1,8 @@
 /**
- * Postgres: the pool, the migrations, and — as the repositories land — the real
- * `Services` construction. Until those repositories exist, callers still use
- * `@photographic/services-memory`; setting `DATABASE_URL` without them is a loud
- * failure rather than a silent fall-back to memory.
+ * Postgres: the pool, the migrations, and the real `Services` construction.
+ *
+ * Callers that set `DATABASE_URL` get `createPostgresServices`. Until the ports
+ * existed that was a loud failure; now it is the production path.
  */
 
 export {
@@ -21,5 +21,11 @@ export {
   type Tx,
 } from './pool.js';
 
-export { migrate } from './migrate.js';
+export { migrate, MIGRATIONS_DIR } from './migrate.js';
 export { reset } from './reset.js';
+
+export {
+  createPostgresServices,
+  type PostgresServices,
+  type PostgresServicesOptions,
+} from './postgres-services.js';
