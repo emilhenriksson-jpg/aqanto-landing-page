@@ -28,6 +28,31 @@
  * it must not have TRUNCATE, which bypasses the row triggers that hold the append-only
  * rules.
  *
+ * ## Pointing it at production
+ *
+ * Safe, and built to be provably so rather than asserted to be. CI answers this question
+ * about a database that started empty ten seconds ago; the only thing that answers it
+ * about the database people's memories are actually in is a run against production.
+ *
+ *   AUDIT_DATABASE_URL='postgres://…' node --import tsx scripts/check-app-role-grants.ts
+ *
+ * Three properties that make that a reasonable thing to do:
+ *
+ *  - **`AUDIT_DATABASE_URL` rather than `DATABASE_URL`.** It takes precedence when set, so
+ *    a live URL can be handed to this one command without repointing the variable every
+ *    other tool on the machine reads. Nothing here writes, but `pnpm db:reset` next to it
+ *    in the same shell does.
+ *  - **Every statement runs in a `READ ONLY` transaction**, and the script asserts the
+ *    session really is read-only before it queries anything. So the database refuses any
+ *    write this file could attempt — today, or after an edit by someone who did not read
+ *    this comment.
+ *  - **No owner needed.** `has_table_privilege` and the catalogs are readable by any role,
+ *    so this can run as a read-only monitoring role, or as `photographic_app` itself. It
+ *    never needs the credential that could do damage.
+ *
+ * It prints the host, database and role it looked at, because an audit that might have
+ * been pointed somewhere else is not an audit.
+ *
  * Usage: node --import tsx scripts/check-app-role-grants.ts
  */
 
@@ -36,12 +61,45 @@ import { createPool } from '@photographic/db';
 const ROLE = process.env.APP_ROLE ?? 'photographic_app';
 const WRITABLE = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'] as const;
 
-const pool = createPool({ max: 1 });
+const auditUrl = process.env.AUDIT_DATABASE_URL;
+const pool = createPool(auditUrl ? { connectionString: auditUrl, max: 1 } : { max: 1 });
 const problems: string[] = [];
 const unreachable: string[] = [];
 
+/**
+ * One client for everything, held inside a read-only transaction. A pool would hand out
+ * a fresh connection per query and the `READ ONLY` would apply to none of them.
+ */
+const client = await pool.connect();
+
 try {
-  const roleExists = await pool.query<{ ok: boolean }>(
+  await client.query('BEGIN TRANSACTION READ ONLY');
+
+  // `current_setting`, not `SHOW transaction_read_only`: `SHOW` names its own output
+  // column and takes no alias, so the first version of this read `undefined` and refused
+  // to run against a session that was in fact read-only. An assertion that cannot pass is
+  // no better than one that cannot fail.
+  const readOnly = await client.query<{ read_only: string }>(
+    `SELECT current_setting('transaction_read_only') AS read_only`,
+  );
+  if (readOnly.rows[0]?.read_only !== 'on') {
+    throw new Error(
+      'Transaktionen är inte read-only, trots BEGIN TRANSACTION READ ONLY. Avbryter ' +
+        'hellre än att köra mot en databas utan den spärren — det här skriptet är tänkt ' +
+        'att kunna pekas på produktion.',
+    );
+  }
+
+  const where = await client.query<{ db: string; host: string | null; user: string }>(
+    `SELECT current_database() AS db, inet_server_addr()::text AS host, current_user AS user`,
+  );
+  const at = where.rows[0];
+  console.log(
+    `Granskar ${ROLE} i databasen "${at?.db}" på ${at?.host ?? 'lokal socket'}, ` +
+      `ansluten som ${at?.user}, i en read-only-transaktion.`,
+  );
+
+  const roleExists = await client.query<{ ok: boolean }>(
     'SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS ok',
     [ROLE],
   );
@@ -65,7 +123,7 @@ try {
     process.exit(1);
   }
 
-  const schema = await pool.query<{ usage: boolean; create: boolean }>(
+  const schema = await client.query<{ usage: boolean; create: boolean }>(
     `SELECT has_schema_privilege($1, 'app', 'USAGE')  AS usage,
             has_schema_privilege($1, 'app', 'CREATE') AS create`,
     [ROLE],
@@ -78,13 +136,13 @@ try {
     );
   }
 
-  const tables = await pool.query<{ name: string }>(
+  const tables = await client.query<{ name: string }>(
     `SELECT tablename AS name FROM pg_tables WHERE schemaname = 'app' ORDER BY tablename`,
   );
 
   for (const { name } of tables.rows) {
     const ledger = name === 'schema_migrations';
-    const granted = await pool.query<Record<string, boolean>>(
+    const granted = await client.query<Record<string, boolean>>(
       `SELECT ${[...WRITABLE, 'TRUNCATE']
         .map((p) => `has_table_privilege($1, 'app.${name}', '${p}') AS "${p}"`)
         .join(', ')}`,
@@ -134,7 +192,7 @@ try {
     );
   }
 
-  const sequences = await pool.query<{ name: string; usage: boolean; select: boolean }>(
+  const sequences = await client.query<{ name: string; usage: boolean; select: boolean }>(
     `SELECT sequencename AS name,
             has_sequence_privilege($1, 'app.' || quote_ident(sequencename), 'USAGE')  AS usage,
             has_sequence_privilege($1, 'app.' || quote_ident(sequencename), 'SELECT') AS select
@@ -150,7 +208,7 @@ try {
     }
   }
 
-  const functions = await pool.query<{ signature: string; execute: boolean }>(
+  const functions = await client.query<{ signature: string; execute: boolean }>(
     `SELECT p.oid::regprocedure::text AS signature,
             has_function_privilege($1, p.oid, 'EXECUTE') AS execute
        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -172,6 +230,10 @@ try {
       `${functions.rows.length} funktioner i app.`,
   );
 } finally {
+  // `ROLLBACK`, not `COMMIT`, and not because it matters to a read-only transaction: it
+  // is the line a future reader checks when they want to know whether this file can write.
+  await client.query('ROLLBACK').catch(() => {});
+  client.release();
   await pool.end();
 }
 
