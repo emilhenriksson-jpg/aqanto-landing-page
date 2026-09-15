@@ -46,9 +46,17 @@
  *    session really is read-only before it queries anything. So the database refuses any
  *    write this file could attempt — today, or after an edit by someone who did not read
  *    this comment.
- *  - **No owner needed.** `has_table_privilege` and the catalogs are readable by any role,
- *    so this can run as a read-only monitoring role, or as `photographic_app` itself. It
- *    never needs the credential that could do damage.
+ *  - **No privilege of its own needed.** `has_table_privilege` and the catalogs are
+ *    readable by any role that can connect, so this needs no DDL, no write and no
+ *    ownership.
+ *
+ * On that last point, precisely, because the loose version of it was on the record for a
+ * while: "it can run as `photographic_app` itself" is true only where that role exists,
+ * which today is CI and a marked local database. The first production run had to use the
+ * owner credential, for the same reason the run was worth making — there is no
+ * `photographic_app` in production yet to connect as. The read-only transaction is what
+ * made that safe, and it is the part of this design that carries the weight; the
+ * connect-as-the-app-role property is a nice-to-have that arrives with the role.
  *
  * It prints the host, database and role it looked at, because an audit that might have
  * been pointed somewhere else is not an audit.
@@ -104,6 +112,63 @@ try {
     [ROLE],
   );
 
+  /**
+   * Which of two databases this is, because the fix is opposite in each and the wrong
+   * half of the advice is actively harmful.
+   *
+   * A database built from empty has not applied the grants migration yet, so creating the
+   * role and then migrating works: `0016` sees the role and grants. A database that has
+   * already recorded it — production — gets nothing from that, because the ledger means
+   * the migration never runs a second time. Following the first instruction there leaves
+   * an application that reaches none of its objects, silently, until the first query.
+   *
+   * Matched on the descriptive part of the filename rather than the number, because the
+   * ledger keys on content now and renumbering is routine here: four branches did it in
+   * one afternoon, and `0016` may not be called that by the time someone reads this.
+   */
+  // Two queries, not one with a `CASE` around the subquery: Postgres resolves table names
+  // when it parses, so a missing `app.schema_migrations` errors before any branch is
+  // evaluated. A database that has never been migrated is exactly the case whose advice
+  // is "create the role, then migrate", so it has to survive being pointed at one.
+  const ledgerExists = await client.query<{ ok: boolean }>(
+    `SELECT to_regclass('app.schema_migrations') IS NOT NULL AS ok`,
+  );
+  const grantsApplied = ledgerExists.rows[0]?.ok
+    ? ((
+        await client.query<{ id: string }>(
+          `SELECT id FROM app.schema_migrations WHERE id LIKE '%app_role_grants%'
+            ORDER BY id LIMIT 1`,
+        )
+      ).rows[0]?.id ?? null)
+    : null;
+
+  /** What to do about missing grants here, which depends on the answer above. */
+  const remediation = grantsApplied
+    ? [
+        `${grantsApplied} står redan som applicerad i app.schema_migrations, så den körs`,
+        'aldrig igen och `pnpm db:migrate` är en no-op. Att bara skapa rollen delar därför',
+        'inte ut någonting: den skulle nå noll av objekten i app, tyst, fram till första',
+        'frågan.',
+        '',
+        'Rätt väg här är en **ny** migrering som skapar rollen och delar ut rättigheterna i',
+        'samma steg — den skrivs av den som äger deployvägen, och `scripts/deploy.md` är',
+        'där sekvensen ska stå. Kör den med `pnpm db:migrate` när den finns.',
+      ]
+    : [
+        'Grants-migreringen är ännu inte applicerad här, så den vanliga ordningen fungerar:',
+        '',
+        `  CREATE ROLE ${ROLE} LOGIN PASSWORD '<genererat>';`,
+        '  pnpm db:migrate',
+        '',
+        'Ordningen är inte valfri: finns rollen inte när grants-migreringen körs blir den en',
+        'no-op som ändå noteras som applicerad, och sedan körs den aldrig igen. Då krävs en',
+        'ny migrering i stället, och det är det dyrare läget.',
+        '',
+        'Rollen är för övrigt en egenskap hos hela Postgres-instansen, inte hos databasen —',
+        'rättigheterna är per databas. En roll som redan finns för en annan databas har',
+        'alltså inga rättigheter här.',
+      ];
+
   if (!roleExists.rows[0]?.ok) {
     console.error(
       [
@@ -111,13 +176,32 @@ try {
         '',
         'Det är precis luckan den här filen stängdes för att täcka: produktionen ansluter',
         'som den rollen, och utan den lokalt eller i CI kan ingenting säga om ett nytt',
-        'databasobjekt går att nå därifrån. Skapa den en gång:',
+        'databasobjekt går att nå därifrån.',
         '',
-        `  CREATE ROLE ${ROLE} LOGIN PASSWORD '${ROLE}';`,
+        ...remediation,
         '',
-        'Kör sedan om migreringarna, för 0016 delar bara ut rättigheter när rollen finns.',
-        'Lösenordet ovan är avsiktligt trivialt: det gäller en utvecklings- eller',
-        'CI-databas. Produktionens sätts av operatören, se scripts/deploy.md.',
+        grantsApplied
+          ? 'Tills den migreringen finns är läget här: rollen saknas och grants-steget är ' +
+            'förbrukat, så ingenting går att nå. Det är inte något som går att åtgärda ' +
+            'genom att skapa rollen.'
+          : `Lösenordet: trivialt duger för utveckling och CI (${ROLE}/${ROLE} är vad ` +
+            'pipelinen använder). Produktionens sätts av operatören, aldrig i en fil här.',
+      ].join('\n'),
+    );
+    process.exit(1);
+  }
+
+  // The role exists but there is nothing to reach yet. Saying so beats a
+  // `schema "app" does not exist` from inside `has_schema_privilege`.
+  const schemaExists = await client.query<{ ok: boolean }>(
+    `SELECT to_regclass('app.person') IS NOT NULL AS ok`,
+  );
+  if (!schemaExists.rows[0]?.ok) {
+    console.error(
+      [
+        'Schemat app finns inte i den här databasen, så det finns inga objekt att granska.',
+        '',
+        ...remediation,
       ].join('\n'),
     );
     process.exit(1);
@@ -178,17 +262,21 @@ try {
   // same sentence 27 times over on a database where the grants never ran at all, and a
   // wall of identical paragraphs is how a real finding gets scrolled past.
   if (unreachable.length > 0) {
+    const all = unreachable.length === tables.rows.length - 1;
     problems.push(
       `${unreachable.length} tabeller går inte att nå från ${ROLE}:\n    ` +
         `${unreachable.join('\n    ')}\n` +
         `  Objekten finns men applikationen kan inte använda dem, så frågorna som rör dem ` +
         `faller i produktion och ingen annanstans.\n` +
-        `  Två vanliga orsaker. Skapades tabellen av en annan roll än den som körde 0016? ` +
-        `ALTER DEFAULT PRIVILEGES täcker bara den rollens objekt, så lägg en explicit GRANT ` +
-        `i migreringen som skapade den.\n` +
-        `  Eller skapades rollen efter att 0016 redan var applicerad? Då var 0016 en no-op ` +
-        `och körs aldrig igen, för liggaren har den. Kör grants-blocket ur 0016 för hand en ` +
-        `gång — sekvensen står i scripts/deploy.md.`,
+        (all
+          ? `  Det är *alla* tabeller, vilket betyder att grants-steget aldrig delade ut ` +
+            `någonting — inte att en enskild migrering glömde en GRANT. Rollen skapades ` +
+            `efter att grants-migreringen redan var applicerad, eller finns ännu inte.\n`
+          : `  Det är några och inte alla, vilket pekar på en enskild migrering: skapades ` +
+            `tabellen av en annan roll än den som körde grants-steget? ALTER DEFAULT ` +
+            `PRIVILEGES täcker bara den rollens objekt, så lägg en explicit GRANT i ` +
+            `migreringen som skapade den.\n`) +
+        `  ${remediation.join('\n  ')}`,
     );
   }
 
