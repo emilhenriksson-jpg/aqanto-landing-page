@@ -2,13 +2,13 @@
  * Helpers every route group needs.
  */
 
-import type { Actor, RoomId, Services } from '@photographic/core';
-import { NotPermittedError } from '@photographic/core';
+import type { Actor, RoomId, RoomRef, Services } from '@photographic/core';
+import { resolveRoomRef } from '@photographic/core';
 
 import type { AppContext } from '../context.js';
 import { assertRoomInScope, getActor } from '../context.js';
 
-export { getActor };
+export { assertRoomInScope, getActor };
 
 export function getServices(c: AppContext): Services {
   return c.get('services');
@@ -17,32 +17,14 @@ export function getServices(c: AppContext): Services {
 /**
  * Resolves the room a request is about.
  *
- * Three cases, in the order they matter. No room named at all means the personal room:
- * that is the overwhelmingly common write, and making a model name a room to save "is
- * allergic to ketchup" is friction on every single call. A name gets resolved against
- * the rooms the actor already belongs to, because people say "Buyersclub Ledning" and
- * not a uuid. An id is checked against the token's own scope.
- *
- * An unresolvable name is a 404 rather than a 400, and deliberately so: "no room called
- * that" and "a room called that which is not yours" have to be the same answer.
+ * Thin on purpose: the rule lives in `@photographic/core` because the MCP tools have to
+ * answer this identically. Two copies of "no room named means the personal room" is two
+ * products depending on which door the person came in through.
  */
 export async function resolveRoom(
   c: AppContext,
   actor: Actor,
-  ref: { roomId?: string; room?: string },
+  ref: RoomRef,
 ): Promise<RoomId> {
-  const services = getServices(c);
-
-  if (ref.roomId) {
-    return assertRoomInScope(actor, ref.roomId as RoomId);
-  }
-
-  if (ref.room) {
-    const room = await services.rooms.resolveByName(actor, ref.room);
-    if (!room) throw new NotPermittedError('Hittade inget rum med det namnet.');
-    return assertRoomInScope(actor, room.id);
-  }
-
-  const personal = await services.identity.personalRoomOf(actor.personId);
-  return assertRoomInScope(actor, personal.id);
+  return resolveRoomRef(getServices(c), actor, ref);
 }
