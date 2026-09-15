@@ -28,13 +28,12 @@ _Agents append here. Do not edit another package to unblock yourself._
 
 ## In progress
 
-- **orchestrator** — deploy / morning handoff: workable multi-stage `Dockerfile` for
-  rest+mcp (tsx runtime, migrate-on-start when `DATABASE_URL` is set), `fly.toml`
-  health on `/health`, short Swedish `WAKEUP.md`, and honest `scripts/deploy.md`.
-  `packages/db` has `migrate`/`reset` scripts applying SQL files in order.
-  Still true: process uses in-memory + FakeLlm and refuses `DATABASE_URL` until
-  Postgres adapters exist — public MCP today = local `pnpm dev` + tunnel, or Fly
-  without Postgres.
+- **orchestrator** — morning stretch: design round 3 on `apps/web` (depth after the
+  avatar/hero/Alla pass), invite preview polish, public HTTPS so Claude can connect
+  for real (tunnel or Fly+Postgres), and wiring the demo-off path more deeply once
+  `VITE_USE_DEMO=0` is the default for anyone pointing the web app at REST.
+  Deploy scaffolding (`Dockerfile`, `fly.toml`, migrate-on-start, `scripts/deploy.md`)
+  is in place; Postgres adapters are assembled and `DATABASE_URL` boots cleanly.
 
 ## Completed
 
@@ -176,3 +175,25 @@ _Agents append here. Do not edit another package to unblock yourself._
   fills the first viewport (standing *inside* the room), softer token-meter gradient so
   brand is atmospheric rather than a solid bar, entry motion with reduced-motion respect.
   Round 1 of ≥3 against DESIGN.md; Alla/shared-room screenshots still pending.
+
+- **orchestrator** — `pnpm db:seed` loads Emil + Buyersclub Ledning into local Postgres so
+  morning demos and e2e against a real ledger do not start from an empty schema.
+
+- **orchestrator** — root `WAKEUP.md` points at `photographic/WAKEUP.md` and the one
+  command that boots API+MCP with migrate+seed; short Swedish handoff for anyone who
+  lands in the repo root first.
+
+- **orchestrator** — web design round 2: person/room avatars, a shared hero treatment so
+  personal and shared rooms feel like the same place, and Alla polish so the room grid
+  reads as standing in the foyer rather than a dashboard tile wall.
+
+- **orchestrator** — Approvals (`Godkänn`) and Client health (`Klienter`) screens in
+  `apps/web`: pending proposals to accept or dismiss, and a per-AI green/amber/red
+  health view so delivery status is visible without leaving the room app.
+
+- **orchestrator** — REST client scaffold behind `VITE_USE_DEMO` (default demo). Demo data
+  stays the review path; `VITE_USE_DEMO=0` is the switch toward a live API without
+  forcing that wiring on every `pnpm dev`.
+
+- **orchestrator** — `apps/web` component tests now 11 green (was 3), covering the new
+  screens and the shared room chrome from round 2.

@@ -11,6 +11,7 @@ cd photographic && pnpm install && pnpm db:migrate && pnpm db:seed && \
 
 → API + MCP på `http://localhost:8787` (`/health`, `/mcp`). Signup-kod i loggen.
 
-Web (demo-UI): `pnpm --filter @photographic/web dev` → `:5173`.
+Web (demo-UI): `pnpm --filter @photographic/web dev` → `:5173`
+(rum, Godkänn, Klienter). Live API: `VITE_USE_DEMO=0`.
 
 Publik Claude: tunnel eller Fly — se `photographic/WAKEUP.md` och `photographic/scripts/deploy.md`.

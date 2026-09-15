@@ -11,7 +11,8 @@ Kort: API + MCP går att köra lokalt **mot Postgres** eller in-memory. Riktig O
 - e2e: samma 22-testresa grön mot memory **och** Postgres
   (`cd photographic/e2e && HARNESS=memory pnpm test` / `HARNESS=postgres pnpm test`)
 - Schema + `pnpm db:migrate` / `pnpm db:reset`; migreringar är idempotenta
-- Web-rum-UI (demo-data) på `:5173`
+- Web-rum-UI på `:5173` — rum, **Godkänn** (approvals), **Klienter** (client health);
+  demo-data som default (`VITE_USE_DEMO` omått = demo). Live API: `VITE_USE_DEMO=0`
 
 ## Riktig LLM (valfritt)
 
@@ -29,7 +30,7 @@ fly secrets set OPENAI_API_KEY=sk-... PHOTOGRAPHIC_LLM=openai
 ## Fungerar inte
 
 - Fly med durable Postgres + publik HTTPS så Claude Desktop kan ansluta på riktigt
-- Web-appen är inte kopplad till REST ännu (demo-data)
+- Web-appen defaultar fortfarande till demo-data; REST-scaffold finns bakom `VITE_USE_DEMO=0` men är inte djupt inkopplad ännu
 - Riktiga e-post/SMS-koder (dev skriver koden i loggen)
 
 ## Ett kommando
