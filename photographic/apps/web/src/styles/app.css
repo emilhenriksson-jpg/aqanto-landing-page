@@ -855,7 +855,9 @@
   }
 
   .shell__main {
-    padding: var(--space-6) var(--space-4) calc(var(--space-16) + var(--tabbar-height));
+    /* Keep Historik/Papperskorg (and all page-foot links) clear of the fixed tab bar. */
+    padding: var(--space-6) var(--space-4)
+      calc(var(--space-16) + var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
   }
 
   .hero--personal {
@@ -878,15 +880,60 @@
   }
 }
 
+/* Narrow phones — primary mobile case. */
+@media (max-width: 480px) {
+  .shell__main {
+    padding-bottom: calc(
+      var(--space-20) + var(--tabbar-height) + env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  .page-foot {
+    /* Extra air so stacked Historik / Papperskorg never sit under the tab bar. */
+    padding-bottom: var(--space-4);
+  }
+
+  /* Brand-first: wordmark must stay readable before the room title. */
+  .hero--personal .wordmark--large {
+    font-size: 1.75rem;
+    gap: 12px;
+  }
+
+  .hero--personal .wordmark--large .wordmark__dot {
+    width: 36px;
+    height: 36px;
+  }
+
+  .hero--personal .hero__title {
+    font-size: 1.5rem;
+  }
+
+  .hero--personal {
+    min-height: min(68dvh, 480px);
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-4) var(--space-6);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .page {
+  .page,
+  .approval-card {
     animation: none;
   }
 
   .room-card:hover,
   .room-card--personal:hover,
-  .btn--brand:hover {
+  .btn--brand:hover,
+  .card {
     transform: none;
+  }
+
+  .token-meter__fill,
+  .rail__link,
+  .card,
+  .room-card,
+  .btn {
+    transition: none;
   }
 }
 
@@ -1048,6 +1095,7 @@
   .invite__cta,
   .invite__confirm {
     animation: none;
+    animation-delay: 0ms;
   }
 
   .invite__join:hover {
@@ -1067,5 +1115,54 @@
 
   .invite__hero .wordmark {
     margin-bottom: var(--space-6);
+  }
+}
+
+/* Keep Gå med in the first viewport on narrow phones (browser chrome, short svh). */
+@media (max-width: 480px) {
+  .invite__page {
+    padding: 0 var(--space-4) var(--space-12);
+  }
+
+  .invite__stage {
+    /* svh = visible viewport while chrome is showing; CTA stays on-screen. */
+    min-height: 100vh;
+    min-height: 100svh;
+    justify-content: space-between;
+    gap: var(--space-6);
+    padding: max(var(--space-6), env(safe-area-inset-top, 0px)) 0
+      max(var(--space-8), env(safe-area-inset-bottom, 0px));
+  }
+
+  .invite__hero .wordmark {
+    margin-bottom: var(--space-4);
+  }
+
+  .invite__hero .wordmark--large {
+    font-size: 1.75rem;
+  }
+
+  .invite__hero .wordmark--large .wordmark__dot {
+    width: 36px;
+    height: 36px;
+  }
+
+  .invite__title {
+    font-size: 1.5rem;
+  }
+
+  .invite__cta {
+    flex-shrink: 0;
+  }
+
+  .invite__join {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .invite__page--joined {
+    min-height: 100vh;
+    min-height: 100svh;
+    padding-bottom: max(var(--space-12), env(safe-area-inset-bottom, 0px));
   }
 }
