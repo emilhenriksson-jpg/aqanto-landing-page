@@ -10,6 +10,8 @@ import { PROFILE_TOKEN_BUDGET } from '@photographic/core';
 
 import {
   ApiError,
+  getCalendarDay,
+  getCalendarEvent,
   getInvite,
   getProfile,
   getRoom,
@@ -22,7 +24,10 @@ import {
   listTrash,
 } from '../api/index.js';
 import type {
+  CalendarDayDto,
+  CalendarEntryDto,
   ClientHealthDto,
+  MemoryEventDetailDto,
   ProfileSectionsDto,
   ProposalDto,
   RoomDocumentDto,
@@ -34,6 +39,8 @@ import type {
 } from '../api/index.js';
 import type {
   ApprovalItem,
+  DayEvent,
+  DayView,
   DemoClient,
   DocumentLine,
   InvitePreviewData,
@@ -263,9 +270,13 @@ const HISTORY_ACTION: Record<string, string> = {
   saved: 'sparade',
   updated: 'ändrade',
   superseded: 'ersatte',
+  shared: 'delade',
+  moved: 'flyttade',
   deleted: 'tog bort',
   restored: 'tog tillbaka',
   purged: 'raderade permanent',
+  disputed: 'bestred',
+  dispute_resolved: 'avgjorde tvisten om',
   proposed: 'föreslog',
   approved: 'godkände',
   rejected: 'avslog',
@@ -274,6 +285,91 @@ const HISTORY_ACTION: Record<string, string> = {
   member_joined: 'gick med',
   member_left: 'lämnade',
 };
+
+/**
+ * The person's own timezone, asked of the browser.
+ *
+ * A day is the unit of the calendar, so where a day starts matters: a memory saved at
+ * 23:40 belongs to that evening. The API takes the zone rather than assuming one, and
+ * this is the only place that decides which to send.
+ */
+export function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** "tisdag 15 september 2026", as a person reads a date. */
+export function swedishDayHeading(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  if (!y || !m || !d) return date;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('sv-SE', {
+    timeZone: 'UTC',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+export function mapDayEvent(dto: CalendarEntryDto, timeZone?: string): DayEvent {
+  return {
+    seq: dto.seq,
+    kind: dto.kind,
+    time: new Date(dto.occurredAt).toLocaleTimeString('sv-SE', {
+      hour: '2-digit',
+      minute: '2-digit',
+      ...(timeZone ? { timeZone } : {}),
+    }),
+    shortId: dto.shortId,
+    body: dto.body,
+    previousBody: dto.previousBody,
+    roomTitle: dto.provenance.roomTitle,
+    fromRoomTitle: dto.fromRoomTitle,
+    who: historyWho({
+      agentClient: dto.provenance.agentClient,
+      actorName: dto.provenance.actorName,
+    }),
+    motivation: dto.provenance.motivation,
+    sourceLabel: dto.provenance.source?.label ?? null,
+    sharedWith: (dto.sharedWith ?? [])
+      .map((who) => who.name?.trim())
+      .filter((name): name is string => Boolean(name)),
+    disputes: dto.disputes ?? [],
+    byOtherMember: dto.byOtherMember,
+    changed: dto.provenance.changed,
+    redacted: dto.redacted,
+  };
+}
+
+export function mapDay(dto: CalendarDayDto): DayView {
+  return {
+    date: dto.date,
+    heading: swedishDayHeading(dto.date),
+    roomTitle: dto.roomTitle,
+    events: dto.entries.map((entry) => mapDayEvent(entry, dto.timeZone)),
+    byOthersCount: dto.byOthersCount,
+    previousDate: dto.previousDate,
+    nextDate: dto.nextDate,
+  };
+}
+
+export async function loadDayFromApi(date: string, roomId?: string): Promise<DayView> {
+  const timeZone = browserTimeZone();
+  return mapDay(
+    await getCalendarDay({
+      date,
+      ...(timeZone ? { timeZone } : {}),
+      ...(roomId ? { roomId } : {}),
+    }),
+  );
+}
+
+export function loadEventFromApi(seq: number): Promise<MemoryEventDetailDto> {
+  return getCalendarEvent(seq);
+}
 
 export function mapHistoryEntry(dto: HistoryEntryDto, now = new Date()): HistoryLine {
   const who = historyWho(dto);
@@ -299,7 +395,14 @@ export async function loadHistoryFromApi(): Promise<HistoryLine[]> {
   return entries.map((entry) => mapHistoryEntry(entry));
 }
 
-function historyWho(dto: HistoryEntryDto): string {
+/**
+ * Who did it, as a person would say it.
+ *
+ * `web` is the person themselves, so it reads "Du" rather than "Photographic" — being
+ * told the app did something you did yourself is the kind of small wrongness that makes a
+ * history feel untrustworthy.
+ */
+function historyWho(dto: { agentClient: string | null; actorName: string | null }): string {
   if (dto.agentClient === 'web' || dto.agentClient === 'voice') return 'Du';
   if (dto.agentClient) return clientLabel(dto.agentClient);
   if (dto.actorName?.trim()) return dto.actorName.trim();
@@ -321,7 +424,13 @@ function relativeWhenSwedish(iso: string, now: Date): string {
   return then.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
 }
 
-function clientLabel(agentClient: string | null): string {
+/**
+ * The name a person would use, never the enum value.
+ *
+ * "claude-desktop" is what the wire says and "Claude" is what the design says: never say
+ * "AI" to the user when a specific name works.
+ */
+export function clientLabel(agentClient: string | null): string {
   if (!agentClient) return 'En modell';
   if (agentClient.startsWith('claude')) return 'Claude';
   if (agentClient.startsWith('chatgpt')) return 'ChatGPT';

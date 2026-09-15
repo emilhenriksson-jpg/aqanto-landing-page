@@ -1,3 +1,4 @@
+export { getCalendarDay, getCalendarEvent } from './calendar.js';
 export { ApiError, apiFetch } from './client.js';
 export { listClients } from './clients.js';
 export {
@@ -16,9 +17,15 @@ export { getRoom, listRoomDocuments, listRoomItems, listRooms } from './rooms.js
 export { listTrash, restoreTrash } from './trash.js';
 export type {
   BriefDto,
+  CalendarDayDto,
+  CalendarEntryDto,
   ClientHealthDto,
+  EventProvenanceDto,
   ForgetResponse,
   HistoryEntryDto,
+  MemoryEventDetailDto,
+  MemoryEventKindDto,
+  MemorySourceDto,
   InvitePreviewDto,
   ItemDto,
   ProfileDto,

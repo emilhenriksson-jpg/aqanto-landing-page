@@ -42,6 +42,81 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
   rebuilt as a view over the append-only event log with full provenance, so a standalone
   activity endpoint now would be thrown away.
 
+## Track 2 — event log & calendar
+
+Branch `cursor/photographic-event-log-calendar-fc2d`, PR #3. Owns domain migrations:
+**0003** (`provenance_and_authorship`) and **0004** (`calendar_and_trash_views`). Track 3
+should number from 0005 upwards; the ledger keys on filename, so two files sharing a
+number would both apply in filename order, which is a coin toss nobody should have to
+think about.
+
+### Security fixes, done first
+
+- **`requiresApproval()` could be switched off by model-supplied content.** `explicit`
+  was tested before the gates for instructions, contradictions and shared rooms, and it
+  is a boolean an AI client sets from what it read — including text inside documents we
+  did not write. It is tested last now and relaxes only the 240-character rule.
+  Consequence, and it is deliberate: **every write into a shared room passes the Godkänn
+  queue**, including one the person asked for out loud (build-plan decision 2).
+- **Invites were not single-use.** `accept` never checked `status = 'pending'`, so a link
+  kept admitting people after the first acceptance. Single-use now, refused as a
+  not-found so a spent link cannot be told from a fictional one, and the status update is
+  conditional in SQL so two simultaneous clicks cannot both pass. `peek` closes with it.
+
+### Working end to end
+
+- **Provenance on the log.** `motivation`, `explicit`, `source_*`, `client_id`,
+  `from_room_id`, `to_room_id` on `app.event`, and `session_ref` finally filled in on the
+  write path — the chain from a memory back to its conversation was broken at the first
+  link. All six questions from scope §4 are answerable, including for memories written
+  before the columns existed: a client plus a session is derived as a conversation.
+- **The eight memory event kinds**, with ⚠️ Omtvistat as the eighth (approved).
+- **`item.superseded` is emitted**, in the same transaction as the status change. The one
+  operation that removes information from the current state was the one the log did not
+  record.
+- **Calendar day view** at `/kalender/:date`, a rail destination. Shows every memory
+  event for the day with its motivation, keeps a correction beside what it corrected, and
+  puts contributions from other members first and marked — there is no owner moderation
+  of incoming material, so visibility is the whole defence.
+- **Zoom**: dag → minneshändelse → källa, at `/kalender/handelse/:seq`. Every value the
+  memory has held, and the source as a place (the session, and what else came out of it).
+- **Trash and history are views over the log.** `app.trash` derives membership from the
+  last lifecycle event; delete-undo-delete now has one answer instead of two that drift.
+- **Disputes.** Across authors in a shared room both statements stay active, carry each
+  other, and always travel together into retrieval. Only the losing author or an owner
+  resolves one, never a model, and there is no tool for it.
+- **Room isolation in the data layer**: a trigger refuses any memory placed in a shared
+  room without a person asking, and another refuses a second member in a personal room.
+- **`member.left` / `membership.left_at`**, with owner succession to the longest-serving
+  editor, and a deliberate "ta bort mina bidrag" path through the ordinary trash.
+  Contributions otherwise stay, attributed.
+- **Inert RLS policies dropped** (approved) and `ARCHITECTURE.md` corrected in the same
+  change — it pointed the opposite way from build-plan decision 4.
+- `sensitivity` now forces the approval gate, so the MCP tool description stops promising
+  something the code did not do. `local_only` was never in the public tool schema.
+
+### Notes for whoever touches this next
+
+- **Two bugs the new tests found**, both pre-existing: purging a memory failed on a
+  foreign key when a proposal or a superseding item still pointed at it (fixed in 0003 —
+  `SET NULL`, because those are pointers and the rows holding them are records of their
+  own); and the e2e Postgres harness was wiping the schema the other packages read, so it
+  now uses a database of its own (`..._e2e`, created on demand, falling back if it
+  cannot).
+- `explicit: true` no longer saves into a shared room. Test helpers for that exist:
+  `harness.saveIntoRoom` in e2e, `saveIntoRoom` in `apps/rest/src/app.test.ts`.
+- Not built, deliberately: week/month/year rollups. Derivable from the same log whenever
+  they are wanted, and shipping summaries before the thing being summarised would have
+  been the wrong order.
+- Not touched, per ownership: OAuth client/token storage, scope middleware,
+  `resolveByName`. `app.event.client_id` and `app.item.author_client_id` are in place and
+  null until Track 3 moves the client store to Postgres — an honest gap rather than a
+  confident guess.
+
+Green: monorepo typecheck clean; core 37, agent 54, auth 34, connect 89, llm 9, web 45,
+services-memory 7, db 3, onboarding 24, mcp 40, rest 55; e2e 39 memory + 39 postgres
+(22 journey + 17 calendar, 1 skipped live-MCP).
+
 ## Completed
 
 - **orchestrator** — **public HTTPS, and Claude can connect.** Verified reachable this

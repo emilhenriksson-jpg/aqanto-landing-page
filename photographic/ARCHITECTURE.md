@@ -92,11 +92,19 @@ External providers attach as `credential` rows; the person id is never an extern
 subject. This also gives us a stable shard key if we ever need one.
 
 **Permission resolution.** One function, `app.accessible_room_ids(person_id)`, used by
-every read path, with row-level security underneath as a second line of defence. Two
-places deciding access is how you leak.
+every read path. Two places deciding access is how you leak — which is why there is no
+row-level security underneath it. The policies written in `0001_init.sql` gated on a
+session variable no code ever set, so they protected nothing while looking like they
+protected something; `0003_provenance_and_authorship.sql` drops them. Authorisation lives
+in the API layer, one place, testable and portable, and that is also what makes "the
+architecture can be swapped" an honest claim. What guards the data underneath instead is
+narrower and enforceable: `room_id NOT NULL` on everything with content, a trigger
+refusing any memory placed in a shared room without a person asking for it, and a trigger
+refusing a second member in a personal room.
 
-**Provenance.** `app.event` is append-only and carries actor, client, session and
-approval. It is the one thing that cannot be backfilled.
+**Provenance.** `app.event` is append-only and carries actor, client, session, approval,
+the source the information came from and the reason it was stored where it was. It is the
+one thing that cannot be backfilled.
 
 ## Why an event log
 
@@ -113,13 +121,27 @@ the optionality that makes the rest of the roadmap cheap:
 "Never let models fill my memory with wrong conclusions" and "let every model save
 small facts automatically" cannot share one rule, so writes are tiered:
 
-- **auto** — small, concrete, non-contradicting fact. Written immediately, visible in
-  the feed, one click to undo.
-- **needs_approval** — contradicts existing state, or is an `instruction`. Instructions
-  always need approval because they change every model's behaviour at once. A wrong
-  fact is annoying; a wrong instruction degrades every chat the person has.
+- **auto** — small, concrete, non-contradicting fact in a room only you read. Written
+  immediately, visible in the feed, one click to undo.
+- **needs_approval** — an `instruction`, something `sensitive`, something that
+  contradicts existing state, or anything at all destined for a shared room.
+  Instructions always need approval because they change every model's behaviour at once:
+  a wrong fact is annoying, a wrong instruction degrades every chat the person has. A
+  shared room always needs approval because the cost there is disclosure, which the trash
+  cannot take back.
 - **duplicate** — already known. Bumps salience instead of adding a row. Necessary
   because ChatGPT and Claude will each independently try to save the same fact.
+
+The order those are tested in is the security property. `explicit` is a flag an AI client
+sets from what it believes the person asked for, so it is derived from text — and some of
+that text arrives inside documents and tool results we did not write. It is therefore
+tested last and relaxes only the length rule, where being wrong is undoable. It cannot
+open an instruction, a contradiction, a sensitive memory or a shared room.
+
+A contradiction across two authors in a shared room is not a correction. Both statements
+stay active, linked as disputed, always retrieved together so a model reports two
+conflicting answers rather than picking one, and only a person resolves it. No automatic
+winner and no timeout: a disagreement nobody settles goes on being shown as one.
 
 ## Why the personal profile has a hard ceiling
 

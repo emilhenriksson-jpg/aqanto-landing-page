@@ -118,6 +118,16 @@ describe('where the information came from', () => {
     expect(deriveSource({ agentClient: 'web', sessionRef: null }).kind).toBe('manual');
     expect(deriveSource({ agentClient: null, sessionRef: null }).kind).toBe('unknown');
   });
+
+  it('will not call a script a conversation', () => {
+    // A confident wrong attribution in someone's own history is worse than an honest gap.
+    const api = deriveSource({ agentClient: 'api', sessionRef: null });
+    expect(api.kind).toBe('unknown');
+    expect(api.label).not.toMatch(/Samtal/);
+
+    const unknown = deriveSource({ agentClient: 'unknown', sessionRef: null });
+    expect(unknown.label).toContain('okänd klient');
+  });
 });
 
 describe('why it was stored there', () => {

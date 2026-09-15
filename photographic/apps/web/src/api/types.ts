@@ -130,6 +130,95 @@ export interface TrashEntryDto {
   daysRemaining: number;
 }
 
+/** The eight things that can happen to a memory, as the calendar names them. */
+export type MemoryEventKindDto =
+  | 'saved_private'
+  | 'saved_to_room'
+  | 'shared'
+  | 'updated'
+  | 'moved'
+  | 'deleted'
+  | 'restored'
+  | 'disputed';
+
+export interface MemorySourceDto {
+  kind: 'conversation' | 'document' | 'import' | 'manual' | 'unknown';
+  label: string;
+  ref: string | null;
+  uri: string | null;
+}
+
+/** The six questions section 4 of the scope says every memory must answer. */
+export interface EventProvenanceDto {
+  learnedAt: string;
+  agentClient: string | null;
+  actorName: string | null;
+  source: MemorySourceDto | null;
+  roomId: string;
+  roomTitle: string;
+  roomKind: 'personal' | 'shared';
+  motivation: string | null;
+  explicit: boolean;
+  wasApproved: boolean;
+  changed: boolean;
+}
+
+export interface CalendarEntryDto {
+  seq: number;
+  kind: MemoryEventKindDto;
+  occurredAt: string;
+  body: string | null;
+  /** What it said before. Set on an edit, and the reason the log exists. */
+  previousBody: string | null;
+  shortId: string | null;
+  itemKind: string | null;
+  fromRoomTitle: string | null;
+  toRoomTitle: string | null;
+  sharedWith: Array<{ name: string | null; role: string }> | null;
+  disputes: Array<{ shortId: string | null; body: string | null; authorName: string | null }> | null;
+  /** Somebody else did this, in a room shared with them. */
+  byOtherMember: boolean;
+  redacted: boolean;
+  provenance: EventProvenanceDto;
+}
+
+/** GET /v1/calendar/day — every memory event for one local day, oldest first. */
+export interface CalendarDayDto {
+  date: string;
+  timeZone: string;
+  roomId: string | null;
+  roomTitle: string | null;
+  entries: CalendarEntryDto[];
+  counts: Record<MemoryEventKindDto, number>;
+  byOthersCount: number;
+  previousDate: string | null;
+  nextDate: string | null;
+}
+
+/** GET /v1/calendar/events/:seq — the zoom from a day down to the original source. */
+export interface MemoryEventDetailDto {
+  entry: CalendarEntryDto;
+  timeline: CalendarEntryDto[];
+  revisions: Array<{
+    seq: number;
+    at: string;
+    body: string | null;
+    previousBody: string | null;
+    agentClient: string | null;
+    motivation: string | null;
+  }>;
+  source:
+    | (MemorySourceDto & {
+        at: string | null;
+        agentClient: string | null;
+        transport: string | null;
+        alsoFromHere: Array<{ seq: number; shortId: string | null; body: string | null }>;
+      })
+    | null;
+  currentBody: string | null;
+  trash: { purgeAfter: string; daysRemaining: number } | null;
+}
+
 /** GET /v1/history — sparse change log, not an audit dump. */
 export interface HistoryEntryDto {
   seq: number;

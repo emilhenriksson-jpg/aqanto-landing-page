@@ -86,7 +86,7 @@ export function memoryEventKindOf(
 
 /** Swedish display names for the clients, used inside derived motivations and labels. */
 export function clientName(agentClient: AgentClient | null): string {
-  if (!agentClient) return 'Photographic';
+  if (!agentClient) return 'okänd klient';
   if (agentClient.startsWith('claude')) return 'Claude';
   if (agentClient.startsWith('chatgpt')) return 'ChatGPT';
   switch (agentClient) {
@@ -98,10 +98,26 @@ export function clientName(agentClient: AgentClient | null): string {
       return 'Röstläget';
     case 'web':
       return 'Photographic';
+    case 'api':
+      return 'Photographics API';
     default:
-      return 'En AI';
+      // Never a likely-looking default. A confident wrong attribution in someone's own
+      // history is worse than an honest gap — the same reasoning the actor code already
+      // applies to guessing a client's label from the name it chose for itself.
+      return 'okänd klient';
   }
 }
+
+/** Clients that mean a person was talking to a model, rather than a script calling in. */
+const CONVERSATIONAL: readonly AgentClient[] = [
+  'claude-desktop',
+  'claude-mobile',
+  'claude-code',
+  'chatgpt-web',
+  'codex',
+  'cursor',
+  'voice',
+];
 
 /**
  * Where the information came from, when nobody said.
@@ -141,7 +157,7 @@ export function deriveSource(input: {
     return { kind: 'manual', label: 'Du, i Photographic', ref: null, uri: null };
   }
 
-  if (input.agentClient) {
+  if (input.agentClient && CONVERSATIONAL.includes(input.agentClient)) {
     return {
       kind: 'conversation',
       label: `Samtal med ${clientName(input.agentClient)}`,
@@ -150,7 +166,14 @@ export function deriveSource(input: {
     };
   }
 
-  return { kind: 'unknown', label: 'Okänd källa', ref: null, uri: null };
+  // `api` and anything unrecognised are not conversations, and saying they were would be
+  // inventing a place the information came from.
+  return {
+    kind: 'unknown',
+    label: input.agentClient ? `Skrivet via ${clientName(input.agentClient)}` : 'Okänd källa',
+    ref: input.sessionRef,
+    uri: null,
+  };
 }
 
 /**

@@ -225,6 +225,35 @@ ALTER TABLE app.proposal
     intent = 'remember' OR source_item IS NOT NULL
   );
 
+/*
+ * Three references that could refuse a purge.
+ *
+ * `proposal.conflicts_with`, `proposal.resulting_item` and `item.superseded_by` all point
+ * at `app.item` with no delete rule, which means a memory that any of them mentions
+ * cannot be hard-deleted: the purge fails on a foreign key and the trash silently stops
+ * keeping its promise. It is reachable as soon as a correction exists, because approving a
+ * contradiction writes both a `conflicts_with` and a `superseded_by`.
+ *
+ * SET NULL rather than CASCADE in every case. These are pointers to something that no
+ * longer exists, and the rows holding them are records of their own — a proposal keeps its
+ * body and its reason, and a superseded memory stays superseded. Cascading would delete
+ * the history of the decision along with the text it was about.
+ */
+ALTER TABLE app.proposal
+  DROP CONSTRAINT IF EXISTS proposal_conflicts_with_fkey,
+  ADD CONSTRAINT proposal_conflicts_with_fkey
+    FOREIGN KEY (conflicts_with) REFERENCES app.item (id) ON DELETE SET NULL;
+
+ALTER TABLE app.proposal
+  DROP CONSTRAINT IF EXISTS proposal_resulting_item_fkey,
+  ADD CONSTRAINT proposal_resulting_item_fkey
+    FOREIGN KEY (resulting_item) REFERENCES app.item (id) ON DELETE SET NULL;
+
+ALTER TABLE app.item
+  DROP CONSTRAINT IF EXISTS item_superseded_by_fkey,
+  ADD CONSTRAINT item_superseded_by_fkey
+    FOREIGN KEY (superseded_by) REFERENCES app.item (id) ON DELETE SET NULL;
+
 -- ---------------------------------------------------------------------------
 -- Purge: redact what the new columns hold
 -- ---------------------------------------------------------------------------
