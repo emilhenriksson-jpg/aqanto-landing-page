@@ -8,11 +8,12 @@ import {
   DEMO_ACTIVITY,
   SECTION_LABELS,
   loadRoom,
+  type ActivityLine,
   type DocumentLine,
   type MemoryLine,
   type RoomDetail,
 } from '../data/demo.js';
-import { loadSharedRoomFromApi } from '../data/load.js';
+import { loadRoomActivityFromApi, loadSharedRoomFromApi } from '../data/load.js';
 import { useRoomData } from '../hooks/useRoomData.js';
 
 /** Inside a shared room: title, brief as calm prose, memories, documents, activity. */
@@ -49,7 +50,6 @@ function SharedRoomReady({
 }) {
   const others = Math.max(0, room.memberCount - 1);
   const grouped = groupByKind(room.memories);
-  const activity = DEMO_ACTIVITY[room.id] ?? [];
   const memberLine =
     others === 0
       ? 'Bara du'
@@ -99,24 +99,51 @@ function SharedRoomReady({
 
       <DocumentsSection roomId={room.id} documents={documents} />
 
-      <section className="section-block" aria-labelledby="room-activity">
-        <h2 id="room-activity" className="section-block__title">
-          Aktivitet
-        </h2>
-        {activity.length === 0 ? (
-          <p className="section-block__empty">Ingen aktivitet ännu.</p>
-        ) : (
-          <ul className="activity">
-            {activity.map((item) => (
-              <li key={item.id} className="activity__row">
-                <span className="meta">{item.when}</span>
-                <span>{item.body}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <ActivitySection roomId={room.id} />
     </article>
+  );
+}
+
+/**
+ * What has happened in this room, read from the event log.
+ *
+ * Loaded here rather than with the room so that a slow or failing history call leaves the
+ * room's memories on screen — the feed is context, and losing it must not cost a person
+ * the room. The demo fixtures are keyed by the slugs the demo rooms use, which is why this
+ * asks the flag rather than looking up a real room id in them: that lookup missed on every
+ * real room and reported "Ingen aktivitet ännu" forever.
+ */
+function ActivitySection({ roomId }: { roomId: string }) {
+  const state = useRoomData(
+    `activity:${roomId}`,
+    (): ActivityLine[] => DEMO_ACTIVITY[roomId] ?? [],
+    () => loadRoomActivityFromApi(roomId),
+  );
+
+  const entries = state.status === 'ready' ? state.data : [];
+
+  return (
+    <section className="section-block" aria-labelledby="room-activity">
+      <h2 id="room-activity" className="section-block__title">
+        Aktivitet
+      </h2>
+      {state.status === 'loading' ? (
+        <p className="section-block__empty">Hämtar aktivitet…</p>
+      ) : state.status === 'error' ? (
+        <p className="section-block__empty">{state.message}</p>
+      ) : entries.length === 0 ? (
+        <p className="section-block__empty">Ingen aktivitet ännu.</p>
+      ) : (
+        <ul className="activity">
+          {entries.map((item) => (
+            <li key={item.id} className="activity__row">
+              <span className="meta">{item.when}</span>
+              <span>{item.body}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

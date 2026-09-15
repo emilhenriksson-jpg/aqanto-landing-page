@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { buildClients, findClient } from '@photographic/connect';
+import { SHARED_ROOM_CONSENT } from '@photographic/core';
 import type { VerificationState } from '@photographic/connect';
 
 import { App } from './App.js';
@@ -176,7 +177,60 @@ describe('the invite landing', () => {
 
   it('says the personal room comes along and stays private', async () => {
     render(<App api={new FakeApi({ invite })} initial={{ name: 'invite', token: 'tok' }} />);
-    expect(await screen.findByText(/eget personligt rum/)).toBeInTheDocument();
+    expect(await screen.findByText(/eget privat rum/)).toBeInTheDocument();
+  });
+
+  /**
+   * The decision, above the button.
+   *
+   * Everything asserted here is what a person needs before pressing "Gå med": who it is
+   * from, that the room is shared, and that what they write in it stays there if they
+   * leave. That last one is the whole justification for the rule, and it only holds if it
+   * was said first — so it is a test rather than a layout preference.
+   */
+  it('names who invited them, that the room is shared, and what stays behind', async () => {
+    render(<App api={new FakeApi({ invite })} initial={{ name: 'invite', token: 'tok' }} />);
+
+    expect(await screen.findByText(/Emil bjuder in dig till ett delat rum/)).toBeInTheDocument();
+    expect(screen.getByText(/stannar i rummet, även om du lämnar det/)).toBeInTheDocument();
+    expect(screen.getByText(SHARED_ROOM_CONSENT)).toBeInTheDocument();
+
+    // The consequence lines come before the action in document order, which is what puts
+    // them above the button on a phone.
+    const consequences = screen.getByText(/stannar i rummet, även om du lämnar det/);
+    const join = screen.getByRole('button', { name: 'Gå med' });
+    expect(consequences.compareDocumentPosition(join)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+});
+
+describe('the public landing page', () => {
+  it('says what the product is, and offers a way in for an existing account', async () => {
+    const user = userEvent.setup();
+    const visited: string[] = [];
+    render(
+      <App api={new FakeApi()} initial={{ name: 'landing' }} navigate={(url) => visited.push(url)} />,
+    );
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Ditt minne, inte modellens.' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Byter du modell börjar du inte om/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Logga in' }));
+    expect(visited).toEqual(['/login']);
+  });
+
+  /**
+   * The landing page is the one screen strangers read, so it may only promise what runs.
+   * Voice, summaries and open signup are the three things it would be easiest to imply.
+   */
+  it('promises nothing that is not built', () => {
+    render(<App api={new FakeApi()} initial={{ name: 'landing' }} />);
+
+    expect(screen.queryByText(/röst/i)).toBeNull();
+    expect(screen.queryByText(/sammanfattning/i)).toBeNull();
+    expect(screen.getByText(/Nya konton öppnas inte för alla ännu/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Mobilnummer')).toBeNull();
   });
 });
 

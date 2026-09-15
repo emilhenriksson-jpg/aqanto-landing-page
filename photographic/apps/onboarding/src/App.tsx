@@ -7,10 +7,13 @@ import { Approve } from './screens/Approve.js';
 import { Connect } from './screens/Connect.js';
 import { Health } from './screens/Health.js';
 import { InviteLanding } from './screens/InviteLanding.js';
+import { Landing } from './screens/Landing.js';
 import { Signup } from './screens/Signup.js';
 import { Verify } from './screens/Verify.js';
 
 export type Step =
+  /** `/start`: what the apex hostname should serve, for someone with no account yet. */
+  | { name: 'landing' }
   | { name: 'invite'; token: string }
   | { name: 'signup'; inviteToken?: string }
   | { name: 'connect' }
@@ -31,12 +34,17 @@ export function App({
   const [step, setStep] = useState<Step>(initial ?? { name: 'signup' });
   const [joined, setJoined] = useState<VerifyCodeResponse['joinedRoom']>(null);
 
+  /** Leaving the app is a real navigation, so the URL matches the screen afterwards. */
+  const go = navigate ?? ((url: string) => window.location.assign(url));
+
   return (
-    <div className="shell">
+    <div className={step.name === 'invite' ? 'shell shell--invite' : 'shell'}>
       <div className="wordmark">
         <span className="dot" aria-hidden="true" />
         Photographic
       </div>
+
+      {step.name === 'landing' && <Landing onLogin={() => go('/login')} />}
 
       {step.name === 'invite' && (
         <InviteLanding

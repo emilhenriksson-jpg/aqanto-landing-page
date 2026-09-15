@@ -286,6 +286,21 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   // The browser app
   // ---------------------------------------------------------------------------
 
+  /**
+   * The short invite link, redirected to the landing that actually accepts an invite.
+   *
+   * There were two invite screens: the one every generated link points at
+   * (`/invite/:token`, served by the auth app, which signs the person up and accepts the
+   * invite) and a copy in the product app at `/i/:token` whose "Gå med" only set React
+   * state — it showed a success page and joined nothing. The copy is deleted rather than
+   * finished, because two versions of the first thing a person ever sees of this product
+   * will drift, and the dead one is the one someone eventually improves. The path stays
+   * as a redirect so a short link that was ever shared still works.
+   */
+  app.get('/i/:token', (c) =>
+    c.redirect(`/invite/${encodeURIComponent(c.req.param('token'))}`, 302),
+  );
+
   // Last, so they can only answer paths the API did not claim, and only where there is a
   // build to serve. This is what lets one hostname carry the API, the MCP endpoint, the
   // login page an authorization request redirects to, and the product itself.
