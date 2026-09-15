@@ -59,6 +59,18 @@ export interface AppDeps {
   services: Services;
   config?: RestConfig;
   logger?: Logger;
+  /**
+   * What `/health` asks before answering, and what it reports.
+   *
+   * Passed in rather than imported so this app still does not depend on the database.
+   * Omitted — in tests and without a database — `/health` reports the persistence kind
+   * and nothing about a round trip, which is honest rather than green.
+   */
+  health?: {
+    persistence: 'postgres' | 'memory';
+    /** `SELECT 1`, essentially. Resolves or throws. */
+    checkDatabase?: () => Promise<void>;
+  };
   /** Falls back to a stub that answers metadata and refuses every flow with 501. */
   oauth?: OAuthProvider;
   /** Sign-up needs a code store and a sender; omit to leave those routes unmounted. */
@@ -115,7 +127,40 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   // every domain error as a 500. See `handleError`.
   app.onError(handleError);
 
-  app.get('/health', (c) => c.json({ ok: true, environment: config.environment }));
+  /**
+   * Health, meaning "the memory is real", not "the process is listening".
+   *
+   * This returned `{ok:true}` unconditionally, which made it useless for the failure it
+   * most needed to catch: with `DATABASE_URL` unset the process runs the in-memory
+   * implementation, answers every route correctly, and loses everything on restart —
+   * and Fly, which restarts a machine that stops answering *this*, was told all was
+   * well. Two very different systems behind one green light.
+   *
+   * So it round-trips the database when there is one, and says which implementation is
+   * answering either way. `persistence` is in the body so the difference is visible to
+   * anyone looking, not only to whoever reads the boot log once.
+   */
+  app.get('/health', async (c) => {
+    const persistence = deps.health?.persistence ?? 'memory';
+    const check = deps.health?.checkDatabase;
+
+    if (!check) return c.json({ ok: true, persistence, environment: config.environment });
+
+    try {
+      await check();
+      return c.json({ ok: true, persistence, database: 'ok', environment: config.environment });
+    } catch (error) {
+      logger.error('health_database_unreachable', {
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      // 503, so Fly's own health check restarts the machine instead of leaving it in the
+      // pool answering requests it cannot serve.
+      return c.json(
+        { ok: false, persistence, database: 'unreachable', environment: config.environment },
+        503,
+      );
+    }
+  });
 
   // ---------------------------------------------------------------------------
   // MCP

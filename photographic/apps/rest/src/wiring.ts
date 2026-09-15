@@ -35,8 +35,13 @@ import {
   MemoryTokenStore,
 } from '@photographic/auth/testing';
 import type { ConnectDeps } from '@photographic/connect';
-import { generateCode } from '@photographic/connect';
-import { MemoryCodeStore, MemorySessionIssuer } from '@photographic/connect/testing';
+import {
+  generateCode,
+  readSignedSession,
+  SESSION_TOKEN_PREFIX,
+  SignedSessionIssuer,
+} from '@photographic/connect';
+import { MemoryCodeStore } from '@photographic/connect/testing';
 import { createCodeSenderFromEnv } from '@photographic/delivery';
 import type { Actor, PersonId, Services, SessionId } from '@photographic/core';
 import {
@@ -138,6 +143,13 @@ interface WiredServices {
   close(): Promise<void>;
   llmKind: 'fake' | 'openai';
   persistence: 'postgres' | 'memory';
+  /**
+   * A database round trip for `/health`, or null when there is no database to reach.
+   *
+   * Null rather than a function that resolves, so `/health` reports "no database" rather
+   * than "database fine" — the distinction the old unconditional `{ok:true}` erased.
+   */
+  checkDatabase: (() => Promise<void>) | null;
   /** Which `BlobStore` document originals land in. See `resolveBlobStore`. */
   storageKind: string;
 }
@@ -154,6 +166,27 @@ interface WiredServices {
  */
 async function createServices(config: RestConfig): Promise<WiredServices> {
   const databaseUrl = process.env.DATABASE_URL;
+
+  /**
+   * The in-memory implementation is a real product, and that is exactly the danger.
+   *
+   * Without `DATABASE_URL` this process starts `createMemoryServices`, which accepts
+   * every write and discards all of it on the next restart. It is not a stub that errors:
+   * MCP answers correctly, Claude connects, memories save, the web app shows them — and
+   * `/health` said `{ok:true}` regardless, so Fly reported the deploy healthy. The two
+   * states were indistinguishable from outside, which for a product whose whole promise
+   * is permanence is the one failure that is both silent and total.
+   *
+   * So production refuses. Every other fallback in this file degrades something visible;
+   * this one degrades the product into a convincing imitation of itself.
+   */
+  if (!databaseUrl && config.environment === 'production') {
+    throw new Error(
+      'DATABASE_URL måste vara satt i produktion. Utan den körs minnet i processen och ' +
+        'raderas vid nästa omstart, medan API:et ser fullt friskt ut utifrån. Sätt den ' +
+        'med `fly secrets set DATABASE_URL=...`.',
+    );
+  }
   const { kind: llmKind, llm } = createLlmFromEnv();
   // Logged by the caller once wiring exists; kept as a return field so server.ts can
   // say which brain is answering without re-reading the environment.
@@ -207,6 +240,9 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
       close: () => wired.close(),
       llmKind,
       persistence: 'postgres',
+      checkDatabase: async () => {
+        await pool.query('SELECT 1');
+      },
       storageKind,
     };
   }
@@ -228,6 +264,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     close: async () => {
       // Nothing to release: the reference implementation holds no handles.
     },
+    checkDatabase: null,
     llmKind,
     persistence: 'memory',
     storageKind,
@@ -279,6 +316,43 @@ function resolveBlobStore(): { blobs: BlobStore | null; storageKind: string } {
   return { blobs: null, storageKind: 'local' };
 }
 
+/**
+ * A signing key, or a refusal to start.
+ *
+ * Both of these used to fall back to `randomUUID()` behind a `logger.warn`, which is the
+ * shape this codebase keeps removing: the process comes up looking healthy and the
+ * consequence lands on a person later — every login code in flight dying at each deploy,
+ * and after signed sessions, everyone being signed out too.
+ *
+ * In production it throws. A key that changes on every boot is not a degraded version of
+ * a key, and unlike the database fallback there is no argument that the resulting state is
+ * usable. Outside production it still generates one, because that is what lets `pnpm dev`
+ * and the suites run with no configuration at all.
+ */
+function requiredSecret(input: {
+  name: string;
+  value: string | undefined;
+  environment: RestConfig['environment'];
+  purpose: string;
+  logger: Logger;
+}): string {
+  if (input.value) return input.value;
+
+  if (input.environment === 'production') {
+    throw new Error(
+      `${input.name} måste vara satt i produktion. Den ${input.purpose}, och en nyckel ` +
+        'som slumpas om vid varje omstart gör alla utfärdade värden ogiltiga utan att ' +
+        `något syns i loggen. Sätt den med \`fly secrets set ${input.name}=...\`.`,
+    );
+  }
+
+  input.logger.warn('secret_ephemeral', {
+    name: input.name,
+    detail: `${input.name} är inte satt: slumpas per uppstart, vilket bara duger utanför produktion.`,
+  });
+  return randomUUID();
+}
+
 export async function createWiring(input: { config: RestConfig; logger: Logger }): Promise<Wiring> {
   const { config, logger } = input;
   const wired = await createServices(config);
@@ -309,16 +383,41 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
   }
 
   /**
+   * Two keys, two purposes, and the reason they are not one.
+   *
+   * `SESSION_SECRET` signs browser sessions; `CODE_SECRET` HMACs signup codes. They were
+   * the same variable, which meant the two could not be rotated independently: rotating
+   * to invalidate leaked sessions would also void every login code in flight, and
+   * rotating after a code-signing concern would sign everyone out. One key with two jobs
+   * cannot be rotated for either.
+   *
+   * `SESSION_SECRET` falls back to `CODE_SECRET` rather than to a random value, so an
+   * existing deploy that only has the old variable keeps working instead of silently
+   * signing everyone out on the deploy that introduces this.
+   */
+  const sessionSecret = requiredSecret({
+    name: 'SESSION_SECRET',
+    value: process.env.SESSION_SECRET ?? process.env.CODE_SECRET,
+    environment: config.environment,
+    purpose: 'signerar webbläsarsessioner',
+    logger,
+  });
+
+  /**
    * Turns the browser session token from the sign-up flow into a person.
    *
-   * `MemorySessionIssuer` mints `session-<personId>-<n>`, and this is the only place that
-   * shape is known. It is a named dependency rather than a regex inline because the
-   * authorization server needs it too: `/oauth/authorize/approve` identifies the person
-   * from their session token, so whoever this returns is who the code is minted for.
+   * A named dependency rather than a regex inline because the authorization server needs it
+   * too: `/oauth/authorize/approve` identifies the person from their session token, so
+   * whoever this returns is who the code is minted for. That is also why an unsigned token
+   * was worse than it looked — forging a session forged an OAuth grant, and a grant
+   * outlives the session that produced it.
+   *
+   * `findById` still runs after the signature: a genuine token for a person who has since
+   * been deleted must not authenticate.
    */
   const sessionTokens: SessionTokenVerifier = {
     verify: async (token) => {
-      const personId = token.match(/^session-(.+)-\d+$/)?.[1] as PersonId | undefined;
+      const personId = readSignedSession(token, sessionSecret) as PersonId | null;
       if (!personId) return null;
       return (await wired.services.identity.findById(personId)) ? personId : null;
     },
@@ -388,14 +487,13 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     smsProvider: delivery.sms,
   });
 
-  if (!process.env.CODE_SECRET) {
-    // Codes are HMACed under this key, so a fresh one per boot invalidates every code in
-    // flight. Harmless on a laptop, and a restart mid-signup on a shared instance that a
-    // person cannot explain.
-    logger.warn('code_secret_ephemeral', {
-      detail: 'CODE_SECRET är inte satt: koder i omlopp slutar gälla vid omstart.',
-    });
-  }
+  const codeSecret = requiredSecret({
+    name: 'CODE_SECRET',
+    value: process.env.CODE_SECRET,
+    environment: config.environment,
+    purpose: 'HMAC:ar engångskoder vid inloggning',
+    logger,
+  });
 
   const connect: ConnectDeps = {
     identity: wired.services.identity,
@@ -403,8 +501,8 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     sessions: wired.services.sessions,
     codes,
     sender: delivery.sender,
-    issuer: new MemorySessionIssuer(),
-    codeSecret: process.env.CODE_SECRET ?? randomUUID(),
+    issuer: new SignedSessionIssuer(sessionSecret),
+    codeSecret,
     clock: () => new Date(),
     // The CSPRNG from `@photographic/connect`, not a counter. This was
     // `100000 + (codeSeq += 1)`, which was survivable while the code only ever reached a
@@ -459,6 +557,10 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     clientGrants: grants,
     exports: wired.exports,
     accounts: wired.accounts,
+    health: {
+      persistence: wired.persistence,
+      ...(wired.checkDatabase ? { checkDatabase: wired.checkDatabase } : {}),
+    },
     // Straight to the store rather than through the authorization server's RFC 7009
     // endpoint: that one authenticates the *client* presenting a token, and this is the
     // person revoking a client that is not asking to be revoked.
@@ -611,7 +713,7 @@ function withFirstPartySessions(input: {
   return {
     ...input.oauth,
     introspect: async (token: string): Promise<TokenClaims | null> => {
-      if (!token.startsWith('session-')) return input.oauth.introspect(token);
+      if (!token.startsWith(SESSION_TOKEN_PREFIX)) return input.oauth.introspect(token);
 
       const personId = await input.sessionTokens.verify(token);
       if (!personId) return null;

@@ -78,6 +78,8 @@ app's shape.
    only, never as something to paste into Claude.
 3. **Secrets** (not in `fly.toml` — anything reaching here is a secret, not config):
    ```bash
+   fly secrets set CODE_SECRET=$(openssl rand -hex 32)      # see the table below
+   fly secrets set SESSION_SECRET=$(openssl rand -hex 32)   # separate on purpose
    fly secrets set DATABASE_URL=postgres://...   # Supabase connection string, PR #2
    fly secrets set SUPABASE_URL=https://<ref>.supabase.co \
                    SUPABASE_SERVICE_ROLE_KEY=eyJ...   # document originals, see below
@@ -106,6 +108,66 @@ app's shape.
    ```
    The key is readable headlessly from the Management API — no dashboard visit needed:
    `GET /v1/projects/{ref}/api-keys?reveal=true`, the entry with `name: service_role`.
+
+   ### The signing secrets, and what breaks if each one changes
+
+   Both were missing from this runbook, and the code fell back to a fresh `randomUUID()`
+   per boot behind a warning nobody reads. In production both are now a hard boot failure
+   instead, because a key that changes on every restart is not a degraded key — it silently
+   invalidates everything it ever signed.
+
+   | Secret | Signs | If it changes |
+   | --- | --- | --- |
+   | `CODE_SECRET` | the HMAC over `destination:code` for signup codes | every login code in flight stops verifying; a person mid-signup has to request a new one |
+   | `SESSION_SECRET` | browser session tokens | everyone signed out of the web app; MCP clients are unaffected, since they hold OAuth tokens rather than sessions |
+
+   **They are deliberately two variables.** One key doing both jobs cannot be rotated for
+   either: rotating to invalidate leaked sessions would void every login code in flight,
+   and rotating over a code concern would sign everyone out. It also concentrated blast
+   radius — login codes pass through the application log, and anyone who obtained the key
+   that signs them could mint a valid session for any `personId` they could see.
+   `SESSION_SECRET` falls back to `CODE_SECRET` when unset, so an existing deploy keeps
+   working until it is set.
+
+   ### Two database roles
+
+   The application has connected as the schema owner, which means an injection or mistake
+   in application code reaches `DROP TABLE` — and the append-only guarantee is enforced by
+   triggers the owner can disable, so "the log is the truth" has been resting on the
+   application not making a mistake rather than on the database refusing one.
+
+   Migrations need DDL; the application needs none. So:
+
+   | Variable | Role | Needs |
+   | --- | --- | --- |
+   | `MIGRATION_DATABASE_URL` | the owner (`postgres` on Supabase) | DDL across `app`. Used only by `pnpm db:migrate`, including the boot migration |
+   | `DATABASE_URL` | `photographic_app` | `SELECT/INSERT/UPDATE/DELETE`, sequences, `EXECUTE`. No DDL, no `TRUNCATE`, no writes to `app.schema_migrations` |
+
+   Migration `0016_app_role_grants.sql` grants all of that, and sets default privileges so
+   a table added later is covered without anyone remembering. It does **not** create the
+   role, because a login role needs a password and that does not belong in the repository.
+   One operator step, once:
+
+   ```bash
+   # 1. Create the role with a generated password, as the owner.
+   psql "$MIGRATION_DATABASE_URL" -c "CREATE ROLE photographic_app LOGIN PASSWORD '<generated>'"
+
+   # 2. Apply the grants. Before this the role can reach nothing.
+   MIGRATION_DATABASE_URL=... pnpm db:migrate
+
+   # 3. Keep the owner for migrations, point the app at the restricted role.
+   fly secrets set MIGRATION_DATABASE_URL='<owner URL>' \
+                   DATABASE_URL='<same URL with photographic_app and its password>'
+   ```
+
+   Order matters: set `MIGRATION_DATABASE_URL` in the same command as the new
+   `DATABASE_URL`, or the next boot migration runs as the restricted role and fails.
+   **Rollback** is one command — set `DATABASE_URL` back to the owner URL — because the
+   grants migration is additive and changes nothing about the owner's own access.
+
+   The grants block is guarded on the role existing, so it is a no-op on a database where
+   it does not: local development, CI, and every deploy before step 1. That is what makes
+   it safe to ship ahead of the switch rather than as part of it.
 4. **Attach the custom domain and request a certificate:**
    ```bash
    fly certs add mcp.photographic.space

@@ -23,10 +23,19 @@ const ITEM_KINDS = [
 
 export const uuid = z.string().uuid();
 
-/** `p-7k2m`. Short, speakable, and no 0/O or 1/l to mishear. */
+/**
+ * `p-7k2m9c`. Short, speakable, and no 0/O or 1/l to mishear.
+ *
+ * Four to six characters, not exactly six. New ids are six — four gave a 42% chance that
+ * a room reaching a thousand memories had lost at least one save to a collision — and the
+ * ids already written are four, so both have to address. This regex was `{4}`, which is
+ * why widening the generator was not the one-line change it looked like: every new id
+ * would have been rejected here, so a person could not update, delete or trace the
+ * memories they had just saved.
+ */
 export const shortId = z
   .string()
-  .regex(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4}$/, 'måste vara ett id som p-7k2m');
+  .regex(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4,6}$/, 'måste vara ett id som p-7k2m9c');
 
 export const memoryBody = z.string().trim().min(1).max(2000);
 
