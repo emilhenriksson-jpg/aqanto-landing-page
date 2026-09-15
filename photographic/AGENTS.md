@@ -57,9 +57,17 @@ the tests pass.
    the log alone is which room an item is in, whether it is active, deleted or superseded,
    what it currently says, and whether it is in the trash — that is `replayItemLifecycle` in
    `packages/core/src/replay.ts`, and `divergencesFrom` beside it is what asserts the log and
-   `app.item` agree. Salience, use counts and token estimates are derived from behaviour or
-   recomputed from the body rather than replayed, and a purged memory is deliberately
-   unrecoverable. This paragraph used to promise a full rebuild and nothing tested it, which
+   `app.item` agree. `profile` and `brief` are one step further out: they are rebuilt from
+   `app.item` by `rebuild_projections`, so the chain is log → item → profile/brief. Salience,
+   use counts and token estimates are derived from behaviour or recomputed from the body
+   rather than replayed, and a purged memory is deliberately unrecoverable.
+
+   The evidence, not the intention: `packages/db/src/services/replay.test.ts` and
+   `packages/services-memory/src/replay.test.ts` build a history containing a correction, a
+   supersede, an edit, a move, a delete and a restore, then assert zero divergences, that the
+   trash agrees with the log, and that throwing away the cached profile and brief and
+   rebuilding them reproduces the same text. Both drivers, because they have drifted before.
+   This paragraph used to promise a full rebuild with nothing calling `replay` at all, which
    for the invariant the whole product rests on is the same as not promising it.
 
    If you find yourself mutating state without an event, or appending an event outside the
