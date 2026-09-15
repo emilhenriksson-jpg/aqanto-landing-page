@@ -41,6 +41,25 @@ const DEFAULT_DATABASE_URL = 'postgres://photographic:photographic@127.0.0.1:543
 const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
 
 /**
+ * The same database as the owner URL, reached as `photographic_app`. Derived rather than
+ * configured so there is one place to point at a database and the least-privilege run
+ * cannot silently end up somewhere else; `APP_DATABASE_URL` overrides it for a setup
+ * where the role has a different name or password.
+ */
+const appRoleUrl =
+  process.env.APP_DATABASE_URL ??
+  (() => {
+    try {
+      const url = new URL(databaseUrl);
+      url.username = 'photographic_app';
+      url.password = 'photographic_app';
+      return url.toString();
+    } catch {
+      return databaseUrl;
+    }
+  })();
+
+/**
  * `--filter '!x'` rather than a list of the packages that do not need a database: a new
  * package then joins the default group without anyone remembering to add it, and the
  * failure mode of forgetting is "it runs somewhere it should not" rather than "nothing
@@ -73,7 +92,7 @@ const GROUPS = [
   },
   {
     name: 'db',
-    what: 'packages/db and apps/rest against Postgres',
+    what: 'packages/db against Postgres, as the owner',
     needsDatabase: true,
     // One database, so one package at a time: both reset the schema, and in parallel one
     // suite's reset pulls the schema out from under the other. Same reason the old root
@@ -84,13 +103,35 @@ const GROUPS = [
     // database it fails 12 tests in `connect-flow.test.ts` with errors that look like
     // application bugs. That ordering dependency is invisible until it bites.
     migrateFirst: true,
-    argv: [
-      '--workspace-concurrency=1',
-      '--filter=@photographic/db',
-      '--filter=@photographic/rest',
-      'run',
-      'test',
-    ],
+    // Migrations on disk against migrations in the ledger, in order. Everyone has been
+    // verifying this by hand all day by watching the filenames scroll past.
+    preflight: [['exec', 'node', '--import', 'tsx', 'scripts/check-migration-ledger.ts']],
+    argv: ['--filter=@photographic/db', 'run', 'test'],
+  },
+  {
+    // `apps/rest` connected as `photographic_app` rather than as the owner, which is how
+    // production connects and how nothing has ever been tested.
+    //
+    // The role existed in neither CI nor local development, so nothing could tell whether
+    // a new database object was reachable from it. It works today only because
+    // `0016_app_role_grants.sql` runs `ALTER DEFAULT PRIVILEGES`, which covers objects
+    // created by the role that executed it — so a migration creating a table as any other
+    // role produces an object the application cannot touch, and the failure arrives as a
+    // permission error on the live host, on one query, at whatever hour someone first uses
+    // that feature. `0017` was never checked against the role at all.
+    //
+    // This is the one suite that can run in that configuration: `apps/rest`'s tests do no
+    // DDL, where `packages/db` and `e2e` both `reset()` the schema and need the owner.
+    // The preflight is the exhaustive half — every table, sequence and function in `app`,
+    // not only the ones some test happens to touch — and it prints the `CREATE ROLE` line
+    // when the role is missing, which is why it runs before the suite rather than after.
+    name: 'rest',
+    what: 'apps/rest against Postgres, as the least-privilege role production uses',
+    needsDatabase: true,
+    migrateFirst: true,
+    preflight: [['exec', 'node', '--import', 'tsx', 'scripts/check-app-role-grants.ts']],
+    asAppRole: true,
+    argv: ['--filter=@photographic/rest', 'run', 'test'],
   },
   {
     name: 'e2e-postgres',
@@ -126,12 +167,16 @@ function databaseReachable(url, timeoutMs = 2000) {
   });
 }
 
-function run(argv, env = {}, { capture = false } = {}) {
+function run(argv, env = {}, { capture = false, asAppRole = false } = {}) {
   return new Promise((resolve) => {
     const child = spawn('pnpm', argv, {
       cwd: ROOT,
       stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
-      env: { ...process.env, DATABASE_URL: databaseUrl, ...env },
+      env: {
+        ...process.env,
+        DATABASE_URL: asAppRole ? appRoleUrl : databaseUrl,
+        ...env,
+      },
     });
 
     let output = '';
@@ -269,6 +314,19 @@ function missingDatabaseHelp() {
     'egna tillägg och e2e-sviten skapar sin egen databas (`..._e2e`) och migrerar om den',
     'per körning.',
     '',
+    'Två saker den databasen behöver utöver att finnas, och båda sviterna säger till med',
+    'exakt kommando om de saknas:',
+    '',
+    '  pnpm db:mark-test    -- fyra sviter i packages/db släpper hela schemat app, så',
+    '                          reset() vägrar en databas ingen har pekat ut som slask.',
+    '                          Märk en slaskdatabas, inte den du arbetar i.',
+    "  CREATE ROLE photographic_app LOGIN PASSWORD 'photographic_app';",
+    '                       -- rollen produktionen ansluter som. `pnpm test:rest` kör',
+    '                          apps/rest som den, och kontrollerar att varje objekt i',
+    '                          app går att nå därifrån. Skapa den före migreringarna:',
+    '                          0016 delar bara ut rättigheter när rollen finns, och',
+    '                          liggaren gör att den aldrig körs igen.',
+    '',
     'Bara de databasfria sviterna:  pnpm test:unit && pnpm test:e2e:memory',
     '(Det är inte samma sak som en grön körning. SQL:et — triggrarna, transaktionerna,',
     'villkoren — är otestat utan en databas.)',
@@ -312,8 +370,24 @@ for (const group of selected) {
     migrated = true;
   }
 
+  // Preflights run as the owner even when the suite does not, because they are checks
+  // *about* the database rather than uses of it, and they have to be able to read the
+  // catalogs and the ledger.
+  let preflightFailed = false;
+  for (const argv of group.preflight ?? []) {
+    const { code } = await run(argv, group.env);
+    if (code !== 0) preflightFailed = true;
+  }
+  if (preflightFailed) {
+    results.push({ group, status: 'failed', problems: [] });
+    continue;
+  }
+
   console.log(`\n--- ${group.name}: ${group.what}\n`);
-  const { code, output } = await run(group.argv, group.env, { capture: true });
+  const { code, output } = await run(group.argv, group.env, {
+    capture: true,
+    asAppRole: group.asAppRole ?? false,
+  });
   const counts = countsFrom(output);
   const problems = checkCounts(group, counts);
 
