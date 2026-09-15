@@ -10,6 +10,7 @@ import { useRoomData } from '../hooks/useRoomData.js';
 /**
  * Invite landing — what a recipient sees before they have an account.
  * Outside the shell rail: full-bleed, calm, one violet CTA. No signup wall.
+ * First viewport: Wordmark, room title, brief, Gå med. Memories sit below.
  */
 export function InvitePreview() {
   const { token = '' } = useParams();
@@ -51,14 +52,26 @@ function InviteReady({ invite }: { invite: InvitePreviewData }) {
   return (
     <div className="invite">
       <article className="invite__page">
-        <header className="invite__hero">
-          <Wordmark large />
-          <p className="invite__from meta">
-            {invite.invitedByName} har bjudit in dig
-          </p>
-          <h1 className="invite__title">{invite.roomTitle}</h1>
-          {invite.brief ? <p className="invite__brief">{invite.brief}</p> : null}
-        </header>
+        <div className="invite__stage">
+          <header className="invite__hero">
+            <Wordmark large />
+            <p className="invite__from meta">
+              {invite.invitedByName} har bjudit in dig
+            </p>
+            <h1 className="invite__title">{invite.roomTitle}</h1>
+            {invite.brief ? <p className="invite__brief">{invite.brief}</p> : null}
+          </header>
+
+          <footer className="invite__cta">
+            <button
+              type="button"
+              className="btn btn--brand invite__join"
+              onClick={() => setJoined(true)}
+            >
+              Gå med
+            </button>
+          </footer>
+        </div>
 
         {invite.lines.length > 0 ? (
           <section className="invite__content" aria-label="Ur rummet">
@@ -73,16 +86,6 @@ function InviteReady({ invite }: { invite: InvitePreviewData }) {
         ) : (
           <p className="invite__empty meta">Inget sparat i rummet ännu.</p>
         )}
-
-        <footer className="invite__cta">
-          <button
-            type="button"
-            className="btn btn--brand invite__join"
-            onClick={() => setJoined(true)}
-          >
-            Gå med
-          </button>
-        </footer>
       </article>
     </div>
   );

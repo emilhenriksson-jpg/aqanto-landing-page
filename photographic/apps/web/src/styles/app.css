@@ -830,8 +830,9 @@
 /* --------------------------------------------------------------- invite */
 
 /*
- * Recipient landing — outside the shell rail. Full-bleed calm surface: the room
- * content is the page, one violet CTA to join. Shop.app restraint; Swedish.
+ * Recipient landing — outside the shell rail. Full-bleed calm surface.
+ * First viewport (invite__stage): Wordmark, title, brief, one violet CTA.
+ * Memories sit below the fold so a 900px-tall desktop needs no scroll for join.
  */
 .invite {
   min-height: 100dvh;
@@ -855,18 +856,30 @@
   width: 100%;
   max-width: 40rem;
   margin: 0 auto;
-  padding: var(--space-12) var(--space-6) calc(var(--space-20) + 5rem);
+  padding: 0 var(--space-6) var(--space-20);
   display: flex;
   flex-direction: column;
-  gap: var(--space-16);
+  gap: 0;
   animation: rise var(--dur-slow) var(--ease-spring) both;
 }
 
 .invite__page--joined {
   min-height: 100dvh;
   justify-content: center;
+  padding-top: var(--space-12);
   padding-bottom: var(--space-20);
   gap: var(--space-8);
+}
+
+/* One composition for the first viewport — brand, title, brief, CTA. */
+.invite__stage {
+  box-sizing: border-box;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-10);
+  padding: var(--space-12) 0 var(--space-16);
 }
 
 .invite__hero {
@@ -874,19 +887,19 @@
 }
 
 .invite__hero .wordmark {
-  margin-bottom: var(--space-12);
+  margin-bottom: var(--space-8);
 }
 
 .invite__from {
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-3);
 }
 
 .invite__title {
   font: var(--type-display);
   letter-spacing: var(--track-display);
-  font-size: clamp(1.75rem, 4.5vw, 2.25rem);
+  font-size: clamp(1.625rem, 4vw, 2.125rem);
   font-weight: 600;
-  margin: 0 0 var(--space-5);
+  margin: 0 0 var(--space-4);
 }
 
 .invite__brief {
@@ -895,10 +908,13 @@
   margin: 0;
   font: var(--type-body);
   letter-spacing: var(--track-body);
-  line-height: 1.55;
+  line-height: 1.5;
 }
 
-.invite__content {
+.invite__content,
+.invite__empty {
+  margin-top: var(--space-4);
+  padding-bottom: var(--space-8);
   animation: rise var(--dur-base) var(--ease-spring) both;
   animation-delay: 40ms;
 }
@@ -932,23 +948,13 @@
 }
 
 .invite__empty {
-  margin: 0;
+  margin-top: var(--space-4);
 }
 
 .invite__cta {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
   display: flex;
-  justify-content: center;
-  padding: var(--space-5) var(--space-6) calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--canvas) 0%, transparent) 0%,
-    color-mix(in srgb, var(--canvas) 92%, transparent) 28%,
-    var(--canvas) 100%
-  );
+  justify-content: flex-start;
+  padding: 0;
   animation: rise var(--dur-slow) var(--ease-spring) both;
   animation-delay: 80ms;
 }
@@ -988,11 +994,15 @@
 
 @media (max-width: 720px) {
   .invite__page {
-    padding: var(--space-8) var(--space-4) calc(var(--space-16) + 5rem);
-    gap: var(--space-12);
+    padding: 0 var(--space-4) var(--space-16);
+  }
+
+  .invite__stage {
+    gap: var(--space-8);
+    padding: var(--space-8) 0 var(--space-12);
   }
 
   .invite__hero .wordmark {
-    margin-bottom: var(--space-10);
+    margin-bottom: var(--space-6);
   }
 }
