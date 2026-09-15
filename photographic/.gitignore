@@ -5,4 +5,4 @@ dist/
 *.log
 .turbo/
 coverage/
-.ci-reports/
+test-counts/

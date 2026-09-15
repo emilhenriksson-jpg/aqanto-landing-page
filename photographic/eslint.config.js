@@ -54,7 +54,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/coverage/**',
       '**/*.d.ts',
-      '.ci-reports/**',
+      'test-counts/**',
       // Build configuration, in no tsconfig, so type-aware linting cannot see it. Not
       // product code; excluded rather than given a second parser setup to maintain.
       '**/vitest.config.ts',

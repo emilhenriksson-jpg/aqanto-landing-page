@@ -15,7 +15,13 @@
     "",
     "maxSkipped is set to exactly what is skipped today, so a new skip fails the build. A",
     "skipped test is a test nobody runs, and the only two in this repository are skipped",
-    "because they need a credential CI cannot have."
+    "because they need a credential CI cannot have.",
+    "",
+    "Measured in CI, not on a laptop, and that distinction cost a red build. The machine",
+    "this was first measured on had OPENAI_API_KEY injected, so the retrieval test gated",
+    "behind it ran there and skipped in CI: 216 passed / 2 skipped locally against 215 / 3",
+    "in CI. A floor of 216 would have been a floor that only holds where a key happens to",
+    "exist. CI is the authority for these numbers; a local run may exceed them."
   ],
   "groups": {
     "unit": {
@@ -27,9 +33,9 @@
       "maxSkipped": 0
     },
     "db": {
-      "minPassed": 216,
-      "maxSkipped": 2,
-      "whySkipped": "packages/db: two tls.test.ts tests behind LIVE_SUPABASE=1 and one retrieval test behind OPENAI_API_KEY -- credentials CI cannot have"
+      "minPassed": 215,
+      "maxSkipped": 3,
+      "whySkipped": "packages/db: two tls.test.ts tests behind LIVE_SUPABASE=1, and one retrieval test behind OPENAI_API_KEY. All three need a credential CI cannot have. The third one runs on any machine that does have a key, which is why the floor is CI's number and not that machine's."
     },
     "e2e-postgres": {
       "minPassed": 62,

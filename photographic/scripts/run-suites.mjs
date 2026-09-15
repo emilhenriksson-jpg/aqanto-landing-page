@@ -35,7 +35,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXPECTATIONS_FILE = path.join(ROOT, 'scripts', 'suite-expectations.json');
-const REPORT_DIR = path.join(ROOT, '.ci-reports');
+const REPORT_DIR = path.join(ROOT, 'test-counts');
 
 const DEFAULT_DATABASE_URL = 'postgres://photographic:photographic@127.0.0.1:5432/photographic';
 const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
@@ -327,6 +327,11 @@ for (const group of selected) {
 
 // Written for the CI gate job to collect, so one place can show what every job counted.
 // A missing file there means a job did not get as far as counting.
+//
+// `test-counts/` rather than `.ci-reports/`: `actions/upload-artifact` silently excludes
+// dotfiles and dot-directories unless `include-hidden-files` is set, so the first version
+// of this uploaded nothing and every job failed on `if-no-files-found: error`. A visible
+// directory is a better answer than a flag someone has to know about.
 if (results.some((r) => r.counts)) {
   mkdirSync(REPORT_DIR, { recursive: true });
   for (const { group, counts, status, problems } of results) {

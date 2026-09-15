@@ -1,0 +1,10 @@
+{
+  "group": "e2e-postgres",
+  "status": "passed",
+  "suites": 1,
+  "passed": 62,
+  "failed": 0,
+  "skipped": 0,
+  "files": 3,
+  "problems": []
+}

@@ -1,0 +1,10 @@
+{
+  "group": "db",
+  "status": "passed",
+  "suites": 2,
+  "passed": 216,
+  "failed": 0,
+  "skipped": 2,
+  "files": 11,
+  "problems": []
+}

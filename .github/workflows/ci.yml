@@ -82,7 +82,7 @@ jobs:
         if: always()
         with:
           name: suite-report-unit
-          path: photographic/.ci-reports/*.json
+          path: photographic/test-counts/*.json
           if-no-files-found: error
 
   # The suites that only mean something against real SQL.
@@ -154,7 +154,7 @@ jobs:
         if: always()
         with:
           name: suite-report-postgres-${{ matrix.suite }}
-          path: photographic/.ci-reports/*.json
+          path: photographic/test-counts/*.json
           if-no-files-found: error
 
   # Builds the image the deploy actually runs, and boots it against the same Postgres.
@@ -222,10 +222,20 @@ jobs:
       # port the runner mapped; inside its own network namespace 127.0.0.1 would be
       # itself. This is the first thing in this repository's history that runs the
       # image's CMD, migrations and all, rather than assuming it works.
+      #
+      # The image sets `NODE_ENV=production`, and since PR #14 a production boot refuses
+      # to start without `SESSION_SECRET` and `CODE_SECRET` rather than signing sessions
+      # with a value that is re-randomised on every restart. That is the right behaviour
+      # and this step found it the hard way, so the values are passed here — throwaway
+      # ones, because nothing in this job issues a credential anyone keeps. It is also a
+      # reminder that `scripts/deploy.md` has to set both, or the documented deploy path
+      # produces a container that exits on boot.
       - name: Boot it against Postgres and serve /health
         run: |
           docker run -d --name photographic-ci --network host \
             -e PORT=8080 \
+            -e SESSION_SECRET=ci-throwaway-session-secret \
+            -e CODE_SECRET=ci-throwaway-code-secret \
             -e DATABASE_URL=postgres://photographic:photographic@127.0.0.1:5432/photographic \
             photographic:ci
 
@@ -312,10 +322,10 @@ jobs:
         with:
           pattern: suite-report-*
           merge-multiple: true
-          path: photographic/.ci-reports
+          path: photographic/test-counts
 
       - name: Test counts per group
-        run: node scripts/ci-suite-summary.mjs .ci-reports
+        run: node scripts/ci-suite-summary.mjs test-counts
 
       - name: Check the other jobs
         if: always()
