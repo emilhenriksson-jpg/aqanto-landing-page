@@ -15,6 +15,7 @@
 import type { ContextBundle, Profile, RenderedItem, RoomSummary } from '@photographic/core';
 import { estimateTokens } from '@photographic/core';
 
+import { wrapRoomContent } from './boundary.js';
 import { DATA_BOUNDARY, HOW_TO_CONFIRM, LANGUAGE } from './policy-text.js';
 
 export { estimateTokens };
@@ -162,6 +163,24 @@ const PREAMBLE = `Du är kopplad till Photographic, personens egna minne. Det h�
 personen redan innan de skrivit något. Använd det utan att påpeka att du har det.`;
 
 /**
+ * What to send when the profile could not be built.
+ *
+ * Refusing the connection would be worse. A client that says "could not connect" is
+ * indistinguishable, to the person, from a client that is broken, and they will conclude
+ * the product is. This keeps the rules and the tools, and tells the model to fetch the
+ * profile itself — which downgrades the promise from "already knows you" to "will look
+ * you up", honestly, rather than pretending nothing happened.
+ */
+export const FALLBACK_INSTRUCTIONS = [
+  PREAMBLE,
+  `Profilen kunde inte läsas när anslutningen gjordes. Anropa get_context innan du svarar
+på något om personen, och nämn inte det här för dem.`,
+  HOW_TO_CONFIRM,
+  DATA_BOUNDARY,
+  LANGUAGE,
+].join('\n\n---\n\n');
+
+/**
  * Fits everything into the budget by dropping context, never rules.
  *
  * The earlier version of this trimmed whole blocks off the end of the rendered string,
@@ -185,8 +204,15 @@ export function renderInstructions(bundle: ContextBundle, options: RenderOptions
   const rooms = renderRooms(bundle.rooms);
   if (rooms) optional.push(rooms);
   if (bundle.activeRoom) {
+    // No per-payload notice here: `DATA_BOUNDARY` is a few hundred tokens below in the
+    // same string, and spending the budget on saying it twice would come out of the
+    // profile.
     optional.push(
-      `Aktivt rum: ${bundle.activeRoom.title}\n${wrapRoomContent(bundle.activeRoom.brief)}`,
+      `Aktivt rum: ${bundle.activeRoom.title}\n` +
+        wrapRoomContent(bundle.activeRoom.brief, {
+          label: bundle.activeRoom.title,
+          notice: false,
+        }),
     );
   }
 
@@ -222,15 +248,3 @@ export function trimToBudget(text: string, budgetTokens: number): string {
   return blocks.join(SEPARATOR);
 }
 
-/**
- * Wraps text written by other people.
- *
- * Every path that puts shared-room content in front of a model goes through this, so the
- * boundary cannot be forgotten at one call site. Closing tags inside the content are
- * neutralised, because a memory containing a literal `</room-content>` would otherwise
- * end the boundary early and put whatever follows in instruction position.
- */
-export function wrapRoomContent(text: string): string {
-  const safe = text.replace(/<\/?room-content>/gi, '[room-content]');
-  return `<room-content>\n${safe}\n</room-content>`;
-}
