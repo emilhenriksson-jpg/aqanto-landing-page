@@ -84,6 +84,20 @@ import { createOAuthProvider } from './oauth.js';
 import { FIRST_PARTY_CLIENT_ID } from './oauth-contract.js';
 import type { OAuthProvider, TokenClaims } from './oauth-contract.js';
 
+/**
+ * What one pass of the job runner found.
+ *
+ * `failures` exists because `PgJobs`/`MemoryJobs` catch a handler's error themselves —
+ * that is what stops one broken job from taking the timer, and therefore the process,
+ * down with it — and never rethrow it, which without this would mean the error simply
+ * stops existing anywhere a person can see it. This is how it reaches `server.ts`'s
+ * logger instead: every kind, not only whichever ones this file happens to name.
+ */
+export interface JobRunResult {
+  ran: number;
+  failures: Array<{ kind: string; error: unknown }>;
+}
+
 export interface Wiring {
   app: Hono<AppEnv>;
   services: Services;
@@ -101,9 +115,15 @@ export interface Wiring {
   /** Export and account deletion. Null without a database; see `WiredServices`. */
   exports: PgExports | null;
   accounts: PgAccounts | null;
-  /** Background work, run by whoever owns the schedule. */
-  runJobs(): Promise<unknown>;
-  purgeTrash(): Promise<number>;
+  /**
+   * Background work, run by whoever owns the schedule.
+   *
+   * This is also what drives `purge_trash` and `expire_invites`: both are seeded as a
+   * self-scheduling chain inside the composition root (`createPostgresServices` /
+   * `createMemoryServices`), not by a second timer here. See the comment beside their
+   * registration for why that is the one mechanism for each rather than two.
+   */
+  runJobs(): Promise<JobRunResult>;
   /**
    * The account lifecycle sweep: build queued exports, expire old archives, carry out
    * deletions whose freeze has run out.
@@ -143,8 +163,7 @@ interface WiredServices {
    */
   exports: PgExports | null;
   accounts: PgAccounts | null;
-  runJobs(): Promise<unknown>;
-  purgeTrash(): Promise<number>;
+  runJobs(): Promise<JobRunResult>;
   close(): Promise<void>;
   llmKind: 'fake' | 'openai';
   persistence: 'postgres' | 'memory';
@@ -240,8 +259,13 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
       // memory, so neither belongs on `Services`.
       exports: new PgExports(pool, effectiveBlobs),
       accounts: new PgAccounts(pool, effectiveBlobs),
-      runJobs: () => wired.runJobsToCompletion(),
-      purgeTrash: () => wired.services.trash.purgeExpired(),
+      runJobs: async () => {
+        const ran = await wired.runJobsToCompletion();
+        // Drained rather than only read: a failure logged once by `server.ts` is the
+        // point, and an array nothing ever empties is a slow leak across a process that
+        // is meant to run indefinitely.
+        return { ran, failures: wired.jobs.failures.splice(0) };
+      },
       close: () => wired.close(),
       llmKind,
       persistence: 'postgres',
@@ -264,8 +288,10 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     },
     exports: null,
     accounts: null,
-    runJobs: () => wired.jobs.runOnce(),
-    purgeTrash: () => wired.services.trash.purgeExpired(),
+    runJobs: async () => {
+      const ran = await wired.jobs.runOnce();
+      return { ran, failures: wired.jobs.failures.splice(0) };
+    },
     close: async () => {
       // Nothing to release: the reference implementation holds no handles.
     },
@@ -622,7 +648,6 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     exports: wired.exports,
     accounts: wired.accounts,
     runJobs: () => wired.runJobs(),
-    purgeTrash: () => wired.purgeTrash(),
     runAccountJobs: () => runAccountJobs(wired, logger),
     close: () => wired.close(),
   };
