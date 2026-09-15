@@ -391,12 +391,66 @@ arrived twice, and the AI summary appearing without touching the extracted sourc
   appeared. Caught by watching a screen recording, not by a test. Hoisted above the
   branch; the case it matters for is "sparad, men vi kunde inte läsa ut text ur den".
 
-### Still to do on this branch
+### Export and permanent deletion
 
-Export (zip of NDJSON plus originals, `format_version`, streamed, signed link,
-`export.created`) and account deletion (both the 30-day freeze and the immediate path
-Emil confirmed, tombstone person row, pseudonymised contributions surviving in shared
-rooms, "ta bort mina bidrag").
+On `cursor/photographic-export-deletion-80d8`, stacked on the branch above because both
+build on its storage port. Full reasoning in `photographic/EXPORT.md`.
+
+**One decision departs from the spec, deliberately.** The design document scopes an
+export to `accessible_room_ids` — full transcripts of every shared room — justified by
+"she can read it in the app anyway". That does not hold: app access is gated on *current*
+membership and revocable, which the trust spec itself insists must never be cached, and a
+zip on a laptop is exactly that cache made permanent and moved off our infrastructure.
+Section 1.3's own premise — a shared room is a collective memory no single member may
+unilaterally change — points the same way. So the default is the person's own (personal
+room in full, plus what they wrote anywhere), and a full room transcript is an explicit
+per-room request. Both write `export.created` with `included: own | full`, so the
+stronger act looks stronger to the room's other members.
+
+**The deletion decision matches the spec and the copy.** Contributions stay in shared
+rooms, pseudonymised — the invite consent promised that in the first viewport, and
+stripping them would change what the other members remember behind their backs.
+`contributions` is mandatory in the API and `NOT NULL` with no default in the schema, so
+"never preselected" is a property of the system rather than a UI convention. It is
+pseudonymisation, not anonymisation, and `EXPORT.md` says so.
+
+Both deletion paths are built: 30-day freeze and immediate `radera nu` behind a typed
+confirmation. Tokens are revoked on both, the moment the request is made.
+
+### A migration this forced, which is why building it early was worth it
+
+`app.event.room_id` cascades from `app.room` and the append-only trigger refuses DELETE,
+so deleting a personal room raised `app.event is append-only` and permanent account
+deletion was **not implementable at all**. Found by writing it and running it.
+
+`0014_permit_personal_room_erasure.sql` opens a narrow hatch in the same shape 0002
+already chose for redaction: a transaction-local flag that one function sets and always
+clears, that function taking a *person* rather than a room and refusing anything but
+their own personal room. Seven tests try to abuse it rather than use it.
+
+**Track 2: this changes a guarantee you own.** The invariant is now "append-only except
+from inside `app.purge_expired_items` (UPDATE) and `app.erase_personal_room` (DELETE)".
+If you reorganise the trigger, both hatches must survive or account deletion breaks.
+
+Also for Track 2: `app.activity` filters on event type, so `export.created`,
+`account.deletion_requested` and `account.deletion_cancelled` are in the log but not on
+the history screen until the view learns them.
+
+### Verified live
+
+A real two-person shared room through the running API: the default export contained
+Emil's ketchup memory, his own room note and his own PDF — not Elias's note or Elias's
+PNG — with the shared room marked `included: own` and Elias present by display name but
+without his email. The full-transcript request then included both, added the note about
+other members' data, and wrote a second `export.created` marked `full`. The archive
+downloads through the signed link, `unzip -t` reports no errors, and after an immediate
+deletion the shared room still reads "Borttagen användare — Emils beslut om budgeten"
+while Emil's personal room, events and export archives are gone and his old link 404s.
+
+Still open, and stated rather than hidden: the archive is buffered once before upload
+because `BlobStore.put` takes bytes (multipart is the fix), no email carries the link
+yet, and there are no web screens — the copy is served from the API so it cannot drift
+from what the invite promised.
 
 ### For Track 2 — two handoffs
 

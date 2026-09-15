@@ -131,6 +131,32 @@ export const contextQuerySchema = z.object({
 });
 
 /**
+ * An export request.
+ *
+ * `own` by default and `rooms` only when asked for by name, because a full transcript of
+ * a shared room includes other people's writing and is a materially different act. See
+ * `EXPORT.md`.
+ */
+export const exportRequestSchema = z.object({
+  scope: z.enum(['own', 'rooms']).optional(),
+  rooms: z.array(uuid).max(50).optional(),
+});
+
+/**
+ * A deletion request.
+ *
+ * `contributions` is required and has no default. The consent copy says the choice about
+ * what happens to a person's contributions in shared rooms is never preselected, and a
+ * schema default would be this endpoint making it for them.
+ */
+export const deletionRequestSchema = z.object({
+  contributions: z.enum(['keep', 'remove']),
+  immediate: z.boolean().optional(),
+  /** Required on the immediate path. See `IMMEDIATE_CONFIRMATION`. */
+  confirm: z.string().trim().max(40).optional(),
+});
+
+/**
  * The room a multipart upload names, as text fields beside the file.
  *
  * Both optional and both accepted, matching `RoomRef`: a client that has an id sends

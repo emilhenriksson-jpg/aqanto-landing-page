@@ -44,6 +44,28 @@ const purgeTimer = setInterval(() => {
   });
 }, 60_000);
 
+// Exports and deletions, on their own cadence. Ten seconds is a compromise: fast enough
+// that a person who asked for an export is not left wondering, slow enough that a sweep
+// which carries out irreversible deletions is not running constantly.
+const accountTimer = setInterval(() => {
+  void wiring
+    .runAccountJobs()
+    .then((result) => {
+      if (result.exportsBuilt > 0) logger.info('exports_built', { count: result.exportsBuilt });
+      if (result.archivesExpired > 0) {
+        logger.info('export_archives_expired', { count: result.archivesExpired });
+      }
+      if (result.accountsDeleted > 0) {
+        logger.info('accounts_deleted', { count: result.accountsDeleted });
+      }
+    })
+    .catch((error: unknown) => {
+      logger.error('account_jobs_failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+}, 10_000);
+
 const server = serve(
   { fetch: wiring.app.fetch, hostname: config.host, port: config.port },
   (info) => {
@@ -64,6 +86,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
     clearInterval(jobTimer);
     clearInterval(purgeTimer);
+  clearInterval(accountTimer);
     server.close(() => {
       void wiring.close().finally(() => process.exit(0));
     });

@@ -1,0 +1,24 @@
+{
+  "name": "@photographic/export",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --emitDeclarationOnly --outDir dist"
+  },
+  "dependencies": {
+    "@photographic/core": "workspace:*",
+    "@photographic/documents": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
