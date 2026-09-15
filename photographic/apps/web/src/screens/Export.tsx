@@ -67,22 +67,30 @@ function ExportReady({ initial }: { initial: ExportJobDto[] }) {
   useEffect(() => {
     if (demo || !buildingId) return;
 
-    const tick = async () => {
-      try {
-        const { export: job } = await getExport(buildingId);
-        setJobs((current) => current.map((row) => (row.id === job.id ? job : row)));
-      } catch {
-        // A failed poll says nothing about the job. The next one asks again.
-      }
+    // A failed poll says nothing about the job, so the handler is deliberately quiet and
+    // the next tick asks again. It is a handler rather than a discarded promise because a
+    // rejection with nobody listening is how the purge timer took the whole process down.
+    const tick = (): void => {
+      getExport(buildingId)
+        .then(({ export: job }) => {
+          setJobs((current) => current.map((row) => (row.id === job.id ? job : row)));
+        })
+        .catch(() => undefined);
     };
 
-    pollRef.current = window.setInterval(() => void tick(), 5_000);
+    pollRef.current = window.setInterval(tick, 5_000);
     return () => {
       if (pollRef.current !== null) window.clearInterval(pollRef.current);
     };
   }, [demo, buildingId]);
 
-  async function request() {
+  /**
+   * Both actions let a failure reach their caller rather than swallowing it.
+   *
+   * The click handlers below attach the one handler that decides what a person sees, which
+   * is what keeps a rejected promise from having nobody listening.
+   */
+  async function request(): Promise<void> {
     setError(null);
     setBusy(true);
     try {
@@ -91,14 +99,12 @@ function ExportReady({ initial }: { initial: ExportJobDto[] }) {
       setMessage(
         'Exporten är beställd. Den byggs i bakgrunden — du kan lämna sidan och komma tillbaka.',
       );
-    } catch (caught) {
-      setError(calmErrorMessage(caught));
     } finally {
       setBusy(false);
     }
   }
 
-  async function download(exportId: string) {
+  async function download(exportId: string): Promise<void> {
     setError(null);
     setBusy(true);
     try {
@@ -107,12 +113,13 @@ function ExportReady({ initial }: { initial: ExportJobDto[] }) {
       // The archive arrives as an attachment, so navigating to it starts the download and
       // leaves this screen where it was.
       window.location.assign(minted.url);
-    } catch (caught) {
-      setError(calmErrorMessage(caught));
     } finally {
       setBusy(false);
     }
   }
+
+  /** One place turns a failed action into something a person can read. */
+  const report = (caught: unknown) => setError(calmErrorMessage(caught));
 
   return (
     <article className="page page--export">
@@ -164,7 +171,9 @@ function ExportReady({ initial }: { initial: ExportJobDto[] }) {
             <button
               type="button"
               className="btn btn--brand"
-              onClick={() => void request()}
+              onClick={() => {
+                request().catch(report);
+              }}
               disabled={busy || Boolean(building)}
             >
               {building ? 'Förbereds…' : 'Begär export'}
@@ -203,7 +212,9 @@ function ExportReady({ initial }: { initial: ExportJobDto[] }) {
                   <button
                     type="button"
                     className="btn"
-                    onClick={() => void download(job.id)}
+                    onClick={() => {
+                      download(job.id).catch(report);
+                    }}
                     disabled={busy}
                   >
                     Hämta arkivet

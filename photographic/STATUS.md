@@ -1186,3 +1186,38 @@ against; flagged rather than assumed working.
   verifieringskonto överlever inte en full testkörning. Skriptet som återskapar kontot ligger
   utanför repot; ordningen är signup → minnen → delat rum → godkännanden → en borttagning →
   inbjudan, och den behövs igen om någon vill upprepa verifieringen.
+
+### Två linterfynd i samma pass
+
+- **`[object Object]` i briefen, i båda implementationerna.** `String(payload['filename'] ??
+  'ett dokument')` gav `[object Object]` för varje `document.uploaded`-payload vars filnamn
+  inte var en sträng, och raden var identisk i `packages/db/src/services/projection.ts` och
+  `packages/services-memory/src/projection.ts`. Samma bugg två gånger är vad två kopior
+  producerar, så meningen bor nu på **ett** ställe: `briefEventLine` i
+  `packages/projection` (som var ett tomt skal med `export {}`), med sex tester varav ett
+  itererar över payloads som inte går att läsa. Ingenting tvingas till sträng längre — det
+  som inte är en sträng blir "ett dokument". Både `packages/db` och
+  `packages/services-memory` beror nu på `@photographic/projection`; det är två paket utanför
+  `apps/web`, och skälet är just att fixen annars hade blivit en tredje kopia.
+
+  Bevisat mot Postgres med **två riktiga medlemmar**: A laddade upp `offert-kok.txt` i ett
+  delat rum, B (registrerad via inbjudningslänken, alltså också ett bevis på att den
+  kvarvarande inbjudningsskärmens väg fungerar) läste `GET /v1/context?room=…` och fick
+  `- Någon laddade upp offert-kok.txt`, utan `[object Object]` någonstans i kontextpaketet.
+  ("Någon" därför att telefonsignup inte sätter `display_name` — samma sak som noteras ovan.)
+
+- **Villkorligt anropad hook.** `SharedRoom` returnerade `<Navigate>` före `useRoomData`, så
+  hooken anropades bara på vissa renders. Det failar inte högt; det failar som state som
+  matchas på anropsordning mot en tidigare render med en hook till. Omdirigeringarna ligger nu
+  i ett yttre skal och laddningen i `SharedRoomLoader`, samma mönster som
+  `DocumentsSection` redan använder. Den andra förekomsten låg i produktappens
+  `InvitePreview`, som är borttagen.
+
+- **Lintern körd mot branchen** i en separat worktree med [#19](https://github.com/emilhenriksson-jpg/aqanto-landing-page/pull/19):s
+  konfiguration ovanpå, i stället för att vänta på CI. Noll fynd i mina filer efter fixarna.
+  Två saker att veta för den som mergar: `no-floating-promises` är konfigurerad så att `void
+  promise` **inte** räcker, så klickhanterarna i de nya skärmarna avslutar med `.catch` som
+  faktiskt visar felet för personen; och min projektionsfix gör två `no-base-to-string`-
+  suppressions i `eslint-suppressions.json` obsoleta, så `pnpm lint:prune` ska köras när #19
+  och den här branchen möts. De två återstående fynden i `apps/rest/src/server.ts` är #19:s
+  egna — dess diff lagar dem, den här rör dem inte.

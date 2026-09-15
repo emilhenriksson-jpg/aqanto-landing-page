@@ -16,12 +16,31 @@ import {
 import { loadRoomActivityFromApi, loadSharedRoomFromApi } from '../data/load.js';
 import { useRoomData } from '../hooks/useRoomData.js';
 
-/** Inside a shared room: title, brief as calm prose, memories, documents, activity. */
+/**
+ * Inside a shared room: title, brief as calm prose, memories, documents, activity.
+ *
+ * The two redirects sit here, above any hook, and the loading is a separate component
+ * below. It used to be one component that returned a `<Navigate>` before calling
+ * `useRoomData`, which is a conditionally called hook: React then matches hook state by
+ * call order against a previous render that had one more hook, so the room reads state
+ * belonging to something else. That does not fail loudly — it is a screen showing a person
+ * their own memory being subtly wrong on some renders and right on others.
+ */
 export function SharedRoom({ documents }: { documents?: DocumentLine[] } = {}) {
   const { roomId = '' } = useParams();
   if (!roomId) return <Navigate to="/rum" replace />;
   if (roomId === 'personal') return <Navigate to="/" replace />;
 
+  return <SharedRoomLoader roomId={roomId} documents={documents} />;
+}
+
+function SharedRoomLoader({
+  roomId,
+  documents,
+}: {
+  roomId: string;
+  documents?: DocumentLine[];
+}) {
   const state = useRoomData(
     `shared:${roomId}`,
     () => loadRoom(roomId),

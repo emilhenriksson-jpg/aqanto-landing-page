@@ -98,7 +98,7 @@ describe('Export', () => {
     vi.spyOn(window, 'location', 'get').mockReturnValue({
       ...window.location,
       assign,
-    } as unknown as Location);
+    });
 
     listExports.mockResolvedValue({
       exports: [

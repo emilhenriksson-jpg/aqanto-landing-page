@@ -91,7 +91,12 @@ function RaderaKontoReady({ initial }: { initial: DeletionStateDto }) {
   const immediate = timing === 'immediate';
   const phraseOk = !immediate || typed.trim().toLowerCase() === IMMEDIATE_PHRASE;
 
-  async function submit() {
+  /**
+   * Both actions let a failure reach the click handler, which is the one place that turns
+   * it into something a person can read. A rejected promise with nobody listening is the
+   * shape of bug that took this project's process down once already.
+   */
+  async function submit(): Promise<void> {
     if (!contributions || !timing) return;
     setError(null);
     setBusy(true);
@@ -105,14 +110,12 @@ function RaderaKontoReady({ initial }: { initial: DeletionStateDto }) {
       setConfirming(false);
       const refreshed = await getDeletionState().catch(() => null);
       if (refreshed) setState(refreshed);
-    } catch (caught) {
-      setError(calmErrorMessage(caught));
     } finally {
       setBusy(false);
     }
   }
 
-  async function cancel() {
+  async function cancel(): Promise<void> {
     setError(null);
     setBusy(true);
     try {
@@ -124,12 +127,12 @@ function RaderaKontoReady({ initial }: { initial: DeletionStateDto }) {
       const refreshed = await getDeletionState().catch(() => null);
       if (refreshed) setState(refreshed);
       setError(notice);
-    } catch (caught) {
-      setError(calmErrorMessage(caught));
     } finally {
       setBusy(false);
     }
   }
+
+  const report = (caught: unknown) => setError(calmErrorMessage(caught));
 
   return (
     <article className="page page--radera">
@@ -174,7 +177,14 @@ function RaderaKontoReady({ initial }: { initial: DeletionStateDto }) {
               : 'Dina bidrag i delade rum står kvar, utan ditt namn.'}
           </p>
           {!demo ? (
-            <button type="button" className="btn" onClick={() => void cancel()} disabled={busy}>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                cancel().catch(report);
+              }}
+              disabled={busy}
+            >
               Avbryt raderingen
             </button>
           ) : null}
@@ -286,7 +296,7 @@ function RaderaKontoReady({ initial }: { initial: DeletionStateDto }) {
               {immediate ? (
                 <label className="radera-phrase">
                   <span className="radera-phrase__label">
-                    Skriv <span className="mono">”{IMMEDIATE_PHRASE}”</span> för att bekräfta
+                    Skriv ”{IMMEDIATE_PHRASE}” för att bekräfta
                   </span>
                   <input
                     className="radera-phrase__input"
@@ -303,7 +313,9 @@ function RaderaKontoReady({ initial }: { initial: DeletionStateDto }) {
                 <button
                   type="button"
                   className="btn"
-                  onClick={() => void submit()}
+                  onClick={() => {
+                    submit().catch(report);
+                  }}
                   disabled={busy || demo || !phraseOk}
                 >
                   {immediate ? 'Radera nu' : `Radera om ${freezeDays} dagar`}
