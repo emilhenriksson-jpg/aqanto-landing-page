@@ -3,10 +3,9 @@
 # Claude and ChatGPT reach MCP from their clouds, so this process must be on a
 # public HTTPS URL — a laptop behind a firewall will never work for those clients.
 #
-# Runtime honesty (2026-09): the process still uses `@photographic/services-memory`
-# and FakeLlm. It *refuses* `DATABASE_URL` until `@photographic/db` implements the
-# ports (`apps/rest/src/server.ts`). Migrations ship in the image and run on boot
-# when `DATABASE_URL` is set, so the day wiring lands a deploy applies schema first.
+# Runtime: `DATABASE_URL` selects `@photographic/db` (real Services). Unset falls
+# back to `@photographic/services-memory`. FakeLlm unless PHOTOGRAPHIC_LLM=openai
+# and OPENAI_API_KEY are set. Migrations run on boot when DATABASE_URL is present.
 
 FROM node:22-slim AS base
 ENV PNPM_HOME=/pnpm
@@ -48,6 +47,5 @@ ENV PORT=8080
 COPY --from=build /app /app
 EXPOSE 8080
 
-# Migrate only when Postgres is configured. Idempotent. Today a set DATABASE_URL
-# also makes the server exit — deploy without it (in-memory) or wait for db ports.
+# Migrate when Postgres is configured (idempotent), then serve.
 CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then pnpm db:migrate; fi; exec node --import tsx apps/rest/src/server.ts"]

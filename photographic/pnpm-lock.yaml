@@ -124,6 +124,9 @@ importers:
       '@photographic/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@photographic/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
       '@photographic/mcp':
         specifier: workspace:*
         version: link:../mcp

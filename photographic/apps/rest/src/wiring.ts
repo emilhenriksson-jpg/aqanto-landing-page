@@ -34,6 +34,7 @@ import {
 } from '@photographic/connect/testing';
 import type { Actor, PersonId, Services, SessionId } from '@photographic/core';
 import { createPool, createPostgresServices } from '@photographic/db';
+import { createLlmFromEnv } from '@photographic/llm';
 import { createMcpApp, defaultConfig } from '@photographic/mcp';
 import { createMemoryServices } from '@photographic/services-memory';
 import type { Hono } from 'hono';
@@ -62,6 +63,7 @@ interface WiredServices {
   runJobs(): Promise<unknown>;
   purgeTrash(): Promise<number>;
   close(): Promise<void>;
+  llmKind: 'fake' | 'openai';
 }
 
 /**
@@ -70,19 +72,24 @@ interface WiredServices {
  */
 async function createServices(config: RestConfig): Promise<WiredServices> {
   const databaseUrl = process.env.DATABASE_URL;
+  const { kind: llmKind, llm } = createLlmFromEnv();
+  // Logged by the caller once wiring exists; kept as a return field so server.ts can
+  // say which brain is answering without re-reading the environment.
+  void llmKind;
 
   if (databaseUrl) {
     const pool = createPool({ connectionString: databaseUrl });
-    const wired = await createPostgresServices({ pool, baseUrl: config.publicUrl });
+    const wired = await createPostgresServices({ pool, baseUrl: config.publicUrl, llm });
     return {
       services: wired.services,
       runJobs: () => wired.runJobsToCompletion(),
       purgeTrash: () => wired.services.trash.purgeExpired(),
       close: () => wired.close(),
+      llmKind,
     };
   }
 
-  const wired = createMemoryServices({ baseUrl: config.publicUrl });
+  const wired = createMemoryServices({ baseUrl: config.publicUrl, llm });
   return {
     services: wired.services,
     runJobs: () => wired.jobs.runOnce(),
@@ -90,12 +97,14 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     close: async () => {
       // Nothing to release: the reference implementation holds no handles.
     },
+    llmKind,
   };
 }
 
 export async function createWiring(input: { config: RestConfig; logger: Logger }): Promise<Wiring> {
   const { config, logger } = input;
   const wired = await createServices(config);
+  logger.info('llm_selected', { kind: wired.llmKind });
 
   /**
    * Turns the browser session token from the sign-up flow into a person.

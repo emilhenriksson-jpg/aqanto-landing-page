@@ -1,8 +1,8 @@
 # Photographic MCP + REST API on one origin.
 # MCP endpoint: https://<app>.fly.dev/mcp
 #
-# Do not attach Postgres and set DATABASE_URL until @photographic/db implements
-# the ports — the process currently exits when DATABASE_URL is present.
+# Attach Postgres (`fly postgres attach`) to set DATABASE_URL — @photographic/db
+# implements the ports. Without it the process runs the in-memory reference.
 
 app = "photographic"
 primary_region = "arn"

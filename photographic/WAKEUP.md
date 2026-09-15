@@ -12,6 +12,15 @@ Kort: API + MCP går att köra lokalt **mot Postgres** eller in-memory. Riktig L
 - Schema + `pnpm db:migrate` / `pnpm db:reset`; migreringar är idempotenta
 - Web-rum-UI (demo-data) på `:5173`
 
+## Riktig LLM (valfritt)
+
+```bash
+export PHOTOGRAPHIC_LLM=openai
+export OPENAI_API_KEY=sk-...
+```
+
+Utan dem körs FakeLlm (tester och `pnpm dev` förblir deterministiska).
+
 ## Fungerar inte
 
 - Riktig OpenAI-LLM i processen (FakeLlm svarar deterministiskt; flagga saknas)

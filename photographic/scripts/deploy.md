@@ -3,41 +3,42 @@
 Claude reaches an MCP server from Anthropic's cloud, not from your laptop, so the
 server has to be on the public internet.
 
-**Today:** the process runs the in-memory reference implementation and FakeLlm.
-It exits if `DATABASE_URL` is set (`apps/rest/src/server.ts`). Migrations exist
-(`pnpm db:migrate`) and the Docker image runs them when `DATABASE_URL` is present,
-but do not attach Postgres until `@photographic/db` implements the ports.
+**Today:** `DATABASE_URL` selects `@photographic/db`'s real `Services`. Without it the
+process runs the in-memory reference implementation (data dies on restart). FakeLlm is
+the default until `PHOTOGRAPHIC_LLM=openai` and `OPENAI_API_KEY` are set.
 
 ## Quick, for trying it out
 
 ```bash
 pnpm install
-pnpm dev                       # :8787 — REST + /mcp, in-memory
+pnpm db:migrate
+DATABASE_URL=postgres://photographic:photographic@127.0.0.1:5432/photographic pnpm dev
 npx untun@latest tunnel http://localhost:8787
 ```
 
 Take the https URL it prints and add `/mcp`.
 
-## Fly, without Postgres (in-memory, data dies on restart)
+## Fly, with Postgres (recommended)
 
 ```bash
 fly launch --no-deploy            # accept the existing fly.toml
-# Do NOT: fly postgres attach …   # would set DATABASE_URL and the process exits
-fly secrets set OPENAI_API_KEY=sk-...   # optional; unused until real LlmPort is wired
-fly deploy
-```
-
-MCP: `https://<app>.fly.dev/mcp`. Health: `/health`.
-
-## Fly, with Postgres (only once db ports land)
-
-```bash
 fly postgres create --name photographic-db --region arn
 fly postgres attach photographic-db
+# optional real LLM:
+fly secrets set OPENAI_API_KEY=sk-... PHOTOGRAPHIC_LLM=openai
 fly deploy
 ```
 
 Boot runs `pnpm db:migrate` then starts the server.
+MCP: `https://<app>.fly.dev/mcp`. Health: `/health`.
+
+## Fly, without Postgres (in-memory, data dies on restart / suspend)
+
+```bash
+fly launch --no-deploy
+# Do NOT attach Postgres
+fly deploy
+```
 
 ## Pointing Claude at it
 

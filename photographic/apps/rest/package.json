@@ -20,6 +20,7 @@
     "@photographic/connect": "workspace:*",
     "@photographic/core": "workspace:*",
     "@photographic/db": "workspace:*",
+    "@photographic/llm": "workspace:*",
     "@photographic/mcp": "workspace:*",
     "@photographic/services-memory": "workspace:*",
     "hono": "^4.6.14",
