@@ -305,7 +305,22 @@ const HISTORY_ACTION: Record<string, string> = {
   room_created: 'skapade rummet',
   member_joined: 'gick med',
   member_left: 'lämnade',
+  // Said without the word "nödinloggning" needing explaining: what happened, and that it
+  // happened on the server rather than in a browser. Not verbs, because nobody in the
+  // sentence is a client or a person — see `STANDALONE_ACTIONS`.
+  break_glass_minted: 'nödinloggning skapad på servern',
+  break_glass_used: 'nödinloggning använd för att logga in',
 };
+
+/**
+ * Actions whose line is a sentence of its own.
+ *
+ * Every other entry reads "<vem> <gjorde> <vad>", which works because a memory was
+ * changed by somebody. An emergency sign-in has no such subject: the mint is a script on
+ * the machine, and prefixing the enum's client name would produce "api nödinloggning
+ * skapad". So these two carry the whole statement and are capitalised instead.
+ */
+const STANDALONE_ACTIONS = new Set(['break_glass_minted', 'break_glass_used']);
 
 /**
  * The person's own timezone, asked of the browser.
@@ -393,9 +408,10 @@ export function loadEventFromApi(seq: number): Promise<MemoryEventDetailDto> {
 }
 
 export function mapHistoryEntry(dto: HistoryEntryDto, now = new Date()): HistoryLine {
-  const who = historyWho(dto);
   const verb = HISTORY_ACTION[dto.action] ?? dto.action;
-  const head = `${who} ${verb}`;
+  const head = STANDALONE_ACTIONS.has(dto.action)
+    ? `${verb.charAt(0).toUpperCase()}${verb.slice(1)}`
+    : `${historyWho(dto)} ${verb}`;
 
   let detail = '';
   if (dto.redacted) {
