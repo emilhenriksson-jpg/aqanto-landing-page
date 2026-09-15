@@ -14,8 +14,8 @@
     "reset": "tsx src/reset.ts"
   },
   "dependencies": {
+    "@photographic/agent": "workspace:*",
     "@photographic/core": "workspace:*",
-    "@photographic/services-memory": "workspace:*",
     "pg": "^8.13.1"
   },
   "devDependencies": {

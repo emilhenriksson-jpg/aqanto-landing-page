@@ -139,3 +139,21 @@ _Agents append here. Do not edit another package to unblock yourself._
   Not built, deliberately: an MCP tool for describing a room. Eight tools is already at
   the limit where selection accuracy starts to fall, and this is an action a person takes
   in the app once per room, not something a model should be choosing between mid-sentence.
+
+- **orchestrator** — `apps/web`: the room app is no longer a placeholder. Home is a rail
+  with the personal room as the default landing (brand, title, lede, token meter, then
+  profile sections as card groups), "Alla" opens the room grid (personal first,
+  violet-tinted), and shared rooms open with brief + memories. Soft-delete with undo on
+  every memory line. Demo data only — the API is not wired yet — so the screens can be
+  reviewed on their own. 3 component tests green; `pnpm --filter @photographic/web dev`
+  on :5173.
+  Design language from `DESIGN.md`: one violet accent, Inter, standing-inside-the-room
+  rather than a dashboard.
+
+- **orchestrator** — `@photographic/db`: migrate/reset scripts work against the local
+  Postgres (`pnpm db:migrate` is a no-op when the schema is already there; empty ledger
+  with existing tables gets recorded rather than re-applied). Postgres ports started for
+  identity, rooms, invites, events and permissions; they typecheck. Not yet assembled
+  into `createPostgresServices`, so `DATABASE_URL` still refuses to boot — by design,
+  until the remaining ports (ingest, projection, bundle, retrieval, trash, history,
+  sessions, jobs) land and the e2e harness can run `HARNESS=postgres`.

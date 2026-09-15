@@ -1,5 +1,5 @@
 /**
- * Postgres: the pool, the migrations, and — once the repositories land — the real
+ * Postgres: the pool, the migrations, and — as the repositories land — the real
  * `Services` construction. Until those repositories exist, callers still use
  * `@photographic/services-memory`; setting `DATABASE_URL` without them is a loud
  * failure rather than a silent fall-back to memory.

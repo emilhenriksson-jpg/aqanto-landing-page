@@ -1,27 +1,33 @@
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+
+import { Shell } from './components/Shell.js';
+import { PersonalRoom } from './screens/PersonalRoom.js';
+import { Rooms } from './screens/Rooms.js';
+import { SharedRoom } from './screens/SharedRoom.js';
+
 /**
- * Placeholder.
+ * Consumer app: open it and you are standing inside your personal room.
+ * The room list is secondary navigation, not a dashboard home.
  *
- * The screens for this app are not written yet: `apps/onboarding` covers sign-up, the
- * invite landing, connecting a client and delivery health, and this is where the rooms and
- * the activity feed will go once they are lifted into one app.
- *
- * It exists as a page rather than as a missing module so that the build, the typecheck and
- * `pnpm dev` all stay green, and so that anyone who opens it lands somewhere that tells
- * them where to go instead of on a stack trace.
+ * Route tree is exported separately so tests can wrap it in MemoryRouter.
  */
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route element={<Shell />}>
+        <Route index element={<PersonalRoom />} />
+        <Route path="rum" element={<Rooms />} />
+        <Route path="rum/:roomId" element={<SharedRoom />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}
 
 export function App() {
   return (
-    <main className="placeholder">
-      <h1>Photographic</h1>
-      <p>
-        Den här appen är inte byggd än. Kontot skapas och AI-klienter kopplas in i
-        onboarding-appen: <code>pnpm --filter @photographic/onboarding dev</code>.
-      </p>
-      <p>
-        API:t och MCP-servern kör redan: <code>pnpm dev</code> startar dem på{' '}
-        <code>http://localhost:8787</code>, med MCP på <code>/mcp</code>.
-      </p>
-    </main>
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
   );
 }

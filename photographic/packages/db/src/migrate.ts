@@ -33,8 +33,25 @@ export async function migrate(pool: Pool, dir = MIGRATIONS_DIR): Promise<string[
 
   const { rows } = await pool.query<{ id: string }>('SELECT id FROM app.schema_migrations');
   const applied = new Set(rows.map((r) => r.id));
-
   const files = await migrationFiles(dir);
+
+  // A database that received the schema before this ledger existed would try to
+  // re-apply every file and fail on the first CREATE TYPE. If the core tables are
+  // already there and the ledger is empty, record what is present rather than
+  // running it again.
+  if (applied.size === 0) {
+    const existing = await pool.query<{ exists: boolean }>(
+      `SELECT to_regclass('app.person') IS NOT NULL AS exists`,
+    );
+    if (existing.rows[0]?.exists) {
+      for (const file of files) {
+        await pool.query('INSERT INTO app.schema_migrations (id) VALUES ($1)', [file]);
+        applied.add(file);
+        console.log(`Noterade ${file} (fanns redan)`);
+      }
+    }
+  }
+
   const ran: string[] = [];
 
   for (const file of files) {
