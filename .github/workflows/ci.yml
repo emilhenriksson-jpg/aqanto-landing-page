@@ -59,10 +59,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - run: pnpm typecheck
-      # No package defines a `lint` script today, so this is a no-op that will start
-      # doing something the day one does. It is here rather than absent because `pnpm
-      # lint` used to fail with ERR_PNPM_RECURSIVE_RUN_NO_SCRIPT, which is the kind of
-      # thing that teaches people to stop running commands.
+      # Type-aware ESLint over all 23 packages, ~13s. See `eslint.config.js` for which
+      # rules are on and why. It fails on a new violation and it also fails on a
+      # suppression that no longer matches anything, so the list in
+      # `eslint-suppressions.json` can only shrink — `pnpm lint:prune` is the fix.
       - run: pnpm lint
 
   # Everything that needs no database: 19 packages including `apps/web`,
