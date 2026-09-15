@@ -29,6 +29,7 @@ import { NotFoundError, NotPermittedError } from '@photographic/core';
 import {
   BRIEF_TOKEN_BUDGET,
   compassEntriesFrom,
+  compassEntriesFromCache,
   PROFILE_TOKEN_BUDGET,
   ROOM_HEADLINE_TOKEN_BUDGET,
   SECTION_BUDGETS,
@@ -154,8 +155,14 @@ export class MemoryProjection implements ProjectionPort {
   /** Rebuilds on demand when stale, so a read never returns something known wrong. */
   async getProfile(personId: PersonId): Promise<Profile> {
     const cached = this.store.profiles.get(personId);
-    if (cached && !this.staleProfiles.has(personId)) return cached;
-    return this.buildProfile(personId);
+    if (!cached || this.staleProfiles.has(personId)) return this.buildProfile(personId);
+
+    // Same guarantee the Postgres implementation makes, stated the same way: the six
+    // principles come from `COMPASS_PRINCIPLES` for every slot nobody has personalised,
+    // whatever is in the cache. There is no pre-migration profile to worry about here,
+    // but "a compass is always six" should not be true only because this store happens
+    // to be filled by one function.
+    return { ...cached, compass: compassEntriesFromCache(cached.compass) };
   }
 
   async buildBrief(roomId: RoomId): Promise<Brief> {

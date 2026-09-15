@@ -32,6 +32,16 @@ export const BRIEF_TOKEN_BUDGET = 800;
 export const SINCE_LAST_SEEN_TOKEN_BUDGET = 400;
 
 /**
+ * How many events past `last_seen_seq` the catch-up reads before packing to its budget.
+ *
+ * The read used to be unbounded — every event in the room since the person last looked —
+ * which is a table scan on the one path that runs at session start, for a list that is
+ * then cut to `SINCE_LAST_SEEN_TOKEN_BUDGET` anyway. Newest first, so a long absence
+ * loses the oldest lines rather than the ones that matter.
+ */
+export const SINCE_LAST_SEEN_SCAN_LIMIT = 200;
+
+/**
  * The whole room overview, every room the person can reach.
  *
  * Small on purpose. The overview exists so a model knows what rooms there are, not so it

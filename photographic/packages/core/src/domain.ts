@@ -617,6 +617,19 @@ export interface ContextBundle {
    */
   recent: HistoryEntry[];
   activeRoom: ActiveRoomContext | null;
+  /**
+   * The ceiling this bundle was assembled against, carried so that rendering it again
+   * cannot use a different one.
+   *
+   * Recorded rather than defaulted, because `tokenCount` is measured from the rendered
+   * string and a renderer that picks its own budget makes that number describe a string
+   * the caller never receives. `GET /v1/context?budget=500` did exactly that: the
+   * parameter reached `build`, `render` was called without it and fell back to
+   * `BUNDLE_TOKEN_BUDGET`, and the response reported the size of the smaller package
+   * while carrying the larger one. Same class of gap between `apps/mcp` (which renders
+   * against the tighter `INSTRUCTIONS_TOKEN_BUDGET`) and `apps/rest`.
+   */
+  budgetTokens: number;
   tokenCount: number;
   bundleVersion: string;
   builtAt: Date;
