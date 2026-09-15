@@ -1,14 +1,20 @@
 /**
  * Live MCP smoke against a running REST process (default http://127.0.0.1:8787).
  *
- * Skipped unless `LIVE_MCP=1`. Morning:
+ * Skipped unless `LIVE_MCP=1`, and excluded from the default e2e run: the journey
+ * resets the same database this process is serving. Use `test:live`.
  *
  *   DATABASE_URL=… pnpm db:seed
  *   # REST already listening; signup codes land in its log
- *   LIVE_MCP=1 LIVE_MCP_LOG=/tmp/rest-demo-api.log pnpm --filter @photographic/e2e test
+ *   LIVE_MCP=1 LIVE_MCP_LOG=/tmp/rest.log pnpm --filter @photographic/e2e test:live
  *
  * Proves OAuth access token → POST /mcp initialize → instructions mention a seeded
  * personal fact (ketchup). Session tokens alone are not enough for /mcp.
+ *
+ * Point it at a public hostname to prove the same thing an AI client will do from
+ * outside the machine — every step below is a request Claude makes for itself:
+ *
+ *   LIVE_MCP=1 LIVE_MCP_URL=https://<host> LIVE_MCP_PUBLIC_URL=https://<host> …
  */
 
 import { createHash, randomBytes } from 'node:crypto';
@@ -84,7 +90,7 @@ async function readSseResult(response: Response): Promise<Record<string, unknown
   return JSON.parse(data) as Record<string, unknown>;
 }
 
-describe.skipIf(!enabled)('live MCP against :8787', () => {
+describe.skipIf(!enabled)(`live MCP against ${API}`, () => {
   it('initialize instructions include a seeded personal fact', async () => {
     const health = await fetch(`${API}/health`);
     expect(health.status).toBe(200);

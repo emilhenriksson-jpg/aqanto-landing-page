@@ -128,6 +128,25 @@ export function maskDestination(channel: SignupChannel, destination: string): st
   return `***${destination.slice(-4)}`;
 }
 
+/**
+ * The one answer every failed verification gives.
+ *
+ * Wrong code, unknown request id, already used, expired, out of attempts — all the same
+ * sentence and the same status. The endpoint is publicly reachable and mints a session,
+ * so anything that distinguishes those states is a probe: "already used" tells an
+ * attacker holding a stolen request id that the code was real and the person got in,
+ * and "expired" tells them to stop guessing and come back after the next request.
+ *
+ * It also has to be a sentence a person can act on, because the honest cases — a typo, a
+ * code left too long in another tab — are overwhelmingly the common ones. Saying both
+ * halves covers every state truthfully without naming which one happened.
+ */
+export const CODE_REJECTED = 'Koden stämmer inte, eller så har den gått ut. Begär en ny.';
+
+function rejected(): AuthError {
+  return new AuthError(CODE_REJECTED);
+}
+
 export interface VerifyCodeResult {
   person: Person;
   personalRoom: Room;
@@ -144,15 +163,21 @@ export async function verifyCode(
 ): Promise<VerifyCodeResult> {
   const now = deps.clock();
   const record = await deps.codes.findById(input.requestId);
-  if (!record) throw new AuthError('Koden är inte längre giltig.');
-  if (record.consumedAt) throw new AuthError('Koden är redan använd.');
-  if (record.expiresAt <= now) throw new AuthError('Koden har gått ut. Begär en ny.');
-  if (record.attempts >= MAX_ATTEMPTS) throw new AuthError('För många försök. Begär en ny kod.');
 
-  const candidate = hashCode(input.code.trim(), deps.codeSecret, record.destination);
+  // The HMAC is computed before any branch, and on a placeholder destination when there
+  // is no record, so that "this request id means nothing" costs the same as "this code
+  // is wrong". Rejecting early would make the work — and the response time — describe
+  // which of the two happened.
+  const candidate = hashCode(input.code.trim(), deps.codeSecret, record?.destination ?? '');
+
+  if (!record) throw rejected();
+  if (record.consumedAt) throw rejected();
+  if (record.expiresAt <= now) throw rejected();
+  if (record.attempts >= MAX_ATTEMPTS) throw rejected();
+
   if (!codeMatches(record.codeHash, candidate)) {
     await deps.codes.recordAttempt(record.id);
-    throw new AuthError('Fel kod.');
+    throw rejected();
   }
 
   // Consume before doing anything durable, so a double-submitted form cannot register

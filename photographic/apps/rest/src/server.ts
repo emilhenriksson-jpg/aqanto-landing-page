@@ -47,7 +47,16 @@ const purgeTimer = setInterval(() => {
 const server = serve(
   { fetch: wiring.app.fetch, hostname: config.host, port: config.port },
   (info) => {
-    logger.info('listening', { port: info.port, publicUrl: config.publicUrl });
+    logger.info('listening', {
+      port: info.port,
+      publicUrl: config.publicUrl,
+      mcpUrl: `${config.publicUrl}/mcp`,
+      // Where a person is sent to approve a connection. Same origin when we serve the
+      // browser app ourselves, a dev server otherwise — and getting this wrong is
+      // invisible until someone tries to finish an OAuth flow in a browser.
+      loginUrl: `${config.webUrl}/login`,
+      servingWebApp: config.webDist !== null,
+    });
   },
 );
 

@@ -35,11 +35,9 @@ import {
   MemoryTokenStore,
 } from '@photographic/auth/testing';
 import type { ConnectDeps } from '@photographic/connect';
-import {
-  MemoryCodeSender,
-  MemoryCodeStore,
-  MemorySessionIssuer,
-} from '@photographic/connect/testing';
+import { generateCode } from '@photographic/connect';
+import { MemoryCodeStore, MemorySessionIssuer } from '@photographic/connect/testing';
+import { createCodeSenderFromEnv } from '@photographic/delivery';
 import type { Actor, PersonId, Services, SessionId } from '@photographic/core';
 import {
   createPool,
@@ -327,28 +325,39 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
   });
 
   const codes = new MemoryCodeStore();
-  const sender = new MemoryCodeSender();
-  let codeSeq = 0;
 
-  // No email or SMS provider in development, so the code goes to the log. Printed
-  // deliberately and only here: `MemoryCodeSender` is why it is reachable at all, and it
-  // is not wired in production.
-  const originalSend = sender.send.bind(sender);
-  sender.send = async (message) => {
-    await originalSend(message);
-    logger.warn('signup_code', { channel: message.channel, code: message.code });
-  };
+  /**
+   * How a sign-up code reaches a person: a real provider when one is configured, the
+   * log otherwise. `createCodeSenderFromEnv` is the only thing that reads the mail
+   * environment, and it refuses to start half-configured rather than quietly logging
+   * codes it was told to email.
+   */
+  const delivery = createCodeSenderFromEnv(process.env, { logger });
+  logger.info('code_delivery_selected', { email: delivery.email, sms: delivery.sms });
+
+  if (!process.env.CODE_SECRET) {
+    // Codes are HMACed under this key, so a fresh one per boot invalidates every code in
+    // flight. Harmless on a laptop, and a restart mid-signup on a shared instance that a
+    // person cannot explain.
+    logger.warn('code_secret_ephemeral', {
+      detail: 'CODE_SECRET är inte satt: koder i omlopp slutar gälla vid omstart.',
+    });
+  }
 
   const connect: ConnectDeps = {
     identity: wired.services.identity,
     invites: wired.services.invites,
     sessions: wired.services.sessions,
     codes,
-    sender,
+    sender: delivery.sender,
     issuer: new MemorySessionIssuer(),
     codeSecret: process.env.CODE_SECRET ?? randomUUID(),
     clock: () => new Date(),
-    randomCode: () => String(100000 + (codeSeq += 1)),
+    // The CSPRNG from `@photographic/connect`, not a counter. This was
+    // `100000 + (codeSeq += 1)`, which was survivable while the code only ever reached a
+    // development log and is not survivable now that it reaches an inbox: sequential
+    // codes mean watching one signup tells you the next person's code.
+    randomCode: generateCode,
     randomId: () => randomUUID(),
   };
 

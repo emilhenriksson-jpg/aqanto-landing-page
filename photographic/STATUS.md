@@ -25,12 +25,59 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
 
 ## In progress
 
-- **orchestrator** — public HTTPS for Claude (tunnel `PUBLIC_URL` or Fly+Postgres),
-  deeper `VITE_USE_DEMO=0` wiring beyond curls. Deploy scaffolding is in place;
-  Postgres adapters assembled; `DATABASE_URL` boots cleanly. Design rounds 1–4 done
+- **orchestrator** — deeper `VITE_USE_DEMO=0` wiring beyond curls. Design rounds 1–4 done
   on the room UI; next polish is invite-first-viewport confidence under real devices.
 
+## Known limitations, written down rather than discovered later
+
+- **A restart drops Claude's connection.** OAuth clients and tokens live in process
+  memory (`MemoryClientStore` / `MemoryTokenStore` in `apps/rest/src/wiring.ts`), so
+  every restart forgets the dynamic registration and the connector has to be added
+  again. Track 3 is moving these to Postgres — deliberately not fixed here.
+- **The tunnel hostname is new on every run**, so a connector saved in Claude is
+  invalidated by the next restart. That is the accepted cost of not committing to a
+  deployment while storage is still being decided.
+- **No real email or SMS.** Sign-up codes are written to the API log as `signup_code`.
+- **Shared-room Aktivitet is still demo data.** Left alone on purpose: it is being
+  rebuilt as a view over the append-only event log with full provenance, so a standalone
+  activity endpoint now would be thrown away.
+
 ## Completed
+
+- **orchestrator** — **public HTTPS, and Claude can connect.** Verified reachable this
+  morning at `https://called-job-paragraph-necessary.trycloudflare.com/mcp` (a quick
+  tunnel, so that exact hostname dies with the process — `./scripts/public-mcp.sh`
+  prints a fresh one).
+  The missing piece was not the tunnel. A client discovers everything from the MCP
+  endpoint's own metadata, so one hostname should be enough, and it was two: the login
+  page an authorization request redirects to lives in `apps/onboarding`, which calls its
+  API with same-origin relative paths through a Vite proxy that exists only on a laptop.
+  Behind a tunnel the flow dead-ended after the redirect, on an origin serving no HTML —
+  a blank page, long after every test had passed. `createApp` now serves the built
+  browser app over the paths the API has not claimed, and `loadConfigFromEnv` points
+  `loginUrl` at our own origin when we are the ones serving it.
+  Mounted last and behind an explicit API prefix list, because a single-page app answers
+  every unknown path with its shell: `GET /v1/typo` has to stay a JSON 404, or a client
+  that gets HTML where it expected an error reports an empty room rather than a failure.
+  Verified three ways, all against the public URL rather than localhost: discovery and
+  the `www-authenticate` challenge by curl; the whole OAuth dance plus `initialize` by
+  `e2e` live smoke; and the browser half — `/login`, the Swedish consent screen, the
+  code delivered to a loopback redirect URI — driven by hand in a real browser, then
+  exchanged for a token and an `initialize` whose instructions carry Emil's seeded
+  ketchup allergy. 16 new `apps/rest` tests; typecheck clean; e2e 22 memory + 22 postgres.
+  Two things found on the way, both of which had been passing everything. The live smoke
+  and the Postgres journey shared a database and ran in parallel, so the journey's
+  `reset(pool)` dropped the schema mid-signup and failed with `relation "app.person"
+  does not exist` — indistinguishable from a broken product; the smoke now has its own
+  config and `test:live` script. And `npx untun`, which `WAKEUP.md` and `scripts/deploy.md`
+  both recommended, does not run at all: `untun@0.2.2` ships `dist/cli.mjs` with no
+  shebang, so npx hands it to `sh`. It drives cloudflared underneath anyway, so the
+  script now calls cloudflared directly and downloads it on Linux if it is missing.
+  `./scripts/public-mcp.sh` checks `/health` *through* the tunnel before printing a URL,
+  because a quick tunnel sometimes gets a hostname that is never published in DNS and
+  cloudflared reports a healthy connection either way — observed once while testing.
+  Deliberately not Fly with durable Postgres: storage is likely moving to Supabase, and
+  the point of staying on a tunnel is that nothing about the database becomes hard to move.
 
 - **voice** — `apps/voice` was an empty stub (`export {}`). Added a minimal Swedish calm
   landing: Wordmark + one sentence + violet disabled CTA “Kommer snart”, tokens from
@@ -324,7 +371,18 @@ arrived twice, and the AI summary appearing without touching the extracted sourc
 - `e2e` compiled with `strict: false`. Hid nothing of its own, but another package's
   discriminated unions stopped narrowing the moment `db` depended on `auth`. Now strict.
 - `packages/db` and `e2e` ran their test files in parallel against one shared database
-  that several of them reset. Both now sequential.
+  that several of them reset. Both now sequential. In `e2e` this sits alongside the
+  foundation's fix for the same class of collision — excluding the live smoke from the
+  default run — and both are needed: excluding the smoke does nothing about `journey`
+  and `documents` racing each other.
+- **`wiring.ts` was merged by git without a conflict and needed checking anyway.** The
+  connectivity work added the mail provider to the same file this track added the
+  Postgres OAuth stores to, in a different region. A clean textual merge is not the same
+  as correct wiring, and every other test in `apps/rest` is handed its dependencies, so
+  none of them would have noticed a silent revert. `wiring.merge.test.ts` now pins it:
+  a client registered against one wiring is still known to a second one built from
+  scratch against the same database, which is the property `MemoryClientStore` cannot
+  satisfy. Verified by reverting the wiring on purpose and watching it fail.
 - The Swedish stemmer does not split compounds, so searching "uppsägning" did not find
   "uppsägningstiden" — found by writing the test wrong and believing the test. Migration
   0012 adds a trigram fallback scored strictly below every full-text hit.
