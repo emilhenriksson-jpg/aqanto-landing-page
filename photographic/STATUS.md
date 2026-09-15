@@ -1407,7 +1407,92 @@ the live e2e smoke sign anyone in.
   Driven against a running production-mode process rather than a harness: `NODE_ENV=production`
   with Postgres, `POST /v1/signup/request` answering 502 with no code anywhere in the log, the
   script minting from a separate process, the link signing in through a real browser, the replay
-  refused, and both event rows present. Fly credentials were not available in that environment,
-  so `fly ssh console` itself is the one step nobody has executed — the shape it needs is a
-  separate process on the machine with `DATABASE_URL` and `BREAK_GLASS_SECRET`, which is what
-  was tested.
+  refused, and both event rows present.
+
+  The `fly ssh console` step has since been walked on the live host against a real account:
+  the script normalised `072-987 65 43`, minted a link, the exchange set an `HttpOnly`
+  session with a real `expiresAt`, and replaying the same token answered 401. Reading a
+  code out of `fly logs` is no longer a fallback — the send-time refusal is live, so
+  `POST /v1/signup/request` answers 502 with `code_delivery_refused` and no code. Until
+  46elks is configured, `BREAK_GLASS_SECRET` is the only key to an account.
+## godkann-synlighet + proveniens per minne — PR #17
+
+Branch `cursor/godkann-synlighet-och-proveniens-per-minne-ad1f`. Owns the approval
+queue's visibility and the per-memory provenance path. The third review's "Vad båda
+missade": two promises the product makes and did not keep.
+
+### Godkänn-kön berättar nu att den finns
+
+`requiresApproval` routes every uncertain or sensitive write — and by construction every
+write into a shared room — to a human decision. Nothing in the app said so. Six rail
+items with no counter, and the only signal was a model saying "jag har frågat dig" in a
+conversation the person can close. Proposals piled up unseen, the AI looked like it had
+forgotten, and the conclusion a person reaches from that is that the product is broken.
+
+- `usePendingApprovals` is one module-level store read by the rail and by every screen
+  that mentions the queue: one fetch per page load, and the count drops in the same
+  instant a card is answered rather than a navigation later. `null` is "we do not know"
+  and is deliberately not `[]` — signed out, offline and a bad minute from the API all
+  land there, and reporting an empty queue on a failed read is the exact failure this
+  undoes.
+- A violet count on `Godkänn`, in the rail and the mobile tab bar, and only above zero.
+- `PendingApprovals` on the personal room, `Rum`, and room-scoped inside a shared room.
+  It names what is waiting, who would be able to read it, and says the missing sentence:
+  **"Tills du svarar är det inte sparat, och ingen modell kan läsa det."** No dismiss —
+  dismissing it would rebuild the invisible queue it exists to end.
+- `.hero--personal:has(+ .waiting)` gives up hero height while something is waiting, so
+  the notice is in the first viewport rather than one scroll below it. Measured: on a
+  402×874 phone the whole card including its button clears the tab bar.
+- The card on `Godkänn` says what accepting will do. `load.ts` was mapping `roomId` and
+  `intent` away, so a request to share with three colleagues rendered as "Claude vill
+  spara". Now "ChatGPT vill dela i Buyersclub Ledning", with the room's readership named
+  — or counted, when the members have no names, which is today's normal case.
+- A failed approval no longer looks like one that worked. The card was removed locally
+  and the error swallowed by an empty `catch`; it now stays and says so.
+
+### "Hur vet du det om mig?" går att ställa om ett minne
+
+`MemoryRow.tsx` had body text, a short id and "Ta bort". The provenance endpoint existed
+and the calendar answered per *event*, so the product's signature question could only be
+asked about a day.
+
+- Every memory row, personal and shared, carries "Hur vet du det?" and answers in place:
+  where it came from, **why it was saved** (next to each other on purpose), when, who
+  wrote it in, which room, whether you approved it, whether it has said something else
+  before — and, once PR #16 is deployed, whether the text was sent to a model.
+- `embedding` is only stated when the server recorded it. Absent means an older server
+  and `null` means no vector; neither is a "nej", and printing one would be the single
+  lie this panel cannot afford.
+- `apps/rest/src/routes/history.ts` was computing `motivation`, `source` and `changed`
+  and dropping all three. **This is the same edit PR #16 makes**; the rebase conflict is
+  one hunk and the resolution is to take #16's, which is a strict superset.
+- `PgHistory.provenance` filtered on nothing but the item id: no room filter, and
+  `payload ->> 'item_id'`, which cannot use `event_payload_idx` (`jsonb_path_ops`) and so
+  scanned every event on the platform. Now bounded to the asker's readable rooms and
+  matched with `@>`. Tolerable when nothing linked to it; not with a link on every row.
+
+### Verified against real data, not fixtures
+
+Local Postgres, an account created through the phone sign-up flow, Claude connected over
+real DCR + PKCE + OAuth and writing through MCP: four memories saved silently, four
+decisions queued (an instruction, a sensitive fact, a shared-room write, and a genuine
+`share`), two colleagues joined by invite. Then the merged tree (this branch + PR #16)
+run with `PHOTOGRAPHIC_LLM=openai` and the embedding backfill, so the model line is a
+real OpenAI answer rather than a fixture.
+
+Suites: `apps/web` 92, `apps/rest` 112, `packages/db` 107 (+2 skipped), monorepo
+typecheck clean.
+
+### For whoever owns navigation
+
+The app keeps its scroll position across routes, so any link from far down a long screen
+lands mid-page with the heading off screen. Worked around inside this one link rather
+than fixed in the router, which is not this branch's to touch.
+
+### Known gap, not fixed here
+
+Nothing in sign-up ever asks a person their name, so `app.person.display_name` is null
+for every phone account and a shared room's members cannot be listed by name. "Kan läsas
+av Anna och Jacob" therefore degrades to "Kan läsas av alla 3 i Buyersclub Ledning" in
+production today. All-or-nothing on purpose: a list quietly missing the two members who
+never entered a name would understate who can read it.

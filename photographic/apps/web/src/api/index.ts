@@ -12,6 +12,7 @@ export { getInvite } from './invites.js';
 export { listHistory } from './history.js';
 export { forgetMemory, undoMemory } from './memory.js';
 export { getProfile } from './profile.js';
+export { getProvenance } from './provenance.js';
 export { listProposals, resolveProposal } from './proposals.js';
 export {
   getRoom,
@@ -31,6 +32,7 @@ export type {
   CalendarEntryDto,
   ClientHealthDto,
   CompassEntryDto,
+  EmbeddingProvenanceDto,
   EventProvenanceDto,
   ForgetResponse,
   HistoryEntryDto,
@@ -42,6 +44,8 @@ export type {
   ProfileDto,
   ProfileSectionsDto,
   ProposalDto,
+  ProposalIntentDto,
+  ProvenanceDto,
   RenderedItemDto,
   RoomDocumentDto,
   RoomDto,
