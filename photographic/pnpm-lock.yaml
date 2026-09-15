@@ -505,6 +505,9 @@ importers:
 
   packages/ops:
     dependencies:
+      '@photographic/core':
+        specifier: workspace:*
+        version: link:../core
       '@photographic/db':
         specifier: workspace:*
         version: link:../db
@@ -514,6 +517,9 @@ importers:
       '@photographic/supabase':
         specifier: workspace:*
         version: link:../supabase
+      aws4fetch:
+        specifier: ^1.0.20
+        version: 1.0.20
       pg:
         specifier: ^8.13.1
         version: 8.23.0

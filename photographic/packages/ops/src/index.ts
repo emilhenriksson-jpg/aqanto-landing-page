@@ -86,6 +86,31 @@ export { startAlerting, type Alerting, type AlertingInput } from './start.js';
 export { resolveBlobStoreFromEnv, type ResolvedBlobStore } from './blob-store.js';
 
 export {
+  archiveBlobStore,
+  ArchiveConfigurationError,
+  assertOffSite,
+  createArchiveFromEnv,
+  LocalObjectArchive,
+  MANIFEST_KEY,
+  S3ObjectArchive,
+  type ArchiveKind,
+  type ArchiveSelection,
+  type ObjectArchive,
+} from './archive.js';
+
+export {
+  backupDocuments,
+  documentBackupCheck,
+  readManifest,
+  restoreDocuments,
+  writeManifest,
+  type ArchiveManifest,
+  type BackupResult,
+  type DocumentReference,
+  type RestoreResult,
+} from './document-backup.js';
+
+export {
   diffFingerprints,
   FINGERPRINTED_TABLES,
   takeFingerprint,

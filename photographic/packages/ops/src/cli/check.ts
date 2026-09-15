@@ -15,8 +15,10 @@
 
 import { createPool } from '@photographic/db';
 
+import { createArchiveFromEnv } from '../archive.js';
 import { runChecks } from '../checks.js';
 import { deliveryCheck, DeliveryFailureLog, persistenceCheck } from '../checks.js';
+import { documentBackupCheck } from '../document-backup.js';
 import { postgresChecks } from '../postgres-checks.js';
 import { AlertRouter } from '../router.js';
 import { createAlertSinkFromEnv } from '../sinks.js';
@@ -62,6 +64,7 @@ async function main(): Promise<number> {
   const databaseUrl = process.env.DATABASE_URL;
   const storage = resolveBlobStoreFromEnv(process.env);
   const pool = databaseUrl ? createPool({ connectionString: databaseUrl }) : null;
+  const archive = createArchiveFromEnv(process.env);
 
   try {
     const checks = [
@@ -71,6 +74,16 @@ async function main(): Promise<number> {
         storageKind: storage.kind,
       }),
       ...(pool ? postgresChecks(pool) : []),
+      ...(pool && archive
+        ? [
+            documentBackupCheck({
+              db: pool,
+              archive: archive.archive,
+              maxAgeMs: archive.maxAgeMs,
+              source: storage.blobs,
+            }),
+          ]
+        : []),
       // Zero by definition from a fresh process: the counter lives in the API process, not
       // in the database. Included so the output lists every check rather than quietly
       // having one fewer than the running watchdog.

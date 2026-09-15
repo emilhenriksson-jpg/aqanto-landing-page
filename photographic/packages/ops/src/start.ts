@@ -8,7 +8,10 @@
  */
 
 import type { Check } from './alert.js';
+import { createArchiveFromEnv } from './archive.js';
+import { resolveBlobStoreFromEnv } from './blob-store.js';
 import { deliveryCheck, DeliveryFailureLog, persistenceCheck, type PersistenceFacts } from './checks.js';
+import { documentBackupCheck } from './document-backup.js';
 import { postgresChecks, type Queryable } from './postgres-checks.js';
 import { AlertRouter } from './router.js';
 import { createAlertSinkFromEnv, type FetchLike, type SinkLogger } from './sinks.js';
@@ -51,6 +54,24 @@ export function startAlerting(input: AlertingInput): Alerting {
   if (input.db) checks.push(...postgresChecks(input.db));
   if (input.deliveryFailures) checks.push(deliveryCheck({ log: input.deliveryFailures }));
 
+  // The document archive, when there is one. Its absence is not a silent gap: without it the
+  // originals are the one part of a person's memory that cannot be recovered, because
+  // Supabase's own backups cover the database and not the objects in Storage.
+  const archive = createArchiveFromEnv(env, { ...(input.fetch ? { fetch: input.fetch } : {}) });
+  if (input.db && archive) {
+    checks.push(
+      documentBackupCheck({
+        db: input.db,
+        archive: archive.archive,
+        maxAgeMs: archive.maxAgeMs,
+        // Both sides of the same sample, so an original disappearing from Storage is noticed
+        // in a minute rather than at the next nightly run.
+        source: resolveBlobStoreFromEnv(env).blobs,
+        ...(input.now ? { now: input.now } : {}),
+      }),
+    );
+  }
+
   const router = new AlertRouter({
     sink: sinks.sink,
     cooldownMs: minutesFromEnv(env.ALERT_COOLDOWN_MINUTES, 60) * 60_000,
@@ -89,6 +110,21 @@ export function startAlerting(input: AlertingInput): Alerting {
       detail:
         'HEARTBEAT_URL är inte satt, så ingen upptäcker att maskinen är borta — den enda ' +
         'kontrollen som inte kan komma härifrån.',
+    });
+  }
+
+  // Said at boot, every boot, until it is fixed. This is not a missing nice-to-have: it is
+  // the one asymmetry in the recovery story that nobody would guess from outside — memories,
+  // events, rooms and proposals come back from Supabase's daily backup, and the uploaded
+  // originals do not come back at all.
+  if (!archive && input.facts.environment === 'production') {
+    const storage = resolveBlobStoreFromEnv(env);
+    logger.warn('document_archive_not_configured', {
+      storage: storage.kind,
+      detail:
+        'Inget dokumentarkiv: Supabases säkerhetskopior innehåller inte Storage, så ' +
+        'originalen har ingen kopia någonstans och kan inte återställas — till skillnad ' +
+        'från minnena. Sätt DOCUMENT_ARCHIVE_S3_* mot en annan leverantör.',
     });
   }
 
