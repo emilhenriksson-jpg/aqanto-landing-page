@@ -1,0 +1,24 @@
+{
+  "$comment": [
+    "Job handlers registered in a composition root that nothing enqueues, so they have",
+    "never run. Read by scripts/check-job-producers.mjs, which fails on a new one.",
+    "",
+    "A ratchet, not a mute button: an entry whose handler has gained a producer, or been",
+    "deleted, also fails the check with the line to remove. It can only shrink.",
+    "",
+    "Nothing here is endorsed by being here. Both rows are features that read as finished",
+    "in two reviews -- the handler exists, it is wired, the code inside it is correct --",
+    "and have never executed. The fix is either the missing producer or deleting the",
+    "registration, and both are application decisions rather than CI ones."
+  ],
+  "known": [
+    {
+      "kind": "expire_invites",
+      "why": "Registered in packages/db/src/postgres-services.ts and packages/services-memory/src/index.ts. No caller anywhere enqueues it, so invites have never been expired by this path. InvitePort.expireOld exists and is called from the account-jobs timer in apps/rest wiring with a `.catch(() => 0)`, so the behaviour is not entirely absent -- but the job kind, its dedupe and its retry are dead, and the timer's swallowed error means nobody learns when it fails either. Delete this row when a producer exists, or when the registration goes."
+    },
+    {
+      "kind": "purge_trash",
+      "why": "Registered in both composition roots with no producer. Trash purging does happen, through the minute-ly setInterval in apps/rest/src/server.ts calling wiring.purgeTrash() directly, which is why nobody noticed: the feature works and the job does not. That timer is also the one that took the process down for want of a `.catch`. Moving the sweep onto this handler is the obvious fix and is a production change, not a CI one."
+    }
+  ]
+}
