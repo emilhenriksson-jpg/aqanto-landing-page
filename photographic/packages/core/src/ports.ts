@@ -15,11 +15,14 @@ import type {
   ActiveRoomContext,
   AgentClient,
   Brief,
+  CalendarDay,
   ChunkId,
   ClientSession,
   ContextBundle,
   DeliveryMethod,
+  Dispute,
   DocumentId,
+  EventSeq,
   Invite,
   InviteId,
   Item,
@@ -28,6 +31,8 @@ import type {
   MemberRole,
   HistoryEntry,
   MemoryEvent,
+  MemoryEventDetail,
+  MemorySource,
   Person,
   PersonId,
   Profile,
@@ -55,6 +60,16 @@ export interface Actor {
   sessionId: SessionId | null;
   /** Empty means "all rooms this person belongs to", resolved per request. */
   roomScope: RoomId[];
+  /**
+   * The registered OAuth client behind this call, when there is one.
+   *
+   * `agentClient` is a label derived from a name the client chose for itself, so it says
+   * what kind of thing is calling and cannot be trusted to say *which*. This is the
+   * identity: one registration, one id, one row in Klienter, revocable on its own. It is
+   * optional because the client store is still in process memory — Track 3 moves it to
+   * Postgres — and provenance that says nothing is better than provenance that guesses.
+   */
+  clientId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +119,34 @@ export interface RoomPort {
 
   members(actor: Actor, roomId: RoomId): Promise<Array<{ person: Person; role: MemberRole }>>;
 
+  /**
+   * Leaves a shared room. The membership ends; the contributions stay.
+   *
+   * This is the most consequential promise in the permission model, and it runs the
+   * uncomfortable way round on purpose. If forty notes vanished the moment their author
+   * left, everyone *else's* memory would change behind their backs: decisions that cite
+   * her material stop making sense, and their calendars grow holes none of them caused.
+   * Nothing disappears unless somebody decided it should — and that cannot apply only to
+   * whoever happens to stay.
+   *
+   * The price is that you do not get back what you wrote into a shared room, which is
+   * acceptable only if it is said beforehand. So `removeContributions` exists and is
+   * offered before leaving, it goes through the ordinary trash where the other members
+   * can see it happen and an owner can undo it for thirty days, and no owner can take
+   * the option away.
+   *
+   * The person keeps her own calendar history of what she did there; she just cannot read
+   * the room any more. What I did is mine, what the room contains is the room's.
+   */
+  leave(
+    actor: Actor,
+    roomId: RoomId,
+    input?: { removeContributions?: boolean },
+  ): Promise<void>;
+
+  /** Owner-only. Same mechanics as leaving, decided by someone else. */
+  removeMember(actor: Actor, roomId: RoomId, personId: PersonId): Promise<void>;
+
   markSeen(actor: Actor, roomId: RoomId): Promise<void>;
 }
 
@@ -130,8 +173,34 @@ export interface InvitePort {
     preview: string | null;
   } | null>;
 
+  /**
+   * Redeems an invite, once.
+   *
+   * Single-use, and bound to whoever redeems it. An invite link travels through email,
+   * SMS, screenshots and forwards, and "it only works once" is the only assumption a
+   * person actually makes about one. Anything that is not `pending` is refused with the
+   * same not-found an unknown token gets, so a spent link cannot be told from a
+   * fictional one.
+   */
   accept(token: string, personId: PersonId): Promise<{ room: Room; role: MemberRole }>;
   revoke(actor: Actor, inviteId: InviteId): Promise<void>;
+
+  /**
+   * Open invites for a room, so an owner can see who has been asked.
+   *
+   * Revoking something you cannot see is not a feature. Owner-only, because the list is
+   * the room's future audience.
+   */
+  listForRoom(actor: Actor, roomId: RoomId): Promise<Invite[]>;
+
+  /**
+   * Closes invites whose deadline has passed, by the `expire_invites` job.
+   *
+   * `expired` was in the enum and never written, so expiry was a runtime comparison and
+   * `status` did not describe reality. Writing it down is what makes a list of open
+   * invites honest.
+   */
+  expireOverdue(limit?: number): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +222,43 @@ export type WriteDecision =
   | { outcome: 'needs_approval'; proposal: Proposal }
   | { outcome: 'duplicate'; existing: Item };
 
+/**
+ * The result of putting an existing memory somewhere else.
+ *
+ * `needs_approval` is not an error path. It is what a model asking to share gets, every
+ * time, because sharing is an act a person performs and automation only ever proposes.
+ */
+export type PlacementDecision =
+  | { outcome: 'placed'; item: Item; event: MemoryEvent }
+  | { outcome: 'needs_approval'; proposal: Proposal };
+
+/**
+ * The result of editing a memory.
+ *
+ * An edit used to be the one write that skipped the approval gate entirely, which made
+ * it the cheapest way to change what a shared room says: save nothing, rewrite something
+ * that is already there. It goes through the same gate as every other write now, so in a
+ * shared room it queues.
+ */
+export type UpdateDecision =
+  | { outcome: 'updated'; item: Item }
+  | { outcome: 'needs_approval'; proposal: Proposal };
+
+/**
+ * What a write says about itself beyond the text.
+ *
+ * Optional everywhere, because a caller that supplies none of it still produces a
+ * complete provenance record — the client, the session and the room are already known,
+ * and the motivation is derived. This is how a caller says something better than the
+ * default, not a form it has to fill in.
+ */
+export interface WriteProvenance {
+  /** One short human sentence: why this, why here. Derived when absent. */
+  motivation?: string;
+  /** Where the information came from, if it was not this conversation. */
+  source?: MemorySource;
+}
+
 export interface IngestPort {
   remember(
     actor: Actor,
@@ -163,7 +269,7 @@ export interface IngestPort {
       sensitivity?: 'normal' | 'sensitive';
       /** Set by the caller when the human explicitly asked for this write. */
       explicit?: boolean;
-    },
+    } & WriteProvenance,
   ): Promise<WriteDecision>;
 
   /**
@@ -185,7 +291,54 @@ export interface IngestPort {
     },
   ): Promise<Proposal>;
 
-  update(actor: Actor, shortId: ShortId, roomId: RoomId, body: string): Promise<Item>;
+  update(
+    actor: Actor,
+    shortId: ShortId,
+    roomId: RoomId,
+    body: string,
+    provenance?: WriteProvenance,
+  ): Promise<UpdateDecision>;
+
+  /**
+   * Places a copy of a memory into another room. Never automatic.
+   *
+   * Copies rather than relocates, and that is the whole point: a private memory that has
+   * been shared exists twice, once in the personal room where it stays private and once
+   * in the shared room where other people can read it. Moving it would mean the personal
+   * memory is now visible to a room, which section 1 of the scope says can never happen.
+   *
+   * `confirmed` is the person saying yes. Without it this returns a proposal for the
+   * approval queue, no matter which client asked, and the database refuses the row
+   * underneath regardless — see the placement trigger in migration 0003. Automation may
+   * write privately all day; it may not put anything in front of other people.
+   */
+  share(
+    actor: Actor,
+    input: {
+      shortId: ShortId;
+      /** Which room the memory is in now. Defaults to searching the actor's rooms. */
+      fromRoomId?: RoomId;
+      toRoomId: RoomId;
+      confirmed?: boolean;
+    } & WriteProvenance,
+  ): Promise<PlacementDecision>;
+
+  /**
+   * Relocates a memory: private -> room, or room -> room.
+   *
+   * The short id survives, because "flytta p-7k2m till Buyersclub Ledning" has to still
+   * refer to p-7k2m afterwards. A move into a shared room is a sharing act and needs the
+   * same confirmation as `share`.
+   */
+  move(
+    actor: Actor,
+    input: {
+      shortId: ShortId;
+      fromRoomId?: RoomId;
+      toRoomId: RoomId;
+      confirmed?: boolean;
+    } & WriteProvenance,
+  ): Promise<PlacementDecision>;
 
   /**
    * Soft delete, always reversible. A model deleting the wrong memory loses the user.
@@ -204,6 +357,31 @@ export interface IngestPort {
 
   listProposals(actor: Actor): Promise<Proposal[]>;
   resolveProposal(actor: Actor, id: ProposalId, accept: boolean): Promise<Item | null>;
+
+  /**
+   * Unresolved disagreements in rooms the actor can reach.
+   *
+   * Shown in the same queue as proposals, because it is the same act — a person being
+   * asked to decide something a model is not allowed to decide — and a second inbox is a
+   * second thing nobody opens.
+   */
+  listDisputes(actor: Actor): Promise<Dispute[]>;
+
+  /**
+   * Settles a disagreement by naming the side that stands.
+   *
+   * Only the author of the losing side or an owner of the room may call it, and no model
+   * may: there is no MCP tool for this and there will not be one. The loser is superseded
+   * by the winner through the ordinary path, so there is still exactly one way for
+   * something to leave the current state.
+   *
+   * There is no timeout and no automatic winner. A disagreement nobody cares to settle
+   * goes on being shown as a disagreement.
+   */
+  resolveDispute(
+    actor: Actor,
+    input: { winnerShortId: ShortId; loserShortId: ShortId; roomId?: RoomId; resolution?: string },
+  ): Promise<Item>;
 }
 
 // ---------------------------------------------------------------------------
@@ -364,14 +542,58 @@ export interface EventPort {
     payload: Record<string, unknown>;
     actorPersonId?: PersonId;
     agentClient?: AgentClient;
+    clientId?: string;
     sessionRef?: string;
     approvedBy?: PersonId;
+    /** Why this happened here. See `deriveMotivation` for what fills it in otherwise. */
+    motivation?: string;
+    /** True when a person asked for it in so many words. */
+    explicit?: boolean;
+    source?: MemorySource;
+    /** Set on moves and shares, so the day can say where it came from. */
+    fromRoomId?: RoomId;
+    toRoomId?: RoomId;
   }): Promise<MemoryEvent>;
 
   /** Replaying this is how every projection gets rebuilt when its format changes. */
   replay(input: { roomId?: RoomId; fromSeq?: number; limit?: number }): Promise<MemoryEvent[]>;
 
   since(actor: Actor, roomId: RoomId, seq: number): Promise<MemoryEvent[]>;
+}
+
+// ---------------------------------------------------------------------------
+// Calendar: the log, read as time
+// ---------------------------------------------------------------------------
+
+/**
+ * The calendar.
+ *
+ * Not a second store and not a summary: every method here is a query over `app.event`,
+ * which is why an event cannot be missing from the calendar and cannot say something
+ * different there than it does in the history. The calendar answers a question the rest
+ * of the product cannot — not "what do you know about me" but "vad gjorde Photographic
+ * med det jag berättade?", which is a question about a day.
+ *
+ * Days only, deliberately. Week, month and year are derivable from the same log at any
+ * point, and building the summaries before the thing being summarised existed would have
+ * meant shipping four screens of averages over one screen of facts.
+ */
+export interface CalendarPort {
+  /**
+   * Every memory event for one local day, oldest first.
+   *
+   * `roomId` narrows it to one room, which is the view an owner of a shared room actually
+   * needs: nothing gates incoming material from the other members, so the only thing
+   * standing between a room and a contribution nobody noticed is a day that shows it
+   * plainly.
+   */
+  day(actor: Actor, input: { date: string; timeZone?: string; roomId?: RoomId }): Promise<CalendarDay>;
+
+  /**
+   * One event, zoomed: how the memory got here, every value it has held, and the source
+   * it came from. This is the middle and last step of dag -> minneshändelse -> källa.
+   */
+  event(actor: Actor, seq: EventSeq, input?: { timeZone?: string }): Promise<MemoryEventDetail | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -489,6 +711,7 @@ export interface Services {
   trash: TrashPort;
   history: HistoryPort;
   events: EventPort;
+  calendar: CalendarPort;
   sessions: SessionPort;
   llm: LlmPort;
   notify: NotifyPort;

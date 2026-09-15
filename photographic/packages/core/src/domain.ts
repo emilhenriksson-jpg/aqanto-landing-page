@@ -125,6 +125,28 @@ export interface Item {
   useCount: number;
   createdAt: Date;
 
+  /**
+   * Who wrote it.
+   *
+   * A projection of the `item.created` event, like every other column here, but the one
+   * that several rules turn on: in a shared room the author owns their own contribution,
+   * which is what makes "editors may delete their own lines and owners may tidy up"
+   * expressible, and what lets a contradiction across two people be recognised as a
+   * disagreement rather than a correction. Deriving it from a jsonb payload on every
+   * permission check is a join in a hot path, so it is written down.
+   */
+  authorPersonId: PersonId;
+  /** Which registered client wrote it, when one is known. See `Actor.clientId`. */
+  authorClientId: string | null;
+
+  /**
+   * Other memories in the same room that contradict this one and are still unresolved.
+   *
+   * Symmetric: both sides carry each other. A projection of `item.disputed` and
+   * `item.dispute_resolved`, so the log stays the truth and this stays convenient.
+   */
+  disputedBy: ItemId[];
+
   /** Set only while the item is in the trash. See `TRASH_RETENTION_DAYS`. */
   deletedAt: Date | null;
   deletedBy: PersonId | null;
@@ -156,9 +178,13 @@ export type HistoryAction =
   | 'saved'
   | 'updated'
   | 'superseded'
+  | 'shared'
+  | 'moved'
   | 'deleted'
   | 'restored'
   | 'purged'
+  | 'disputed'
+  | 'dispute_resolved'
   | 'proposed'
   | 'approved'
   | 'rejected'
@@ -198,10 +224,42 @@ export interface Provenance {
   savedAt: Date;
   savedByClient: AgentClient | null;
   approvedByName: string | null;
+  /** Why it was stored where it was stored, in one human sentence. */
+  motivation: string | null;
+  /** Where the information itself came from, before Photographic saw it. */
+  source: MemorySource | null;
+  /** True once the memory has been corrected at least once. */
+  changed: boolean;
   /** Everything that has happened to this one memory, oldest first. */
   timeline: HistoryEntry[];
 }
 
+/**
+ * Where a piece of information came from, before it was a memory.
+ *
+ * Not the same thing as which client wrote it. Claude writing a fact during a
+ * conversation and Claude extracting the same fact out of a PDF are the same client and
+ * two different origins, and "hur vet du det?" is only answered by the second one.
+ */
+export interface MemorySource {
+  kind: 'conversation' | 'document' | 'import' | 'manual' | 'unknown';
+  /** Human-readable, Swedish, shown as-is: "Samtal med Claude", "avtal.pdf". */
+  label: string;
+  /** Opaque pointer to the origin: a session ref, a document id, an import name. */
+  ref: string | null;
+  /** A link back to the original, when one exists. */
+  uri: string | null;
+}
+
+/**
+ * One row of the append-only log.
+ *
+ * The provenance fields are the answer to the six questions every memory has to be able
+ * to answer — what, when we learned it, where from, which client wrote it, where it was
+ * stored and why there. They live on the event rather than on the item because the item
+ * is the current value and the event is what happened: an item that has been corrected
+ * twice has one body and three separate stories about how it got there.
+ */
 export interface MemoryEvent {
   seq: EventSeq;
   id: string;
@@ -210,20 +268,221 @@ export interface MemoryEvent {
   payload: Record<string, unknown>;
   actorPersonId: PersonId | null;
   agentClient: AgentClient | null;
+  /** The registered client, when one is known. An identity, unlike `agentClient`. */
+  clientId: string | null;
+  /** The client session this write belongs to — the thread back to the conversation. */
   sessionRef: string | null;
   approvedBy: PersonId | null;
   occurredAt: Date;
+
+  /** Short, human-readable reason this happened, and happened *there*. */
+  motivation: string | null;
+  /** True when a person asked for this in so many words, rather than automation. */
+  explicit: boolean;
+  /** Where the information came from. Derived from the session when nothing was given. */
+  source: MemorySource | null;
+  /** Set on `item.moved` and `item.shared`: which room it left and which it reached. */
+  fromRoomId: RoomId | null;
+  toRoomId: RoomId | null;
 }
+
+/**
+ * The seven things that can happen to a memory, as the calendar names them.
+ *
+ * Deliberately not the log's own event types. The log records mechanism (`item.created`
+ * happens whether a fact lands in your private memory or in a room five people read);
+ * this records what it meant, which is what a day in the calendar is a list of. The
+ * mapping between them is in `memoryEventKindOf`, in one place, so the two never drift.
+ */
+export type MemoryEventKind =
+  | 'saved_private'
+  | 'saved_to_room'
+  | 'shared'
+  | 'updated'
+  | 'moved'
+  | 'deleted'
+  | 'restored'
+  /**
+   * Two people in a room saying incompatible things.
+   *
+   * The eighth. The scope listed seven and this is a genuine addition rather than a
+   * subdivision: it is the only one where nothing changed, which is exactly why it cannot
+   * hide under `updated`, and two people disagreeing is not something a person should
+   * have to go looking for.
+   */
+  | 'disputed';
+
+/** Who could read a memory at the moment it was shared. Recorded, never recomputed. */
+export interface SharedWith {
+  personId: PersonId | null;
+  name: string | null;
+  role: MemberRole;
+}
+
+/**
+ * Everything the product promises a memory can answer, on one event.
+ *
+ * Section 4 of the scope is a list of six questions. This is that list as a type, which
+ * is the only way to be sure every surface can answer all six rather than the four that
+ * happened to be easy.
+ */
+export interface EventProvenance {
+  /** When we learned it. Not when it happened in the world. */
+  learnedAt: Date;
+  /** Which AI wrote it, or `web` when the person did it themselves. */
+  agentClient: AgentClient | null;
+  actorName: string | null;
+  /** Where the information came from. */
+  source: MemorySource | null;
+  /** Where it was stored. */
+  roomId: RoomId;
+  roomTitle: string;
+  roomKind: RoomKind;
+  /** Why there. */
+  motivation: string | null;
+  /** Whether a human asked for it explicitly. */
+  explicit: boolean;
+  /** Whether it went through the approval queue. */
+  wasApproved: boolean;
+  /** Whether the memory has been corrected since. */
+  changed: boolean;
+}
+
+/** One memory event, as a day in the calendar shows it. */
+export interface CalendarEntry {
+  seq: EventSeq;
+  kind: MemoryEventKind;
+  occurredAt: Date;
+  /** What. Null once the text has been purged. */
+  body: string | null;
+  /**
+   * What it said before this event, for `updated` and nothing else.
+   *
+   * Carried rather than looked up because the whole point of the log is that the
+   * correction does not erase the original: 15 oktober is still in the day it was
+   * written even after it became 1 november.
+   */
+  previousBody: string | null;
+  shortId: ShortId | null;
+  itemKind: ItemKind | null;
+  /** Set on `moved` and `shared`. */
+  fromRoomTitle: string | null;
+  toRoomTitle: string | null;
+  /** Set on `shared`: who could read it as of that moment. */
+  sharedWith: SharedWith[] | null;
+  /** Set on `disputed`: the two statements that cannot both be true. */
+  disputes: Array<{ shortId: ShortId | null; body: string | null; authorName: string | null }> | null;
+  provenance: EventProvenance;
+  /**
+   * Somebody else did this, in a room you share with them.
+   *
+   * There is no owner moderation of incoming material — nothing waits in a queue for the
+   * room's owner to let it in — so noticing is the whole defence. A room's day has to make
+   * other people's contributions the thing you see first, not a line that reads the same
+   * as your own forty.
+   */
+  byOtherMember: boolean;
+  redacted: boolean;
+}
+
+/**
+ * One day of the memory's timeline.
+ *
+ * Days only. Week, month and year summaries are derivable from the same log whenever
+ * they are wanted, and building them first would have meant shipping a summary of
+ * something that did not exist yet.
+ */
+export interface CalendarDay {
+  /** `YYYY-MM-DD`, in `timeZone`. */
+  date: string;
+  timeZone: string;
+  /** Set when the day was asked for about one room rather than everything. */
+  roomId: RoomId | null;
+  roomTitle: string | null;
+  /** Ascending: a day is read forwards, unlike the history feed. */
+  entries: CalendarEntry[];
+  counts: Record<MemoryEventKind, number>;
+  /**
+   * How many of the day's events somebody else made.
+   *
+   * Carried separately because it is the number that changes what the day is *for*. A
+   * day where you saved six things is a log; a day where two of them came from Anna is
+   * something to read.
+   */
+  byOthersCount: number;
+  /** Nearest earlier and later day that has anything in it, so stepping never dead-ends. */
+  previousDate: string | null;
+  nextDate: string | null;
+}
+
+/** One value a memory has held, with the value it replaced. */
+export interface MemoryRevision {
+  seq: EventSeq;
+  at: Date;
+  /** What it said after this change. Null once purged. */
+  body: string | null;
+  /** What it said before. Null for the original. */
+  previousBody: string | null;
+  agentClient: AgentClient | null;
+  motivation: string | null;
+}
+
+/**
+ * The source, opened.
+ *
+ * The last step of the zoom: day -> memory event -> source. `alsoFromHere` is what makes
+ * it a place rather than a label — one Claude session that wrote four things reads as one
+ * conversation, which is how the person remembers it.
+ */
+export interface MemorySourceDetail extends MemorySource {
+  /** When the source itself began: the session start, the upload, the import. */
+  at: Date | null;
+  agentClient: AgentClient | null;
+  transport: Transport | null;
+  alsoFromHere: Array<{ seq: EventSeq; shortId: ShortId | null; body: string | null }>;
+}
+
+/** One memory event, zoomed in: how it got here, everything it has said, where it came from. */
+export interface MemoryEventDetail {
+  entry: CalendarEntry;
+  /** Every event about the same memory, oldest first. */
+  timeline: CalendarEntry[];
+  /** Every value it has held, oldest first: the original and each correction. */
+  revisions: MemoryRevision[];
+  source: MemorySourceDetail | null;
+  /** What the memory says now, or null when it is gone. */
+  currentBody: string | null;
+  /** Set only while the memory is in the trash. */
+  trash: { purgeAfter: Date; daysRemaining: number } | null;
+}
+
+/**
+ * What accepting a proposal does.
+ *
+ * `remember` writes the body as a new memory. `update` replaces the text of the memory
+ * in `sourceItemId`, keeping its short id. `share` places a memory that already exists
+ * into `roomId`.
+ *
+ * All three exist because a model may ask for things it may not do. A shared room is the
+ * clearest case: nothing automatic lands there, so every route into one produces a
+ * question rather than a write, and the question is the same queue the person already
+ * clears for proposals.
+ */
+export type ProposalIntent = 'remember' | 'share' | 'update';
 
 export interface Proposal {
   id: ProposalId;
+  /** The room the memory would end up in. */
   roomId: RoomId;
   personId: PersonId;
+  intent: ProposalIntent;
   kind: ItemKind;
   body: string;
   /** Human-readable explanation of why this could not be written automatically. */
   reason: string;
   conflictsWith: ItemId | null;
+  /** Set when `intent` is `share`: the memory being shared. */
+  sourceItemId: ItemId | null;
   proposedByClient: AgentClient | null;
   status: ProposalStatus;
   createdAt: Date;
@@ -370,4 +629,41 @@ export interface SearchHit {
   text: string;
   score: number;
   documentId: DocumentId | null;
+  /**
+   * True when this hit is one side of an unresolved disagreement.
+   *
+   * Carried on the hit rather than left for the caller to look up, because the rule it
+   * exists for is that a model must never receive one side alone. A model handed one of
+   * two contradictory statements answers confidently and wrongly; a model handed both,
+   * labelled, says there are two different answers — which is true, and is also what
+   * gets a person to settle it.
+   */
+  disputed: boolean;
+}
+
+/**
+ * Two statements in one room that cannot both be true, waiting for a person.
+ *
+ * Deliberately not a table and deliberately not resolved by recency. Whoever wrote last
+ * is not whoever is right, and letting the newer write win across authors means anyone
+ * in a room can quietly overwrite anyone else — with the other person finding out when
+ * their own AI answers wrongly.
+ */
+export interface Dispute {
+  roomId: RoomId;
+  roomTitle: string;
+  /** Both sides, in the order they were written. Neither is the default winner. */
+  sides: DisputeSide[];
+  raisedAt: Date;
+  /** Why the two were judged incompatible, in one sentence. */
+  reason: string;
+}
+
+export interface DisputeSide {
+  shortId: ShortId;
+  itemId: ItemId;
+  body: string;
+  authorPersonId: PersonId;
+  authorName: string | null;
+  writtenAt: Date;
 }

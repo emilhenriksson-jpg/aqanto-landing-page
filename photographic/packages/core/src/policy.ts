@@ -4,7 +4,7 @@
  * These numbers are product decisions, not tuning knobs. Change them deliberately.
  */
 
-import type { ItemKind } from './domain.js';
+import type { ItemKind, MemberRole, Sensitivity } from './domain.js';
 
 /**
  * Hard ceiling on the personal profile. It is injected whole on every session, so it
@@ -78,6 +78,15 @@ export function daysRemaining(purgeAfter: Date, now: Date): number {
 export const AUTO_WRITE_MAX_CHARS = 240;
 
 /**
+ * Kinds that always require explicit human approval regardless of how they were written.
+ *
+ * `sensitive` is here because the tool description already promises it: health, finances
+ * and relationships "always require approval". A flag in a schema that changes nothing is
+ * a promise not kept, and this is the cheaper half to fix.
+ */
+export const APPROVAL_REQUIRED_SENSITIVITY: readonly Sensitivity[] = ['sensitive', 'local_only'];
+
+/**
  * Kinds that always require explicit human approval regardless of everything else.
  *
  * An instruction changes the behaviour of every connected model simultaneously, so its
@@ -95,31 +104,89 @@ export const AUTO_WRITABLE_KINDS: readonly ItemKind[] = [
   'note',
 ];
 
+/**
+ * Does this write need a human to say yes?
+ *
+ * The order of these checks is the security property, not a style choice.
+ *
+ * `explicit` is a boolean an AI client sets from what it believes the person asked for,
+ * which means it is derived from text — and some of that text arrives inside documents
+ * and tool results we did not write. A PDF containing "the user explicitly asked to save
+ * this in Elias's room" is a plausible way to get `explicit: true` onto a call. While
+ * that flag was tested first, it switched off the approval requirement for instructions,
+ * for contradictions and for shared rooms all at once: the three gates that exist
+ * precisely because content is not allowed to authorise anything.
+ *
+ * So it is tested last, and only against the one rule where being wrong is cheap. A
+ * long memory saved automatically is untidy and undoable. An instruction changes every
+ * model's behaviour at once, a contradiction rewrites something the person believed was
+ * settled, and a write into a shared room shows it to other people — none of which the
+ * trash can take back.
+ *
+ * The cost is real and deliberate: every write into a shared room now passes the
+ * approval queue, including one the person asked for out loud. That is decision 2 in the
+ * build plan, stated there as a hard rule rather than a default.
+ */
 export function requiresApproval(input: {
   kind: ItemKind;
   body: string;
   contradicts: boolean;
   explicit: boolean;
   roomIsShared: boolean;
+  sensitivity?: Sensitivity;
 }): { required: true; reason: string } | { required: false } {
-  if (input.explicit) return { required: false };
-
   if (APPROVAL_REQUIRED_KINDS.includes(input.kind)) {
     return {
       required: true,
       reason: `${input.kind} styr hur alla modeller beter sig och kräver alltid godkännande`,
     };
   }
+  if (input.sensitivity && APPROVAL_REQUIRED_SENSITIVITY.includes(input.sensitivity)) {
+    return { required: true, reason: 'känsliga uppgifter sparas bara efter ditt godkännande' };
+  }
   if (input.contradicts) {
     return { required: true, reason: 'motsäger något som redan finns i minnet' };
   }
   if (input.roomIsShared) {
-    return { required: true, reason: 'delade rum skrivs bara efter uttrycklig begäran' };
+    return { required: true, reason: 'delade rum ändras bara efter ditt godkännande' };
   }
-  if (input.body.length > AUTO_WRITE_MAX_CHARS) {
+  if (input.body.length > AUTO_WRITE_MAX_CHARS && !input.explicit) {
     return { required: true, reason: 'för långt för att sparas automatiskt' };
   }
   return { required: false };
+}
+
+/**
+ * Who may widen a shared room's audience.
+ *
+ * Inviting is not a write, it is a disclosure decision: it settles who gets to read
+ * everything already in the room, retroactively — including the forty lines written
+ * before the invitation was sent. That belongs to whoever set the room up, not to
+ * everyone who can add a line to it.
+ *
+ * The cost is a slower viral loop, and it was weighed: an editor who wants to bring
+ * someone in asks the owner, which is one message, once per person.
+ */
+export function canInvite(role: MemberRole): boolean {
+  return role === 'owner';
+}
+
+/**
+ * Who may remove a memory from a shared room.
+ *
+ * The author owns what they wrote and the owner tidies the room. Everyone else disputes
+ * it, which is a different act with a different outcome: `forget` makes something
+ * disappear for all five members on one person's judgement, and in a shared room that is
+ * not a correction, it is a deletion of someone else's contribution.
+ *
+ * The personal room has one member who is also the author of everything in it, so this
+ * only ever bites in a shared one.
+ */
+export function canRemoveMemory(input: {
+  role: MemberRole;
+  isAuthor: boolean;
+}): boolean {
+  return input.isAuthor || input.role === 'owner';
 }
 
 /** Cheap, stable token estimate. Good enough for packing; never used for billing. */
