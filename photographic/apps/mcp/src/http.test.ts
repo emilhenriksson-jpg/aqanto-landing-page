@@ -111,6 +111,28 @@ describe('connecting', () => {
     expect(client.getInstructions()).toContain('Allergisk mot ketchup');
   });
 
+  it('sends the rooms too, so the model knows what it has not been told', async () => {
+    // The other half of the promise, and the half a model cannot recover on its own. It
+    // can notice a missing fact and search for it; it cannot notice a room it was never
+    // told about, so it answers from the profile and is confidently wrong about work
+    // that lives somewhere else.
+    const token = await register('Emil', 'emil@example.com');
+    const actor = tokens.get(token)!;
+
+    await wired.services.rooms.create(actor, {
+      title: 'Buyersclub Ledning',
+      description: 'Ledningsgruppen: beslut, underlag och styrelsematerial',
+    });
+    await wired.runJobsToCompletion();
+
+    const instructions = (await connect(token)).getInstructions() ?? '';
+
+    expect(instructions).toContain('Buyersclub Ledning');
+    expect(instructions).toContain('Ledningsgruppen: beslut');
+    // Named, not read: the overview is an index, and reading it is a separate decision.
+    expect(instructions).toMatch(/get_context med rummets namn/);
+  });
+
   it('records the delivery as guaranteed, against the client that made it', async () => {
     // Green rather than amber, and only here: the profile arrived without the model
     // choosing to ask for it. The health screen is worth showing a person precisely
