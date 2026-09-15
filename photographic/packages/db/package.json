@@ -12,6 +12,7 @@
     "build": "tsc --emitDeclarationOnly --outDir dist",
     "migrate": "tsx src/migrate.ts",
     "reset": "tsx src/reset.ts",
+    "mark-test": "tsx src/mark-test-database.ts",
     "seed": "tsx src/seed.ts"
   },
   "dependencies": {
