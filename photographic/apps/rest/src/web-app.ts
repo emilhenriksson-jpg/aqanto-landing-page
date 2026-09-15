@@ -192,11 +192,63 @@ export const PRODUCT_APP_ROUTES = [
   '/i',
 ] as const;
 
+/**
+ * What the apex serves from the auth bundle.
+ *
+ * `photographic.space` is the name a person types, so `/` there is the front door rather
+ * than the product's home — a signed-out visitor should meet sign-in, not a screen that
+ * needs a session it has not got. `mcp.photographic.space` keeps serving the product at
+ * `/`, because clients are configured against it and nothing about that name moves.
+ *
+ * `/start`, the public page, arrives with the front-end branch that builds it; adding it
+ * here before the route exists would claim a path the bundle cannot render, which is the
+ * exact failure the route lists were introduced to stop.
+ */
+export const APEX_ROOT_ROUTES = ['/'] as const;
+
 export interface SpaMount {
   /** Named for the boot log, so which bundle answers which path is visible at startup. */
   name: string;
   dist: string;
   routes: readonly string[];
+  /**
+   * Hostnames this mount answers on. Absent means every host, which is what every mount
+   * did before the apex existed and is still right for anything served identically on
+   * both names.
+   *
+   * Present, it is how `photographic.space` and `mcp.photographic.space` can disagree
+   * about one path without disagreeing about the rest: the apex serves the auth bundle at
+   * `/` while `mcp` serves the product there, and both serve everything else the same way.
+   */
+  hosts?: readonly string[];
+}
+
+/**
+ * The hostname of the request, without the port, lowercased.
+ *
+ * `Host` carries the port when it is non-default, and a comparison against a bare
+ * hostname would silently never match in local development on `:8787`.
+ *
+ * The header wins and the request URL is the fallback, because the two disagree in
+ * different directions depending on how the request was built: behind Fly the header is
+ * authoritative, while a request constructed from an absolute URL may carry no `Host`
+ * header at all and hold the name only in the URL. Reading one and not the other makes a
+ * host rule that quietly never matches — which is worse than a wrong rule, because a rule
+ * that never fires looks like a rule that is satisfied.
+ */
+export function requestHost(header: string | undefined, url?: string): string {
+  const fromHeader = (header ?? '').toLowerCase().replace(/:\d+$/, '');
+  if (fromHeader) return fromHeader;
+
+  try {
+    return url ? new URL(url).hostname.toLowerCase() : '';
+  } catch {
+    return '';
+  }
+}
+
+function servesHost(mount: SpaMount, host: string): boolean {
+  return mount.hosts === undefined || mount.hosts.includes(host);
 }
 
 /**
@@ -234,6 +286,11 @@ export function mountWebApp(app: Hono<AppEnv>, ...mounts: readonly SpaMount[]): 
     const path = c.req.path;
     if (isApiPath(path)) return next();
 
+    const host = requestHost(c.req.header('host'), c.req.url);
+
+    // Assets are not host-filtered on purpose. They are content-hashed, so a name
+    // identifies bytes rather than an app, and a bundle the apex serves may legitimately
+    // reference a chunk first emitted by the other one.
     for (const mount of resolved) {
       const asset = resolveAsset(mount.dist, path);
       if (!asset || asset === mount.shell) continue;
@@ -248,6 +305,7 @@ export function mountWebApp(app: Hono<AppEnv>, ...mounts: readonly SpaMount[]): 
     }
 
     for (const mount of resolved) {
+      if (!servesHost(mount, host)) continue;
       if (!ownsPath(mount.routes, path)) continue;
 
       // `no-cache` rather than `no-store` — it revalidates, so a person on a slow

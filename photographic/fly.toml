@@ -25,6 +25,12 @@ primary_region = "fra"
   # the *.fly.dev origin, so it is correct from the first deploy — no client should
   # ever register against *.fly.dev and then have the issuer move out from under it.
   PUBLIC_URL = "https://mcp.photographic.space"
+  # The bare domain, which this same process also answers on. It is the name a person
+  # types; `mcp.` describes a protocol endpoint and is what clients are configured
+  # against. The only thing this changes is that `/` serves sign-in here and the product
+  # on `mcp.`, and that the OAuth surface is refused on this name so there is exactly one
+  # issuer origin. Deliberately not part of PUBLIC_URL.
+  APEX_HOST = "photographic.space"
 
 [http_service]
   internal_port = 8080
