@@ -109,7 +109,7 @@ describe('API → UI mapping', () => {
     });
   });
 
-  it('maps room documents onto DocumentLine with extension meta', () => {
+  it('maps room documents onto DocumentLine with calm Swedish meta', () => {
     const line = mapRoomDocument({
       id: 'doc-1',
       filename: 'Vaccinationskort Vera.pdf',
@@ -117,7 +117,7 @@ describe('API → UI mapping', () => {
     expect(line).toEqual({
       id: 'doc-1',
       title: 'Vaccinationskort Vera.pdf',
-      meta: 'PDF',
+      meta: 'Dokument',
     });
   });
 });
@@ -144,7 +144,7 @@ describe('loadDocumentsFromApi', () => {
     const documents = await loadDocumentsFromApi(roomId);
 
     expect(documents).toEqual([
-      { id: 'doc-1', title: 'Offert Peab kök.pdf', meta: 'PDF' },
+      { id: 'doc-1', title: 'Offert Peab kök.pdf', meta: 'Dokument' },
     ]);
   });
 });

@@ -226,19 +226,14 @@ export function mapRoomDocument(dto: RoomDocumentDto): DocumentLine {
   return {
     id: dto.id,
     title: dto.filename,
-    meta: extensionMeta(dto.filename),
+    /** Quiet Swedish shelf label — not a file-manager extension chip. */
+    meta: 'Dokument',
   };
 }
 
 export async function loadDocumentsFromApi(roomId: string): Promise<DocumentLine[]> {
   const { documents } = await listRoomDocuments(roomId);
   return documents.map(mapRoomDocument);
-}
-
-function extensionMeta(filename: string): string {
-  const match = /\.([A-Za-z0-9]+)$/.exec(filename.trim());
-  if (!match?.[1]) return '';
-  return match[1].toUpperCase();
 }
 
 export function mapTrashEntry(dto: TrashEntryDto): TrashLine {

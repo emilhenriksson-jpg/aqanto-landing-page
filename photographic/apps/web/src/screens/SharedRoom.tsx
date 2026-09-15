@@ -8,6 +8,7 @@ import {
   DEMO_ACTIVITY,
   SECTION_LABELS,
   loadRoom,
+  type DocumentLine,
   type MemoryLine,
   type RoomDetail,
 } from '../data/demo.js';
@@ -15,7 +16,7 @@ import { loadSharedRoomFromApi } from '../data/load.js';
 import { useRoomData } from '../hooks/useRoomData.js';
 
 /** Inside a shared room: title, brief as calm prose, memories, documents, activity. */
-export function SharedRoom() {
+export function SharedRoom({ documents }: { documents?: DocumentLine[] } = {}) {
   const { roomId = '' } = useParams();
   if (!roomId) return <Navigate to="/rum" replace />;
   if (roomId === 'personal') return <Navigate to="/" replace />;
@@ -36,10 +37,16 @@ export function SharedRoom() {
     );
   }
 
-  return <SharedRoomReady room={state.data} />;
+  return <SharedRoomReady room={state.data} documents={documents} />;
 }
 
-function SharedRoomReady({ room }: { room: RoomDetail }) {
+function SharedRoomReady({
+  room,
+  documents,
+}: {
+  room: RoomDetail;
+  documents?: DocumentLine[];
+}) {
   const others = Math.max(0, room.memberCount - 1);
   const grouped = groupByKind(room.memories);
   const activity = DEMO_ACTIVITY[room.id] ?? [];
@@ -90,7 +97,7 @@ function SharedRoomReady({ room }: { room: RoomDetail }) {
         ))
       )}
 
-      <DocumentsSection roomId={room.id} />
+      <DocumentsSection roomId={room.id} documents={documents} />
 
       <section className="section-block" aria-labelledby="room-activity">
         <h2 id="room-activity" className="section-block__title">

@@ -20,7 +20,10 @@ vi.mock('../api/index.js', async () => {
 });
 
 vi.mock('../hooks/useRoomData.js', () => ({
-  useRoomData: () => {
+  useRoomData: (key: string, demo: () => unknown) => {
+    if (typeof key === 'string' && key.startsWith('documents:')) {
+      return { status: 'ready' as const, data: demo() };
+    }
     const room = loadRoom('personal');
     if (!room) throw new Error('Missing personal room in demo data');
     return { status: 'ready' as const, data: room };

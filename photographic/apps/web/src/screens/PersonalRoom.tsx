@@ -11,6 +11,7 @@ import {
   PERSONAL_SECTION_ORDER,
   SECTION_LABELS,
   loadRoom,
+  type DocumentLine,
   type MemoryLine,
   type RoomDetail,
 } from '../data/demo.js';
@@ -22,7 +23,7 @@ import { useRoomData } from '../hooks/useRoomData.js';
  * First viewport is one composition — hero-level brand above, identity + meter
  * at the floor — then profile sections as quiet card groups below.
  */
-export function PersonalRoom() {
+export function PersonalRoom({ documents }: { documents?: DocumentLine[] } = {}) {
   const state = useRoomData(
     'personal',
     () => {
@@ -38,10 +39,16 @@ export function PersonalRoom() {
     return <CalmState title="Ditt rum" message={state.message} />;
   }
 
-  return <PersonalRoomReady room={state.data} />;
+  return <PersonalRoomReady room={state.data} documents={documents} />;
 }
 
-function PersonalRoomReady({ room }: { room: RoomDetail }) {
+function PersonalRoomReady({
+  room,
+  documents,
+}: {
+  room: RoomDetail;
+  documents?: DocumentLine[];
+}) {
   const ceiling = room.tokenCeiling;
   const [tokenCount, setTokenCount] = useState(room.tokenCount);
   /** Undo tokens from soft-delete; keyed by shortId for the same-turn Ångra. */
@@ -139,7 +146,7 @@ function PersonalRoomReady({ room }: { room: RoomDetail }) {
         ))}
       </div>
 
-      <DocumentsSection roomId={room.id} />
+      <DocumentsSection roomId={room.id} documents={documents} />
 
       <footer className="page-foot">
         <Link to="/papperskorg" className="page-foot__link">
