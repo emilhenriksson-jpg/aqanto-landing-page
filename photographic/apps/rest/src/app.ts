@@ -265,11 +265,6 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     }));
     app.use('/v1/connect', anonymous);
     app.route('/v1', publicConnectRoutes({ connect: deps.connect.deps, config: connectConfig }));
-
-    app.use('/v1/connect/*', authenticate(oauth));
-    app.use('/v1/import', authenticate(oauth));
-    app.use('/v1/import/*', authenticate(oauth));
-    app.route('/v1', connectRoutes({ connect: deps.connect.deps, config: connectConfig }));
   }
 
   // ---------------------------------------------------------------------------
@@ -313,6 +308,24 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       ...(deps.revokeClientTokens ? { revokeClientTokens: deps.revokeClientTokens } : {}),
     }),
   );
+  /**
+   * The authenticated half of the connect flow, inside this group rather than beside it.
+   *
+   * `/v1/import`, `/v1/import/preview` and `/v1/connect/*` had their own
+   * `app.use(..., authenticate(oauth))` and were routed straight onto `app`, so the
+   * `SCOPED_ROUTES` loop above — registered on this sub-app — never covered them. They were
+   * authenticated and unscoped, which is how a token deliberately issued without
+   * `memory.write` could queue proposals through `POST /v1/import`.
+   *
+   * Mounting them here means one authentication, one rate limit and one scope table for
+   * every authenticated route, so "is any route not covered" has a single answer again.
+   * `publicConnectRoutes` stays above, where sign-up and the connect screen belong: those
+   * genuinely run before a token exists.
+   */
+  if (deps.connect) {
+    authenticated.route('/', connectRoutes({ connect: deps.connect.deps, config: connectConfig }));
+  }
+
   authenticated.route('/', memoryRoutes());
   authenticated.route('/', trashRoutes());
   authenticated.route('/', historyRoutes());
