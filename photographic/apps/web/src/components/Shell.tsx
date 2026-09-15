@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
+import { usePendingApprovals } from '../hooks/usePendingApprovals.js';
+
 const NAV = [
   { to: '/', end: true, label: 'Rum', icon: HomeIcon },
   { to: '/rum', end: true, label: 'Alla', icon: GridIcon },
@@ -16,27 +18,52 @@ const NAV = [
  * The person is inside a room; the rail is how they walk between spaces.
  */
 export function Shell() {
+  const pending = usePendingApprovals();
+  const waiting = pending?.length ?? 0;
+
   return (
     <div className="shell">
       <nav className="rail" aria-label="Huvudmeny">
-        {NAV.map(({ to, end, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            className={({ isActive }) => (isActive ? 'rail__link rail__link--active' : 'rail__link')}
-            aria-label={label}
-          >
-            <Icon />
-            <span className="rail__label">{label}</span>
-          </NavLink>
-        ))}
+        {NAV.map(({ to, end, label, icon: Icon }) => {
+          /*
+            The only count in the rail, and the only place violet appears here.
+            It is on `Godkänn` because that is the one destination where the product is
+            waiting for the person rather than the other way round — everything else can
+            be visited whenever. No badge at zero: a permanent ornament stops being read.
+          */
+          const badge = to === '/godkann' && waiting > 0 ? waiting : 0;
+
+          return (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                isActive ? 'rail__link rail__link--active' : 'rail__link'
+              }
+              aria-label={badge > 0 ? `${label}, ${waitingLabel(badge)}` : label}
+            >
+              <Icon />
+              {badge > 0 ? (
+                <span className="rail__badge" aria-hidden="true">
+                  {badge > 9 ? '9+' : badge}
+                </span>
+              ) : null}
+              <span className="rail__label">{label}</span>
+            </NavLink>
+          );
+        })}
       </nav>
       <div className="shell__main">
         <Outlet />
       </div>
     </div>
   );
+}
+
+/** "1 väntar på dig" / "3 väntar på dig" — read out, never just a number. */
+export function waitingLabel(count: number): string {
+  return count === 1 ? '1 väntar på dig' : `${count} väntar på dig`;
 }
 
 function HomeIcon() {

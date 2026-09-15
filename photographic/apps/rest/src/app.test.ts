@@ -432,6 +432,12 @@ describe('the record', () => {
 
     expect(json.savedByClient).toBe('claude-desktop');
     expect(json.timeline.map((e: { action: string }) => e.action)).toEqual(['saved']);
+    // Two of section 4's six questions. The handler was computing both and then dropping
+    // them, which is why nothing outside the calendar could answer "varifrån kom det?".
+    expect(json.source).toMatchObject({ kind: 'conversation' });
+    expect(json.source.label).toContain('Claude');
+    expect(json).toHaveProperty('motivation');
+    expect(json.changed).toBe(false);
   });
 
   it('says not found for a memory that belongs to someone else', async () => {
