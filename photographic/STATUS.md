@@ -982,8 +982,9 @@ against; flagged rather than assumed working.
   migrations through `0014`, and two files sharing `0003` on `main` is a tolerated
   accident, not a pattern worth repeating.
   Full re-verification on the rebased tree: monorepo typecheck clean; every package's
-  test suite green (`packages/core`, `packages/agent` 68, `packages/services-memory`,
-  `packages/db` 5 (Postgres, run standalone), `packages/llm`, `apps/mcp` 60, `apps/rest`,
-  `apps/web` 75, `e2e` 30 on `HARNESS=memory` and 30 on `HARNESS=postgres`, both run
-  standalone rather than concurrently with `packages/db` — the pre-existing shared-
-  Postgres race other tracks already found and recorded above.
+  test suite green (`packages/agent` 68, `packages/db` 104 (2 skipped, gated behind
+  `OPENAI_API_KEY`/`LIVE_SUPABASE`), `apps/mcp` 60, `apps/web` 75, `e2e` 62 on
+  `HARNESS=memory` and 62 on `HARNESS=postgres` — run each via the package's own
+  `test` script rather than a bare `npx vitest run`, which skips the local
+  `fileParallelism: false` config and reproduces exactly the shared-Postgres race
+  other tracks already found and recorded above).
