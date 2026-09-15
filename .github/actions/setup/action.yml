@@ -1,0 +1,56 @@
+name: Set up Node and pnpm
+description: Installs the pnpm version the repo declares, then the workspace, from cache.
+
+inputs:
+  working-directory:
+    description: The workspace root, which is not the repository root.
+    required: false
+    default: photographic
+  install:
+    description: Run `pnpm install`. The checks that only need Node can skip it.
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    # `package_json_file` is the whole point of this step and the easiest thing to get
+    # wrong. The workspace lives in `photographic/`, so the repository root has no
+    # `packageManager` field. Without this input the action finds nothing to pin to and
+    # installs the newest pnpm instead of the declared 10.33.3 — which is exactly the
+    # trap the Dockerfile's `deps` stage hit and documents at length: pnpm 11 turned
+    # `minimumReleaseAge` on by default and then refuses a lockfile containing anything
+    # published in the last day, failing with an error about the lockfile rather than
+    # about the version drift.
+    - name: Install pnpm (version from photographic/package.json)
+      uses: pnpm/action-setup@v4
+      with:
+        package_json_file: ${{ inputs.working-directory }}/package.json
+
+    - name: Install Node
+      uses: actions/setup-node@v4
+      with:
+        # `engines.node` is ">=22"; pin the major so a runner image bump cannot change
+        # what CI tested without a commit saying so.
+        node-version: '22'
+        cache: pnpm
+        cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+
+    # Printed rather than asserted: if these two ever disagree the install below is the
+    # thing that will fail, and this line is what makes the log say why.
+    - name: Print versions
+      shell: bash
+      run: |
+        echo "node       $(node --version)"
+        echo "pnpm       $(pnpm --version)"
+        echo "declared   $(grep -o '"packageManager": *"[^"]*"' package.json)"
+      working-directory: ${{ inputs.working-directory }}
+
+    # `--frozen-lockfile` is the default in CI, but stated because it is load-bearing:
+    # a lockfile that has drifted from the manifests should fail here rather than
+    # silently resolve something nobody tested.
+    - name: Install workspace
+      if: inputs.install == 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile
+      working-directory: ${{ inputs.working-directory }}
