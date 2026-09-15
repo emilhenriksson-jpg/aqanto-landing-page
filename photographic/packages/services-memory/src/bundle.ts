@@ -18,7 +18,13 @@ import type {
   RoomId,
   RoomPort,
 } from '@photographic/core';
-import { BUNDLE_TOKEN_BUDGET, RECENT_ACTIVITY_LIMIT, estimateTokens, recentActivityFor } from '@photographic/core';
+import {
+  BUNDLE_TOKEN_BUDGET,
+  RECENT_ACTIVITY_LIMIT,
+  estimateTokens,
+  openThreadsFor,
+  recentActivityFor,
+} from '@photographic/core';
 import { renderInstructions } from '@photographic/agent';
 
 import { MemoryStore } from './store.js';
@@ -40,6 +46,8 @@ export class MemoryBundle implements BundlePort {
     // See `recentActivityFor`: this is the seam, not the feature. Room isolation and
     // the event-type allowlist live in `HistoryPort`, unchanged here.
     const recent = await recentActivityFor(this.history, actor, RECENT_ACTIVITY_LIMIT);
+    // Loose ends, from the same log through its own seam. See `openThreadsFor`.
+    const open = await openThreadsFor(this.history, actor, this.store.now());
 
     // An active room id from a model is a request, not a grant. `activeRoomContext`
     // resolves the permission itself and throws if it does not hold, so a wrong or
@@ -53,23 +61,28 @@ export class MemoryBundle implements BundlePort {
       profile,
       rooms,
       recent,
+      open,
       activeRoom,
+      budgetTokens: input.budgetTokens ?? BUNDLE_TOKEN_BUDGET,
       tokenCount: 0,
-      bundleVersion: `${profile.version}.${rooms.length}.${activeRoom ? 1 : 0}.${recent.length}`,
+      bundleVersion: `${profile.version}.${rooms.length}.${activeRoom ? 1 : 0}.${recent.length}.${open.length}`,
       builtAt: this.store.now(),
     };
 
     // Measured from the string that actually reaches the model, not summed from the
     // parts: the parts do not include the scaffolding, and the scaffolding is what
     // makes a budget overrun show up as a silently truncated profile.
-    bundle.tokenCount = estimateTokens(
-      this.render(bundle, input.budgetTokens ?? BUNDLE_TOKEN_BUDGET),
-    );
+    bundle.tokenCount = estimateTokens(this.render(bundle));
 
     return bundle;
   }
 
-  render(bundle: ContextBundle, budgetTokens = BUNDLE_TOKEN_BUDGET): string {
+  /**
+   * Defaults to the budget the bundle was built against, not to a constant, so
+   * `tokenCount` always describes the string a caller is handed. See
+   * `ContextBundle.budgetTokens`.
+   */
+  render(bundle: ContextBundle, budgetTokens = bundle.budgetTokens): string {
     return renderInstructions(bundle, { budgetTokens });
   }
 }

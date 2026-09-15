@@ -19,6 +19,7 @@ import type {
   AskHit,
   HistoryEntry,
   Item,
+  MemoryChange,
   Proposal,
   Provenance,
   RoomId,
@@ -229,6 +230,71 @@ function dateWindow(since?: Date, until?: Date): string {
   return `fram till ${date(until!).slice(0, 10)}`;
 }
 
+/**
+ * "Hur har X ändrats över tid": one block per memory, one line per value it has held.
+ *
+ * Read forwards, oldest first — unlike every other render in this file. A chain is a
+ * story and a story told backwards does not answer "how did this change": the person is
+ * asking what it used to be and what it became, in that order.
+ *
+ * Each line carries where that value came from, because "hur vet du det?" and "hur har
+ * det ändrats?" are the same question asked at two distances, and a correction with no
+ * source attached is the one a person cannot check.
+ *
+ * Wrapped in `wrapRoomContent` for the same reason search results are: a chain in a
+ * shared room is text other people wrote.
+ */
+export function renderChanges(chains: MemoryChange[], input: { query?: string }): string {
+  if (chains.length === 0) {
+    const about = input.query ? ` om "${input.query}"` : '';
+    return [
+      `Hittar inget${about} som har ändrats.`,
+      '',
+      'Det kan betyda att uppgiften aldrig har korrigerats, eller att den är borttagen —',
+      'ett borttaget minne har ingen historik att visa. Sök inte igen med omformulerad',
+      'fråga mer än en gång.',
+    ].join('\n');
+  }
+
+  const { kept, dropped } = withinBudget(chains, (chain) =>
+    chain.steps.map((step) => step.body ?? '').join(' '),
+  );
+
+  const blocks = kept.map((chain) => {
+    const header =
+      chain.changeCount === 0
+        ? `[${chain.shortId}] ${chain.currentBody}\n  Oförändrad sedan ${date(chain.firstSavedAt).slice(0, 10)}.`
+        : `[${chain.shortId}] ${chain.currentBody}\n  ${changeCountText(chain.changeCount)}:`;
+
+    const lines = chain.changeCount === 0 ? [] : chain.steps.map(changeStepLine);
+
+    return wrapRoomContent([header, ...lines].join('\n'), {
+      label: chain.roomTitle || 'okänt rum',
+    });
+  });
+
+  const tail =
+    dropped > 0
+      ? `\n\n${dropped} fler minnen har också ändrats. Snäva in frågan om personen vill se dem.`
+      : '';
+
+  return `${kept.length} ${kept.length === 1 ? 'minne' : 'minnen'}:\n\n${blocks.join('\n\n')}${tail}`;
+}
+
+function changeCountText(count: number): string {
+  return count === 1 ? 'Ändrad en gång' : `Ändrad ${count} gånger`;
+}
+
+function changeStepLine(step: MemoryChange['steps'][number]): string {
+  const when = date(step.at).slice(0, 10);
+  const value = step.body ?? '(texten är permanent raderad)';
+  const from = step.previousBody ? ` (ersatte "${step.previousBody}")` : '';
+  const where = step.source?.label ? ` · ${step.source.label}` : '';
+  const id = step.shortId ? ` · ${step.shortId}` : '';
+
+  return `  - ${when}: ${value}${from}${where}${id}`;
+}
+
 export function renderTrash(entries: TrashEntry[]): string {
   if (entries.length === 0) {
     return 'Papperskorgen är tom. Inget är borttaget som går att få tillbaka.';
@@ -299,7 +365,29 @@ export function renderProvenance(provenance: Provenance): string {
       ? ['', 'Hela förloppet:', ...provenance.timeline.map((entry) => `  ${historyLine(entry)}`)]
       : [];
 
-  return [...head, '', body, ...timeline].join('\n');
+  return [...head, '', body, ...timeline, ...embeddingLines(provenance)].join('\n');
+}
+
+/**
+ * "Did my text go to a model?", answered plainly because it is part of the same question.
+ *
+ * Only stated when a vector exists, and only as a fact about that memory — not as a
+ * policy paragraph. A model relaying this to the person should be able to read it out as
+ * a sentence.
+ */
+function embeddingLines(provenance: Provenance): string[] {
+  const embedding = provenance.embedding;
+  if (!embedding) return [];
+
+  const when = date(embedding.at).slice(0, 10);
+
+  return embedding.external
+    ? [
+        '',
+        `Texten skickades ${when} till ${embedding.provider} (${embedding.model}) för att göras sökbar på betydelse.`,
+        'Det är så "hitta det jag menade" fungerar. Modellen tränas inte på den.',
+      ]
+    : ['', `Sökindexet räknades ut lokalt (${embedding.model}). Texten har inte skickats någonstans.`];
 }
 
 export function roomTitleIndex(rooms: RoomSummary[]): Map<RoomId, string> {

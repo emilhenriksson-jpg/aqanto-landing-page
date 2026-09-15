@@ -218,12 +218,48 @@ export interface HistoryEntry {
   roomTitle: string;
   shortId: ShortId | null;
   body: string | null;
+  /**
+   * What kind of memory it is, when the event says.
+   *
+   * Only `item.created` and `item.shared` carry `kind` in their payload, so an `updated`
+   * or `deleted` line has `null` here and a caller that needs the kind has to find the
+   * creation event for the same short id. Null rather than a guess: the alternative is a
+   * join per row on a feed read, and "unknown" is the safe answer for a rule that turns
+   * on the kind — see `openThreadsFor`, which excludes rather than assumes.
+   */
+  itemKind: ItemKind | null;
   /** Which AI did it, or `web`/`voice` when the person did it themselves. */
   agentClient: AgentClient | null;
   actorName: string | null;
   /** True when this passed through an explicit approval rather than landing silently. */
   wasApproved: boolean;
   redacted: boolean;
+}
+
+/**
+ * A memory that was mentioned and then never followed up on.
+ *
+ * The third thing `docs/agent-instruction-layer.md` separated out as "not tone, and
+ * needing machinery an instruction cannot create": *"'Ask how something went' needs the
+ * calendar. The model has to know that something was said three weeks ago and hasn't
+ * been followed up on — that's a query over history, not a disposition."*
+ *
+ * This is that query. It is the difference between a model that recites what it knows
+ * and one that picks up a thread, and nothing in the session package marked it — so a
+ * decision saved three weeks ago with nothing after it looked exactly like a permanent
+ * fact about the person.
+ */
+export interface OpenThread {
+  shortId: ShortId;
+  roomId: RoomId;
+  roomTitle: string;
+  body: string;
+  /** Only ever `decision` or `note`. See `openThreadsFor` for why the others cannot be open. */
+  kind: ItemKind;
+  /** The last thing that happened to it, which is what makes it look unfinished. */
+  lastTouchedAt: Date;
+  /** Whole days since, so a renderer does not do date arithmetic. */
+  daysSince: number;
 }
 
 /** The answer to "how do you know that about me?". */
@@ -242,6 +278,26 @@ export interface Provenance {
   changed: boolean;
   /** Everything that has happened to this one memory, oldest first. */
   timeline: HistoryEntry[];
+  /**
+   * Which model has seen this text, if any.
+   *
+   * Part of "hur vet du det om mig?" rather than a technical detail: semantic search
+   * works by sending the memory's own words to an embedding model, and a person is
+   * entitled to reach that fact about their own memory rather than read it in a policy
+   * document. `external: false` says the vector was computed in-process and nothing
+   * left our servers; `null` says no vector was ever computed for this memory at all.
+   */
+  embedding: EmbeddingProvenance | null;
+}
+
+/** Which model computed a memory's vector, and whether that meant leaving our servers. */
+export interface EmbeddingProvenance {
+  /** `openai`, or `fake` for the deterministic in-process implementation. */
+  provider: string;
+  model: string;
+  /** True when the memory's text was sent to a third party to produce the vector. */
+  external: boolean;
+  at: Date;
 }
 
 /**
@@ -425,6 +481,57 @@ export interface CalendarDay {
   nextDate: string | null;
 }
 
+/**
+ * One value a memory has held, as a step in a chain that may cross items.
+ *
+ * `MemoryRevision` already answers this for a single `app.item`. This is the same
+ * question asked of the whole correction chain: a contradiction does not edit the old
+ * memory, it writes a new one and supersedes the old, so "vad sa det förut" lives on a
+ * different row with a different short id — which is why a per-item timeline cannot
+ * answer "hur har det här ändrats över tid" on its own.
+ */
+export interface MemoryChangeStep {
+  seq: EventSeq;
+  at: Date;
+  /** What it said after this step. Null once the text has been purged from the log. */
+  body: string | null;
+  /** What it said before. Null for the value it was first saved with. */
+  previousBody: string | null;
+  /** Which memory carried this value. A supersede moves the chain to a new short id. */
+  shortId: ShortId | null;
+  /** `saved`, `updated` or `superseded` — how this value came to be the current one. */
+  action: HistoryAction;
+  agentClient: AgentClient | null;
+  actorName: string | null;
+  /** Where the information came from, before Photographic saw it. */
+  source: MemorySource | null;
+  motivation: string | null;
+}
+
+/**
+ * How one thing the person told us has changed, end to end.
+ *
+ * The scope's own example: 15 oktober became 1 november, and the history has to show
+ * both. A memory that can only state its current value is a database; one that can show
+ * how it got there is a memory. `shortId` is always the *head* of the chain — what the
+ * memory says now — because that is the id a person or a model can act on.
+ */
+export interface MemoryChange {
+  shortId: ShortId;
+  roomId: RoomId;
+  roomTitle: string;
+  /** What it says now. A chain is only ever returned for a memory that still exists. */
+  currentBody: string;
+  itemKind: ItemKind;
+  /** Oldest first. Always at least one: the original save. */
+  steps: MemoryChangeStep[];
+  firstSavedAt: Date;
+  /** When the value last actually changed. Equals `firstSavedAt` if it never has. */
+  lastChangedAt: Date;
+  /** `steps.length - 1`. Zero means "saved once, never corrected". */
+  changeCount: number;
+}
+
 /** One value a memory has held, with the value it replaced. */
 export interface MemoryRevision {
   seq: EventSeq;
@@ -561,6 +668,26 @@ export interface ProfileSections {
 export interface RenderedItem {
   shortId: ShortId;
   body: string;
+  /**
+   * Which kind it is, where the section holds more than one.
+   *
+   * Set only for `currentFocus`, which is fed by both `decision` and `note`. That made it
+   * the one section where a model could not tell a decision from a passing thought while
+   * the heading claimed both were current — the failure that makes a model confidently
+   * wrong about someone's life, which is the kind that loses trust fastest. Null
+   * everywhere else, where the section name already says what the items are.
+   */
+  kind?: ItemKind | null;
+  /**
+   * When it was saved, where staleness is the thing a reader needs to judge.
+   *
+   * Set only for `currentFocus`, for the same reason: "Håller på med just nu" is the
+   * section most likely to have stopped being true, and a bare bullet gives a model no
+   * way to hedge the right line and assert the rest. Deliberately *not* set on identity,
+   * facts, preferences, instructions or `never` — a date on "Allergisk mot ketchup" is
+   * noise, and noise is what stops a date meaning anything where it matters.
+   */
+  at?: Date | null;
 }
 
 export interface Brief {
@@ -625,7 +752,29 @@ export interface ContextBundle {
    * it comes from today and why that read sits behind a seam.
    */
   recent: HistoryEntry[];
+  /**
+   * Loose ends: things mentioned and then not followed up on. See `openThreadsFor`.
+   *
+   * Separate from `recent` and ranked above it, because they answer opposite questions.
+   * `recent` is what happened; this is what *stopped* happening, which is the only part
+   * of the package that gives a model something to open a conversation with rather than
+   * something to recite.
+   */
+  open: OpenThread[];
   activeRoom: ActiveRoomContext | null;
+  /**
+   * The ceiling this bundle was assembled against, carried so that rendering it again
+   * cannot use a different one.
+   *
+   * Recorded rather than defaulted, because `tokenCount` is measured from the rendered
+   * string and a renderer that picks its own budget makes that number describe a string
+   * the caller never receives. `GET /v1/context?budget=500` did exactly that: the
+   * parameter reached `build`, `render` was called without it and fell back to
+   * `BUNDLE_TOKEN_BUDGET`, and the response reported the size of the smaller package
+   * while carrying the larger one. Same class of gap between `apps/mcp` (which renders
+   * against the tighter `INSTRUCTIONS_TOKEN_BUDGET`) and `apps/rest`.
+   */
+  budgetTokens: number;
   tokenCount: number;
   bundleVersion: string;
   builtAt: Date;

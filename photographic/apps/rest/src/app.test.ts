@@ -8,6 +8,7 @@
  * returns whatever the test wants.
  */
 
+import { estimateTokens, MIN_HONOURABLE_BUDGET_TOKENS } from '@photographic/agent';
 import { SUPPORTED_SCOPES } from '@photographic/auth';
 import type { PersonId, Person, SessionId } from '@photographic/core';
 import type { ConnectDeps } from '@photographic/connect';
@@ -508,6 +509,81 @@ describe('searching memory — "Fråga mitt minne"', () => {
   });
 });
 
+describe('how a memory changed — ?changes=1', () => {
+  const before = 'Styrelsemötet ligger den 15 oktober';
+  const after = 'Styrelsemötet ligger inte den 15 oktober';
+
+  /** Saves, then corrects — which queues, and accepting it supersedes the original. */
+  async function correctedFact(personId: PersonId, token: string): Promise<string> {
+    await f.post('/v1/memory', { body: before, kind: 'fact', explicit: true }, token);
+
+    const queued = await f.post('/v1/memory', { body: after, kind: 'fact', explicit: true }, token);
+    if (queued.status !== 202) {
+      throw new Error(`förväntade ett förslag för korrigeringen, fick ${queued.status}`);
+    }
+    const { proposal } = await queued.json();
+
+    // Approved by the person, not by the client that queued it.
+    const accepted = await f.post(
+      `/v1/memory/proposals/${proposal.id}`,
+      { accept: true },
+      await f.signInFirstParty(personId),
+    );
+    const { item } = await accepted.json();
+    return item.shortId;
+  }
+
+  it('returns the chain of values rather than ranked hits', async () => {
+    const { person, token } = await register(f, 'emil@example.com', 'Emil');
+    const shortId = await correctedFact(person.id, token);
+
+    const res = await f.get('/v1/search?q=styrelsem%C3%B6tet&changes=1', token);
+    const json = await res.json();
+
+    expect(json.hits).toBeUndefined();
+    const chain = json.changes.find((c: { shortId: string }) => c.shortId === shortId);
+    expect(chain).toBeTruthy();
+    expect(chain.changeCount).toBe(1);
+    expect(chain.currentBody).toBe(after);
+    expect(chain.steps.map((s: { body: string }) => s.body)).toEqual([before, after]);
+    expect(chain.steps[1].previousBody).toBe(before);
+    expect(chain.steps[0].source).toBeTruthy();
+  });
+
+  it('finds the chain by the wording the memory no longer uses', async () => {
+    const { person, token } = await register(f, 'emil@example.com', 'Emil');
+    const shortId = await correctedFact(person.id, token);
+
+    const json = await (await f.get('/v1/search?q=15%20oktober&changes=1', token)).json();
+
+    expect(json.changes.some((c: { shortId: string }) => c.shortId === shortId)).toBe(true);
+  });
+
+  it('has nothing for a deleted memory, and does not quote what it used to say', async () => {
+    const { person, token } = await register(f, 'emil@example.com', 'Emil');
+    const shortId = await correctedFact(person.id, token);
+    await f.del(`/v1/memory/${shortId}`, token);
+
+    for (const q of ['styrelsem%C3%B6tet', '15%20oktober']) {
+      const json = await (await f.get(`/v1/search?q=${q}&changes=1`, token)).json();
+      expect(json.changes).toEqual([]);
+      expect(JSON.stringify(json)).not.toContain('15 oktober');
+    }
+  });
+
+  it('never returns a chain from a room the caller cannot reach', async () => {
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    await correctedFact(emil.person.id, emil.token);
+
+    const jacob = await register(f, 'jacob@example.com', 'Jacob');
+    const json = await (
+      await f.get('/v1/search?q=styrelsem%C3%B6tet&changes=1', jacob.token)
+    ).json();
+
+    expect(json.changes).toEqual([]);
+  });
+});
+
 /**
  * The calendar, and what it says about a room the caller may not read.
  *
@@ -659,6 +735,41 @@ describe('a token cannot confirm a share on a person’s behalf', () => {
     expect(items.items.map((item: { body: string }) => item.body)).toContain(
       'Allergisk mot ketchup',
     );
+  });
+});
+
+describe('the context budget an API can honour', () => {
+  it('refuses a budget below the floor instead of quietly exceeding it', async () => {
+    // `?budget=500` used to be validated, documented and answered with a string well
+    // over the budget it named: the preamble, the Compass, the confirmation style and the
+    // data boundary are reserved and never given up, and they cost roughly ten times the
+    // old minimum of 100. A small lie, and one only found by measuring the response.
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+
+    const res = await f.get(`/v1/context?budget=${MIN_HONOURABLE_BUDGET_TOKENS - 1}`, token);
+
+    expect(res.status).toBe(400);
+    // The message names the minimum, so the next request can be right.
+    expect(JSON.stringify(await res.json())).toMatch(/minst \d+/);
+  });
+
+  it('reports what was asked for next to what it sent, so neither has to be assumed', async () => {
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+    await f.post('/v1/memory', { body: 'Allergisk mot ketchup', explicit: true }, token);
+    await f.wired.runJobsToCompletion();
+
+    const asked = MIN_HONOURABLE_BUDGET_TOKENS + 900;
+    const res = await f.get(`/v1/context?budget=${asked}`, token);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.budgetTokens).toBe(asked);
+    // `tokenCount` describes the string the caller was actually handed, rather than one
+    // rendered against a different ceiling — which is what the bundle carrying its own
+    // budget bought. The floor covers the un-droppable text; a person's own profile can
+    // push the real minimum higher, so the pair being checkable is the honest part.
+    expect(json.tokenCount).toBe(estimateTokens(json.rendered));
+    expect(json.tokenCount).toBeLessThanOrEqual(asked);
   });
 });
 

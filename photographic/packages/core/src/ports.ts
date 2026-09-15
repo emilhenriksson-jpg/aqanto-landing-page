@@ -30,6 +30,7 @@ import type {
   ItemKind,
   MemberRole,
   HistoryEntry,
+  MemoryChange,
   MemoryEvent,
   MemoryEventDetail,
   MemorySource,
@@ -674,6 +675,32 @@ export interface HistoryPort {
 
   /** The answer to "how do you know that about me?". */
   provenance(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<Provenance | null>;
+
+  /**
+   * Every value a memory has held, following supersede links across items.
+   *
+   * `provenance` answers this for one `app.item`, which is not the same question: a
+   * correction does not edit the old memory, it writes a new one and supersedes the old,
+   * so the previous value lives on a different row under a different short id. Give this
+   * *any* short id in a chain — the current one or a long-superseded one — and it
+   * resolves the chain it belongs to.
+   *
+   * **A chain is only ever returned for a head that is currently `active` and readable.**
+   * That is the whole safety property of this method and it is deliberately enforced
+   * here, in the storage query, rather than left to a caller: the steps contain text a
+   * person has since replaced, and the one thing that must not happen is a superseded
+   * body resurfacing for a memory that has since been deleted. A head in the trash, or
+   * purged, or in a room the actor cannot read, returns nothing at all — not an empty
+   * chain, no entry. `memoryChanges` in `changes.ts` refuses the same case again for the
+   * same reason, because one reason is not enough for a leak that has been fixed twice.
+   *
+   * Order is by `lastChangedAt`, most recently changed first.
+   */
+  changes(
+    actor: Actor,
+    shortIds: ShortId[],
+    input?: { limit?: number },
+  ): Promise<MemoryChange[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -784,6 +811,26 @@ export interface SessionPort {
  */
 export interface LlmPort {
   embed(texts: string[]): Promise<number[][]>;
+
+  /**
+   * Who computes `embed`, so it can be written down next to what it computed.
+   *
+   * A person asking "hur vet du det om mig?" is entitled to reach the fact that their
+   * text was sent to a model, and that fact is a property of the provider rather than of
+   * the memory — so it has to come from here rather than be guessed by the caller. It is
+   * recorded on `app.item` at the moment the vector is written, by both the write-path
+   * job and the backfill.
+   *
+   * `external: false` is a real answer and not a missing one: the deterministic fake
+   * computes vectors in-process, so nothing left the server, and recording that is what
+   * lets the backfill find memories whose vectors came from the fake and redo them
+   * against a real model.
+   *
+   * Optional so that adding a provider does not mean editing every implementation. An
+   * implementation that does not answer gets no provenance written, which is an honest
+   * gap rather than a confident guess.
+   */
+  embeddingIdentity?(): { provider: string; model: string; external: boolean };
 
   /** Pulls durable, reusable facts out of a passage. Returns [] when there are none. */
   extractFacts(input: { text: string; existing: string[] }): Promise<

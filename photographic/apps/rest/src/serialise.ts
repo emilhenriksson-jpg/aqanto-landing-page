@@ -24,6 +24,7 @@ import type {
   HistoryEntry,
   Invite,
   Item,
+  MemoryChange,
   MemoryEventDetail,
   Person,
   Profile,
@@ -253,9 +254,52 @@ export function serialiseBundle(bundle: ContextBundle, rendered: string) {
     // its own from the sections will drift from the one the MCP server sends, and then
     // the product behaves differently depending on which door you came in through.
     rendered,
+    /**
+     * What was asked for, next to what was produced.
+     *
+     * `MIN_HONOURABLE_BUDGET_TOKENS` refuses the values no package can meet, but it is
+     * measured from the un-droppable *text* — the preamble, the Compass, the rules — and
+     * a person's own profile keeps at least one item and their whole room list on top of
+     * that. So a budget above the floor can still be exceeded by a particular person's
+     * package, and the honest thing is to say so per response rather than to imply the
+     * number was met. `tokenCount` is measured from `rendered`, so the pair is checkable.
+     */
+    budgetTokens: bundle.budgetTokens,
     tokenCount: bundle.tokenCount,
     bundleVersion: bundle.bundleVersion,
     builtAt: bundle.builtAt.toISOString(),
+  };
+}
+
+/**
+ * A memory's chain of values, oldest step first.
+ *
+ * `currentBody` is always present: a chain is only ever returned for a memory that
+ * still exists, so there is no "deleted" case to represent here. `previousBody` is null
+ * on the first step and `body` is null only for a step whose text has been purged.
+ */
+export function serialiseMemoryChange(change: MemoryChange) {
+  return {
+    shortId: change.shortId,
+    roomId: change.roomId,
+    roomTitle: change.roomTitle,
+    kind: change.itemKind,
+    currentBody: change.currentBody,
+    changeCount: change.changeCount,
+    firstSavedAt: change.firstSavedAt.toISOString(),
+    lastChangedAt: change.lastChangedAt.toISOString(),
+    steps: change.steps.map((step) => ({
+      seq: step.seq,
+      at: step.at.toISOString(),
+      body: step.body,
+      previousBody: step.previousBody,
+      shortId: step.shortId,
+      action: step.action,
+      agentClient: step.agentClient,
+      actorName: step.actorName,
+      motivation: step.motivation,
+      source: step.source,
+    })),
   };
 }
 

@@ -2,9 +2,6 @@
   "apps/mcp/src/dispatch.test.ts": {
     "@typescript-eslint/no-non-null-asserted-optional-chain": {
       "count": 1
-    },
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
     }
   },
   "apps/mcp/src/http.test.ts": {

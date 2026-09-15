@@ -188,7 +188,7 @@ export interface ProvenanceDto {
   source: MemorySourceDto | null;
   /** True once it has been corrected at least once. */
   changed: boolean;
-  /** Optional: served once `0016_embedding_provenance` is deployed, null before a vector. */
+  /** Optional: served once `0021_embedding_provenance` is deployed, null before a vector. */
   embedding?: EmbeddingProvenanceDto | null;
   /** Everything that has happened to this one memory, oldest first. */
   timeline: HistoryEntryDto[];
