@@ -254,43 +254,71 @@ export function mapTrashEntry(dto: TrashEntryDto): TrashLine {
 }
 
 
-export function mapHistoryEntry(dto: HistoryEntryDto): HistoryLine {
-  const when = relativeSwedish(dto.occurredAt);
-  const who = dto.actorName?.trim() || clientLabel(dto.agentClient);
-  const what = dto.body?.trim() || dto.action;
-  const verb =
-    dto.action === 'deleted' || dto.action === 'purged'
-      ? 'tog bort'
-      : dto.action === 'approved' || dto.wasApproved
-        ? 'godkände'
-        : 'sparade';
+export async function loadTrashFromApi(): Promise<TrashLine[]> {
+  const { entries } = await listTrash();
+  return entries.map(mapTrashEntry);
+}
+
+const HISTORY_ACTION: Record<string, string> = {
+  saved: 'sparade',
+  updated: 'ändrade',
+  superseded: 'ersatte',
+  deleted: 'tog bort',
+  restored: 'tog tillbaka',
+  purged: 'raderade permanent',
+  proposed: 'föreslog',
+  approved: 'godkände',
+  rejected: 'avslog',
+  document_added: 'lade till ett dokument',
+  room_created: 'skapade rummet',
+  member_joined: 'gick med',
+  member_left: 'lämnade',
+};
+
+export function mapHistoryEntry(dto: HistoryEntryDto, now = new Date()): HistoryLine {
+  const who = historyWho(dto);
+  const verb = HISTORY_ACTION[dto.action] ?? dto.action;
+  const head = `${who} ${verb}`;
+
+  let detail = '';
+  if (dto.redacted) {
+    detail = '(texten är permanent raderad)';
+  } else if (dto.body?.trim()) {
+    detail = dto.body.replace(/\s+/g, ' ').trim().slice(0, 160);
+  }
+
   return {
     id: String(dto.seq),
-    when,
-    body: `${who} ${verb} ${what}`,
+    when: relativeWhenSwedish(dto.occurredAt, now),
+    body: detail ? `${head} ${detail}` : head,
   };
 }
 
 export async function loadHistoryFromApi(): Promise<HistoryLine[]> {
   const { entries } = await listHistory();
-  return entries.map(mapHistoryEntry);
+  return entries.map((entry) => mapHistoryEntry(entry));
 }
 
-function relativeSwedish(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return 'Nyligen';
-  const hours = Math.max(0, Math.round((Date.now() - then) / 3_600_000));
-  if (hours < 1) return 'Nyss';
+function historyWho(dto: HistoryEntryDto): string {
+  if (dto.agentClient === 'web' || dto.agentClient === 'voice') return 'Du';
+  if (dto.agentClient) return clientLabel(dto.agentClient);
+  if (dto.actorName?.trim()) return dto.actorName.trim();
+  return 'Någon';
+}
+
+function relativeWhenSwedish(iso: string, now: Date): string {
+  const then = new Date(iso);
+  const ms = Math.max(0, now.getTime() - then.getTime());
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'Nyss';
+  if (minutes < 60) return minutes === 1 ? '1 minut sedan' : `${minutes} minuter sedan`;
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return hours === 1 ? '1 timme sedan' : `${hours} timmar sedan`;
-  const days = Math.round(hours / 24);
+  const days = Math.floor(hours / 24);
   if (days === 1) return 'Igår';
   if (days < 7) return `${days} dagar sedan`;
-  return 'Förra veckan';
-}
-
-export async function loadTrashFromApi(): Promise<TrashLine[]> {
-  const { entries } = await listTrash();
-  return entries.map(mapTrashEntry);
+  if (days < 14) return 'Förra veckan';
+  return then.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
 }
 
 function clientLabel(agentClient: string | null): string {
