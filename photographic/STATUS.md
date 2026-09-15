@@ -1126,9 +1126,14 @@ every expiry assertion goes through the verifier, so no test passes while expiry
 shell on the running machine rather than the right to read logs, it names one account rather
 than any number typed into a form, it cannot create accounts, it expires in ten minutes, and
 both the mint and the use are rows in the append-only event log where reading a code left no
-trace at all. What it does not do yet: `Historik` filters on `ACTION_OF` in `PgHistory`, whose
-type lives in the frozen `packages/core`, so the two events are in the log but not on that
-screen.
+trace at all — and they are on the person's own `Historik` screen, reading "Nödinloggning
+skapad på servern" and "Nödinloggning använd för att logga in". That needed two values in
+`HistoryAction` in the frozen `packages/core` plus both copies of `ACTION_OF`; a record only
+we can read would have let us say the account was audited while the person saw nothing.
+
+  The one remaining limit: single use is a process-local set, so a restart inside the token's
+  remaining minutes forgets it. The TTL bounds that window, and a table for it would be a
+  schema change on the path that exists for the day the product is already broken.
 
 **The log hole, in three barriers.** Production selects `RefusingCodeSender` instead of the
 log sender, so a channel with no provider refuses at *send* rather than at boot — a mistyped
@@ -1142,12 +1147,16 @@ the live e2e smoke sign anyone in.
   Coverage: `packages/connect/src/break-glass.test.ts` (new, 9 — a forged signature, an
   extended expiry, a repointed person id, six non-token shapes, and no secret configured),
   `apps/rest/src/logger.test.ts` (new, 5 — including a code logged by something other than the
-  sender), `apps/rest/src/connect-flow.test.ts` +9 through `createWiring` on a real socket (the
+  sender), `apps/rest/src/connect-flow.test.ts` +10 through `createWiring` on a real socket (the
   session is accepted by a first-party route, the token is spent, an expired one refused, a
-  session token refused as a break-glass token, the event written, the page served, and nothing
-  accepted at all without a secret), `packages/delivery/src/select.test.ts` +3. Monorepo
-  typecheck clean; every package suite green, including `packages/db` 104 against a real local
-  Postgres and `e2e` 62.
+  session token refused as a break-glass token, the use in the person's own feed, the page
+  served, and nothing accepted at all without a secret), `e2e/src/journey.test.ts` +1 asserting
+  both actions reach the feed on *both* drivers — `ACTION_OF` is duplicated and drift there
+  would mean the sign-in is visible in one implementation and invisible in the other —
+  `apps/web/src/data/load.test.ts` +2 on the Swedish wording, and
+  `packages/delivery/src/select.test.ts` +3. Monorepo typecheck clean; every package suite
+  green, including `packages/db` 104 against a real local Postgres and `e2e` 63 on Postgres and
+  63 on `HARNESS=memory`.
 
   Driven against a running production-mode process rather than a harness: `NODE_ENV=production`
   with Postgres, `POST /v1/signup/request` answering 502 with no code anywhere in the log, the

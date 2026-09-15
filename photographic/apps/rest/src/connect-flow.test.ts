@@ -576,6 +576,26 @@ describe('nödinloggning: signing in without SMS and without the log', () => {
     expect(JSON.stringify(recorded?.payload)).toMatch(/jti/);
   });
 
+  it('reaches the history the person can actually read, not only the log', async () => {
+    // The event log is not the claim. "It was audited" only means something if the person
+    // whose account it is can see it, so this asserts the feed and not `app.event`.
+    //
+    // Only the used half, because that is the half this process writes: the minted event is
+    // appended by the script, and `e2e/src/journey.test.ts` covers both actions reaching the
+    // feed on both drivers rather than either being re-implemented here.
+    await exchange(mint());
+
+    const actor = { personId, agentClient: 'web' as const, sessionId: null, roomScope: [] };
+    const entries = await h.wiring.services.history.list(actor, { limit: 100 });
+    const used = entries.find((entry) => entry.action === 'break_glass_used');
+
+    expect(used).toBeDefined();
+    // About the account, not about a memory: a feed line implying a memory changed would be
+    // worse than none.
+    expect(used?.body).toBeNull();
+    expect(used?.shortId).toBeNull();
+  });
+
   it('serves the page that spends the token, with no bundle to build first', async () => {
     const response = await h.call('/nodlage');
 
