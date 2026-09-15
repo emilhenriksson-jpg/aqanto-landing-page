@@ -1411,3 +1411,46 @@ the live e2e smoke sign anyone in.
   so `fly ssh console` itself is the one step nobody has executed — the shape it needs is a
   separate process on the machine with `DATABASE_URL` and `BREAK_GLASS_SECRET`, which is what
   was tested.
+
+### Follow-up: `EventPort.replay` proves the whole chain, on both drivers
+
+`replay` stopped being dead code in PR #18, but the agreement assertion lived in exactly one
+Postgres test file and covered exactly one link of the claim. Two gaps closed, both while
+waiting for PRs #22 and #23 to land ahead of the trash unification:
+
+**The reference implementation had no agreement check at all.** `MemoryEvents.replay` was in
+the same position `PgEvents.replay` had been: implemented, exported, uncalled. `AGENTS.md`
+treats `services-memory` as what defines correct behaviour, and the harness comment is blunt
+about the two backends having drifted more than once, so this invariant holding on Postgres
+and not there would be a divergence in the one property neither is allowed to lose. It is
+also the only version of the check that runs with no database at hand.
+
+**`profile` and `brief` were never shown to be derivable.** Non-negotiable 2 names four
+projections and the replay covered one. Those two are a step further out — rebuilt from
+`app.item` by `rebuild_projections`, so the chain is log → item → profile/brief — and the
+test now throws the cached rows away, rebuilds them and asserts the same rendered text comes
+back. One of those assertions is worth more than a text comparison sounds: a rebuild that
+read the item table without its lifecycle state would resurrect trashed text into the profile
+every model is handed at session start, so that is asserted separately.
+
+Embeddings are stated rather than replayed: they are a function of the body, and recording a
+thousand floats per memory in an append-only table to avoid one API call would be the wrong
+trade. Cleared and backfilled through the ordinary `embed_item` job instead.
+
+**The fixture is the part that took the thought.** An agreement assertion over an empty or
+trivial log passes, so both files build a history containing a correction that supersedes, an
+edit, a delete, a restore, a move between rooms, an approval through the queue and one memory
+left in the trash — and then assert *that history exists* before trusting the agreement. The
+contradiction needs an explicit negation, because `FakeLlm.compare` only reports `contradicts`
+when one side is negated; without that the fixture would silently never reach the supersede
+path. Checked by disabling the `item.deleted` append on purpose: the divergence assertion
+catches it, which is the exact shape the old `removeContributions` produced.
+
+New: `packages/db/src/services/replay.test.ts` (7), `packages/services-memory/src/replay.test.ts`
+(5). `AGENTS.md` non-negotiable 2 now names the two files as the evidence rather than
+describing the intention — the same lesson as the scope-exemption list, which survived review
+because it carried a reason nobody checked.
+
+Nothing else touched: no harness change, deliberately, because PR #23 edits `e2e/src/harness.ts`
+and a divergence check belongs there only once documents are part of the trash it derives.
+That is folded into the unification follow-up.
