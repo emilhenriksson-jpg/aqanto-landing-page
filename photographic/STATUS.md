@@ -1102,3 +1102,57 @@ against; flagged rather than assumed working.
   and it is not part of signup or login. And `apps/web` was not touched at all: it is not
   served in production yet and the deploy track is fixing that separately, so nothing here
   changes SPA mounting or server routing.
+
+## Nödinloggning — a way in that is not the log and not a supplier
+
+**2026-09-15.** The sign-in code was written to the application log in plaintext, and
+`REDACTED_KEYS` listed `destination` but not `code` — so anyone who could read `fly logs`
+could request a code for any number and sign in as that person. It had survived every
+review because it was also the owner's only way into his own account: SMS is blocked on a
+46elks credential we do not have, and closing the log without a replacement would have
+locked him out of his own memory. Both halves therefore land together.
+
+**The replacement.** `scripts/break-glass-signin.ts`, run on the machine over
+`fly ssh console`, signs a ten-minute single-use token for one existing phone number with
+`BREAK_GLASS_SECRET` and prints a link. Nothing in the HTTP surface can mint one — no
+route calls `mintBreakGlassToken`, and the only other callers are tests. `/nodlage` reads
+the token out of the URL *fragment* and posts it to `/v1/signup/break-glass`, so the
+credential never reaches a server log, a browser history entry or a `Referer`; the exchange
+verifies the signature, spends the token, appends `session.break_glass_used`, and mints the
+ordinary session from the same issuer sign-up uses. Expiry is inside the signed payload and
+every expiry assertion goes through the verifier, so no test passes while expiry is unchecked.
+
+**Strictly safer than what it replaces**, which is the only claim that matters: it needs a
+shell on the running machine rather than the right to read logs, it names one account rather
+than any number typed into a form, it cannot create accounts, it expires in ten minutes, and
+both the mint and the use are rows in the append-only event log where reading a code left no
+trace at all. What it does not do yet: `Historik` filters on `ACTION_OF` in `PgHistory`, whose
+type lives in the frozen `packages/core`, so the two events are in the log but not on that
+screen.
+
+**The log hole, in three barriers.** Production selects `RefusingCodeSender` instead of the
+log sender, so a channel with no provider refuses at *send* rather than at boot — a mistyped
+secret must not take everyone's memory down to protect new signups (PR #11's reasoning, kept
+verbatim). `LogCodeSender` also withholds the code when told to, which covers a channel added
+later and forgotten in the selection. And `code` is in `REDACTED_KEYS`, which covers the
+accidental caller. Development is untouched and asserted: with `NODE_ENV` unset, `development`
+or `test`, the code is still in the log line, because that is how `pnpm dev`, `mcp-smoke` and
+the live e2e smoke sign anyone in.
+
+  Coverage: `packages/connect/src/break-glass.test.ts` (new, 9 — a forged signature, an
+  extended expiry, a repointed person id, six non-token shapes, and no secret configured),
+  `apps/rest/src/logger.test.ts` (new, 5 — including a code logged by something other than the
+  sender), `apps/rest/src/connect-flow.test.ts` +9 through `createWiring` on a real socket (the
+  session is accepted by a first-party route, the token is spent, an expired one refused, a
+  session token refused as a break-glass token, the event written, the page served, and nothing
+  accepted at all without a secret), `packages/delivery/src/select.test.ts` +3. Monorepo
+  typecheck clean; every package suite green, including `packages/db` 104 against a real local
+  Postgres and `e2e` 62.
+
+  Driven against a running production-mode process rather than a harness: `NODE_ENV=production`
+  with Postgres, `POST /v1/signup/request` answering 502 with no code anywhere in the log, the
+  script minting from a separate process, the link signing in through a real browser, the replay
+  refused, and both event rows present. Fly credentials were not available in that environment,
+  so `fly ssh console` itself is the one step nobody has executed — the shape it needs is a
+  separate process on the machine with `DATABASE_URL` and `BREAK_GLASS_SECRET`, which is what
+  was tested.
