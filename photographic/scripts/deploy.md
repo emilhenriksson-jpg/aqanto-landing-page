@@ -18,6 +18,32 @@ npx untun@latest tunnel http://localhost:8787
 
 Take the https URL it prints and add `/mcp`.
 
+## Public MCP in ~60 seconds (tunnel)
+
+Fly is better for something that stays up. For a morning demo, put HTTPS in front of
+the local process:
+
+```bash
+# terminal 1 — API (Postgres optional but preferred)
+DATABASE_URL=postgres://photographic:photographic@127.0.0.1:5432/photographic pnpm dev
+
+# terminal 2 — pick one
+npx untun@latest tunnel http://localhost:8787
+# or: cloudflared tunnel --url http://localhost:8787
+# or: ngrok http 8787
+```
+
+Set the tunnel origin so OAuth redirects and resource metadata match what Claude sees:
+
+```bash
+export PUBLIC_URL=https://<tunnel-host>   # no trailing slash
+# if the rest process was already up, restart it with PUBLIC_URL set
+```
+
+Without `PUBLIC_URL` (or the equivalent `PUBLIC_URL` / `WEB_ORIGIN` your build reads),
+authorize redirects can bounce to `http://localhost:8787` and the connector will fail
+after login. Paste `https://<tunnel-host>/mcp` into Claude → Customize → Connectors.
+
 ## Fly, with Postgres (recommended)
 
 ```bash

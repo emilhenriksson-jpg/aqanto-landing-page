@@ -25,11 +25,10 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
 
 ## In progress
 
-- **orchestrator** — public HTTPS so Claude can connect for real (tunnel or
-  Fly+Postgres), deeper `VITE_USE_DEMO=0` wiring, design round 4 (invite CTA
-  above-fold confidence, Dokument section, less “status dashboard” on Klienter).
-  Deploy scaffolding (`Dockerfile`, `fly.toml`, migrate-on-start, `scripts/deploy.md`)
-  is in place; Postgres adapters are assembled and `DATABASE_URL` boots cleanly.
+- **orchestrator** — public HTTPS for Claude (tunnel `PUBLIC_URL` or Fly+Postgres),
+  deeper `VITE_USE_DEMO=0` wiring beyond curls. Deploy scaffolding is in place;
+  Postgres adapters assembled; `DATABASE_URL` boots cleanly. Design rounds 1–4 done
+  on the room UI; next polish is invite-first-viewport confidence under real devices.
 
 ## Completed
 
@@ -221,3 +220,7 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
   pnpm --filter @photographic/e2e test` → `e2e/src/live-mcp.smoke.test.ts` (skipped by
   default). Seed refills empty demo facts if e2e reset left the email without ketchup.
   Session token alone → 401; OAuth access token required (mcp-smoke.md).
+
+- **orchestrator** — design round 4: Klienter is a quiet stacked list (not a 3-card
+  status grid). Soft-delete live path race-safe; `@photographic/design-tokens` shared;
+  `LIVE_MCP=1` optional e2e smoke; morning `./scripts/mcp-smoke.sh` green.
