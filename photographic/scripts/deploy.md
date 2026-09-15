@@ -224,11 +224,16 @@ app's shape.
                    ELKS_API_USERNAME=... ELKS_API_PASSWORD=... \
                    SMS_FROM=Photografic                         # SMS delivery
    ```
-   Each one fails differently when it is missing, and each failure is quiet:
+   `SESSION_SECRET` belongs with these and is set in the block above, not this one. It is
+   listed there because it is required for the process to start at all rather than for
+   sign-in to work; unset, it falls back to `CODE_SECRET`, so the two blocks together are
+   what a working deploy needs.
+
+   Each of these fails differently when it is missing:
 
    | Missing | What happens | How you notice |
    | --- | --- | --- |
-   | `CODE_SECRET` | A new key per boot, so every code in flight stops working at a restart. | `code_secret_ephemeral` at `warn`, every boot. |
+   | `CODE_SECRET` | **The process refuses to start** in production, and Fly rolls the deploy back. Outside production it is a fresh key per boot, so every code in flight stops verifying at a restart. | The boot log names the variable and exits non-zero. Outside production, `secret_ephemeral` at `warn`. |
    | `BREAK_GLASS_SECRET` | Nödinloggning accepts nothing, so with SMS also unconfigured nobody can sign in at all. | `break_glass_unavailable` at `warn`, every boot. |
    | The 46elks three | The SMS channel refuses at send: a person trying to sign up gets a visible, retryable failure rather than a code that went to a log. | `code_delivery_inert` at `error`, every boot, naming the channel and the fix. |
 
@@ -364,6 +369,106 @@ app's shape.
 | `PUBLIC_URL` fixed as the issuer | `fly.toml`'s `[env]` sets it to `https://mcp.photographic.space` from the first deploy — never the `*.fly.dev` origin, so no client ever registers against the wrong issuer and then has it move. |
 | HTTPS terminated properly | Fly terminates TLS at its edge (`force_https = true`), using the certificate from `fly certs` above; renewal is automatic once issued. |
 | Reachable from any device | Once DNS (step 5) and the cert (step 6) are live: any HTTPS client, anywhere — no laptop, no tunnel process, nothing that has to stay open. |
+
+### Alarms: the secrets that decide whether anyone finds out
+
+Every failure this project has had so far was found by a person noticing that something
+looked wrong. `@photographic/ops` runs five checks once a minute inside the process — the
+in-memory/local-disk fallback, the migration ledger against the schema it claims, the job
+queue, stuck exports, repeated delivery failures — and sends when one changes. Unset, all
+of it goes to the log, which is the state we were already in.
+
+```bash
+fly secrets set ALERT_WEBHOOK_URL='https://hooks.slack.com/services/...'   # or Discord, ntfy
+fly secrets set ALERT_SMS_TO='+467...'      # criticals only; reuses the 46elks sign-up credentials
+fly secrets set HEARTBEAT_URL='https://hc-ping.com/<uuid>'                 # dead-man's switch
+# And so the process can tell whether the documents have an off-site copy at all:
+fly secrets set DOCUMENT_ARCHIVE_S3_BASE_URL='https://<account>.r2.cloudflarestorage.com/photographic-dokumentarkiv' \
+                DOCUMENT_ARCHIVE_S3_ACCESS_KEY_ID='...' \
+                DOCUMENT_ARCHIVE_S3_SECRET_ACCESS_KEY='...'
+```
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `ALERT_WEBHOOK_URL` | unset | Chat webhook. Body carries `text` *and* `content`, so Slack, Discord and ntfy all render it. Gets warnings and criticals. |
+| `ALERT_WEBHOOK_TOKEN` | unset | `Authorization: Bearer` for the webhook, if it needs one. |
+| `ALERT_SMS_TO` | unset | Owner's number, E.164. Requires `ELKS_API_USERNAME`, `ELKS_API_PASSWORD`, `SMS_FROM` — the same 46elks account sign-up codes go through — and **refuses to boot half-configured** rather than logging silently. |
+| `ALERT_SMS_MIN_SEVERITY` | `critical` | An SMS costs money and interrupts; a channel that gets muted is worse than no channel. |
+| `ALERT_WEBHOOK_MIN_SEVERITY` | `warning` | |
+| `ALERT_COOLDOWN_MINUTES` | `60` | How often a still-failing check is repeated. Fires immediately on the change, then hourly, plus one message when it recovers. |
+| `WATCHDOG_INTERVAL_SECONDS` | `60` | |
+| `HEARTBEAT_URL` | unset | Pinged on every healthy pass and deliberately **not** pinged while a critical check fails. This is the only alarm that can fire when the machine is gone, which is the failure a one-machine deploy is most exposed to. |
+| `DOCUMENT_ARCHIVE_S3_*` | unset | The off-site copy of the document originals — see the next section. Read here so the `document_backup` check can tell whether the copy is fresh and complete. Refuses at boot if pointed at the same Supabase project. |
+| `DOCUMENT_ARCHIVE_MAX_AGE_HOURS` | `26` | How stale that copy may be before the alarm fires. |
+
+Two boot log lines say whether any of it is live: `alerting_selected` names the channels,
+and `alerting_not_configured` / `heartbeat_not_configured` are warnings in production.
+Test the channel deliberately rather than finding out on the night it matters — this sends
+one harmless warning:
+
+```bash
+fly ssh console -C 'pnpm --filter @photographic/ops check -- --send --test'
+fly ssh console -C 'pnpm --filter @photographic/ops check'   # one pass, JSON, exit 1 if failing
+```
+
+### The document archive: the half Supabase does not back up
+
+Supabase's own documentation is explicit that "database backups do not include objects you
+store via the Storage API, as the database only includes metadata about these objects." So
+the daily backup covers memories, events, rooms and proposals, and covers **none** of the
+uploaded files. Without the archive below, the documents are the one part of a person's
+memory that cannot be recovered while everything around them can.
+
+```bash
+# One-off: a bucket at a provider that is not Supabase and not Fly (R2 here).
+# Scope the credential to that bucket, and prefer one that cannot delete — this job never
+# needs to, and a key that cannot delete cannot be used to erase the backup too.
+
+pnpm --filter @photographic/ops backup-documents              # incremental
+pnpm --filter @photographic/ops backup-documents -- --verify   # re-fetch and re-hash all of it
+pnpm --filter @photographic/ops backup-documents -- --dry-run
+pnpm --filter @photographic/ops restore-documents              # put back what Storage is missing
+```
+
+`.github/workflows/document-archive.yml` runs it nightly and re-hashes everything weekly,
+from GitHub's runners rather than the Fly machine — a backup must not depend on the health
+of the thing it protects. Three independent things keep a stopped backup visible: GitHub
+emails on a failed scheduled workflow, the job pings `BACKUP_HEARTBEAT_URL` only on a clean
+run, and the API's own `document_backup` check alerts when the archive's manifest stops
+moving, which survives the workflow being disabled.
+
+The backup walks `app.document` rather than listing the bucket, so it cannot omit a file the
+product still references, and it verifies every object against its own key — the keys *are*
+SHA-256 of the contents. An object whose bytes do not match is reported and deliberately not
+copied.
+
+### Restoring: use the script, because one of the traps is unsurvivable
+
+```bash
+pg_dump "$DATABASE_URL" -Fc --schema=app -f /tmp/app.dump
+createdb photographic_scratch
+TARGET_DATABASE_URL=postgres://…/photographic_scratch ./scripts/restore-database.sh /tmp/app.dump
+```
+
+`scripts/restore-database.sh` exists because `pg_restore --data-only` into a database that
+already has the schema restores **nothing** — tables load alphabetically, so every child
+table fails its foreign key before `person` and `room` arrive, and what you get is an empty
+database behind a wall of errors that reads like noise. The script never produces that
+combination, refuses a target that already holds memories unless you pass `--into-existing`,
+refuses production unless you say so in the environment, and fails if the result is empty or
+if the migration ledger claims migrations the schema does not have. That last state — an
+empty ledger beside an existing `app.person`, which makes `migrate.ts` stamp all eleven files
+as applied without running any — is the only one that can never repair itself, because the
+runner only ever reads the ledger.
+
+**Then verify, do not eyeball.** `verify-restore` fingerprints a memory — per-table digests,
+event-log continuity, and every document's bytes re-fetched and re-hashed — and diffs two
+fingerprints. Read-only, so the baseline can come from production:
+
+```bash
+DATABASE_URL=<prod>    pnpm --filter @photographic/ops verify-restore -- --out /tmp/before.json
+DATABASE_URL=<scratch> pnpm --filter @photographic/ops verify-restore -- --baseline /tmp/before.json
+```
 
 ### What this still needs from the platform track
 

@@ -168,6 +168,70 @@ async function runMigrations(pool: Pool, dir: string): Promise<string[]> {
 
   const orphaned = [...ledger].filter(([id]) => !files.includes(id));
 
+  /**
+   * A rename the content cannot prove, asserted by a person instead.
+   *
+   * The content match below needs the ledger row to carry a checksum, and the backfill
+   * above fills those in by reading the file named in the row — so it cannot fill in the
+   * one row whose file has just been renamed away, which is exactly the row that needs
+   * one. A database that had not run this code before the renumber landed therefore
+   * refuses, and refuses for the one case the matching was written to handle. Found on a
+   * real database by the agent that hit it, not by this file's own tests, because the
+   * tests apply the migrations first and so always have checksums.
+   *
+   * There is no way to derive the answer: without a checksum, nothing on disk or in the
+   * database says what the old file contained. So the claim comes from the operator, one
+   * explicit pair at a time:
+   *
+   *   MIGRATIONS_RENAMED=0003_swedish_search.sql=0005_swedish_search.sql
+   *
+   * Narrow on purpose. `MIGRATIONS_ALLOW_ORPHANS=1` would also get a boot through, but it
+   * stands down the deleted-migration protection for every row for that whole boot; this
+   * names the two filenames and moves nothing else. Same shape as
+   * `MIGRATIONS_ADOPT_BASELINE`: a claim only someone looking at the database can make,
+   * spelled out rather than guessed.
+   */
+  const asserted = (process.env.MIGRATIONS_RENAMED ?? '')
+    .split(',')
+    .map((pair) => pair.trim())
+    .filter(Boolean)
+    .map((pair) => pair.split('=').map((part) => part.trim()));
+
+  for (const [oldId, newId] of asserted) {
+    if (!oldId || !newId) {
+      throw new Error(
+        `MIGRATIONS_RENAMED förväntar sig "gammalt=nytt", fick "${oldId ?? ''}=${newId ?? ''}".`,
+      );
+    }
+
+    const row = orphaned.find(([id]) => id === oldId);
+    if (!row) {
+      throw new Error(
+        `MIGRATIONS_RENAMED=${oldId}=${newId}: ${oldId} är inte en körd migrering som ` +
+          'saknas på disk, så det finns inget att byta namn på.',
+      );
+    }
+    if (!files.includes(newId)) {
+      throw new Error(`MIGRATIONS_RENAMED=${oldId}=${newId}: ${newId} finns inte på disk.`);
+    }
+    if (applied.has(newId)) {
+      throw new Error(`MIGRATIONS_RENAMED=${oldId}=${newId}: ${newId} är redan körd.`);
+    }
+
+    // The checksum comes from the new file, which is the operator's claim made durable:
+    // from here on the row can be matched by content like any other, and the next rename
+    // needs no variable.
+    await pool.query('UPDATE app.schema_migrations SET id = $2, checksum = $3 WHERE id = $1', [
+      oldId,
+      newId,
+      sums.get(newId) ?? null,
+    ]);
+    applied.add(newId);
+    ledger.delete(oldId);
+    orphaned.splice(orphaned.indexOf(row), 1);
+    console.log(`${oldId} heter nu ${newId} enligt MIGRATIONS_RENAMED — körs inte igen.`);
+  }
+
   for (const file of files) {
     if (applied.has(file)) continue;
     const sum = sums.get(file);
@@ -200,7 +264,9 @@ async function runMigrations(pool: Pool, dir: string): Promise<string[]> {
             'bytt namn och ändrats går det inte att avgöra om den redan är applicerad, ' +
             'och att gissa fel betyder antingen en migrering som körs två gånger eller ' +
             'en som aldrig körs. Återställ filnamnet, eller dela upp ändringen i ett ' +
-            'namnbyte och en ny migrering.'
+            'namnbyte och en ny migrering. Är det bara ett namnbyte, på en rad som ' +
+            'saknar checksumma, så säg vilket: ' +
+            `MIGRATIONS_RENAMED=${orphaned[0]?.[0] ?? 'gammalt.sql'}=${pending[0] ?? 'nytt.sql'}`
           : ' Har de tagits bort med avsikt? Sätt MIGRATIONS_ALLOW_ORPHANS=1.'),
     );
   }
@@ -265,9 +331,17 @@ async function main(): Promise<void> {
   // migrera" as a statement about the database they had in mind rather than about a local
   // one they had forgotten. The fallback itself stays: local development depends on it,
   // and refusing here would break the documented workflow to fix a reporting problem.
+  // Host *and* database name. The first version printed only the host, and the first time
+  // it mattered it was useless: a stale `DATABASE_URL` in a shell pointed at a database
+  // that had been dropped, and "Migrerar 127.0.0.1:5432" is the same line it prints when
+  // everything is right. The database name is the part that identifies the target.
+  const describe = (url: string): string => {
+    const parsed = new URL(url);
+    return `${parsed.host}/${parsed.pathname.replace(/^\//, '') || 'postgres'}`;
+  };
   const target = configured
-    ? new URL(configured).host
-    : `${new URL(DEFAULT_DATABASE_URL).host} (DATABASE_URL är inte satt — lokal standard)`;
+    ? describe(configured)
+    : `${describe(DEFAULT_DATABASE_URL)} (DATABASE_URL är inte satt — lokal standard)`;
   console.log(`Migrerar ${target}`);
 
   try {

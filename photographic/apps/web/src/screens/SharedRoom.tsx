@@ -3,24 +3,46 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 import { Avatars } from '../components/Avatars.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
 import { DocumentsSection } from '../components/DocumentsSection.js';
+import { MemoryRow } from '../components/MemoryRow.js';
+import { PendingApprovals } from '../components/PendingApprovals.js';
 import { Wordmark } from '../components/Wordmark.js';
 import {
   DEMO_ACTIVITY,
   SECTION_LABELS,
   loadRoom,
+  type ActivityLine,
   type DocumentLine,
   type MemoryLine,
   type RoomDetail,
 } from '../data/demo.js';
-import { loadSharedRoomFromApi } from '../data/load.js';
+import { loadRoomActivityFromApi, loadSharedRoomFromApi } from '../data/load.js';
 import { useRoomData } from '../hooks/useRoomData.js';
 
-/** Inside a shared room: title, brief as calm prose, memories, documents, activity. */
+/**
+ * Inside a shared room: title, brief as calm prose, memories, documents, activity.
+ *
+ * The two redirects sit here, above any hook, and the loading is a separate component
+ * below. It used to be one component that returned a `<Navigate>` before calling
+ * `useRoomData`, which is a conditionally called hook: React then matches hook state by
+ * call order against a previous render that had one more hook, so the room reads state
+ * belonging to something else. That does not fail loudly — it is a screen showing a person
+ * their own memory being subtly wrong on some renders and right on others.
+ */
 export function SharedRoom({ documents }: { documents?: DocumentLine[] } = {}) {
   const { roomId = '' } = useParams();
   if (!roomId) return <Navigate to="/rum" replace />;
   if (roomId === 'personal') return <Navigate to="/" replace />;
 
+  return <SharedRoomLoader roomId={roomId} documents={documents} />;
+}
+
+function SharedRoomLoader({
+  roomId,
+  documents,
+}: {
+  roomId: string;
+  documents?: DocumentLine[];
+}) {
   const state = useRoomData(
     `shared:${roomId}`,
     () => loadRoom(roomId),
@@ -49,7 +71,6 @@ function SharedRoomReady({
 }) {
   const others = Math.max(0, room.memberCount - 1);
   const grouped = groupByKind(room.memories);
-  const activity = DEMO_ACTIVITY[room.id] ?? [];
   const memberLine =
     others === 0
       ? 'Bara du'
@@ -75,6 +96,12 @@ function SharedRoomReady({
         <p className="meta">{memberLine}</p>
       </header>
 
+      {/*
+        Room-scoped, because every write into a shared room goes to the queue by design.
+        Without this, a room the person has been writing to all week simply looks empty.
+      */}
+      <PendingApprovals roomId={room.id} />
+
       {grouped.length === 0 ? (
         <p className="section-block__empty">Inget sparat i det här rummet ännu.</p>
       ) : (
@@ -85,12 +112,9 @@ function SharedRoomReady({
             </h2>
             <ul className="card card--group">
               {items.map((item) => (
-                <li key={item.shortId} className="memory">
-                  <p className="memory__body">{item.body}</p>
-                  <div className="memory__meta">
-                    <span className="mono chip">{item.shortId}</span>
-                  </div>
-                </li>
+                // No delete here — only the author may remove a shared memory, and the
+                // row is still owed an answer to "hur vet du det?" either way.
+                <MemoryRow key={item.shortId} item={item} roomId={room.id} roomKind="shared" />
               ))}
             </ul>
           </section>
@@ -99,24 +123,51 @@ function SharedRoomReady({
 
       <DocumentsSection roomId={room.id} documents={documents} />
 
-      <section className="section-block" aria-labelledby="room-activity">
-        <h2 id="room-activity" className="section-block__title">
-          Aktivitet
-        </h2>
-        {activity.length === 0 ? (
-          <p className="section-block__empty">Ingen aktivitet ännu.</p>
-        ) : (
-          <ul className="activity">
-            {activity.map((item) => (
-              <li key={item.id} className="activity__row">
-                <span className="meta">{item.when}</span>
-                <span>{item.body}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <ActivitySection roomId={room.id} />
     </article>
+  );
+}
+
+/**
+ * What has happened in this room, read from the event log.
+ *
+ * Loaded here rather than with the room so that a slow or failing history call leaves the
+ * room's memories on screen — the feed is context, and losing it must not cost a person
+ * the room. The demo fixtures are keyed by the slugs the demo rooms use, which is why this
+ * asks the flag rather than looking up a real room id in them: that lookup missed on every
+ * real room and reported "Ingen aktivitet ännu" forever.
+ */
+function ActivitySection({ roomId }: { roomId: string }) {
+  const state = useRoomData(
+    `activity:${roomId}`,
+    (): ActivityLine[] => DEMO_ACTIVITY[roomId] ?? [],
+    () => loadRoomActivityFromApi(roomId),
+  );
+
+  const entries = state.status === 'ready' ? state.data : [];
+
+  return (
+    <section className="section-block" aria-labelledby="room-activity">
+      <h2 id="room-activity" className="section-block__title">
+        Aktivitet
+      </h2>
+      {state.status === 'loading' ? (
+        <p className="section-block__empty">Hämtar aktivitet…</p>
+      ) : state.status === 'error' ? (
+        <p className="section-block__empty">{state.message}</p>
+      ) : entries.length === 0 ? (
+        <p className="section-block__empty">Ingen aktivitet ännu.</p>
+      ) : (
+        <ul className="activity">
+          {entries.map((item) => (
+            <li key={item.id} className="activity__row">
+              <span className="meta">{item.when}</span>
+              <span>{item.body}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

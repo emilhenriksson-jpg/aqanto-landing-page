@@ -1,15 +1,35 @@
 {
   "$comment": [
-    "Job handlers registered in a composition root that nothing enqueues, so they have",
-    "never run. Read by scripts/check-job-producers.mjs, which fails on a new one.",
+    "Job handlers that cannot run. Read by scripts/check-job-producers.mjs.",
     "",
-    "A ratchet, not a mute button: an entry whose handler has gained a producer, or been",
-    "deleted, also fails the check with the line to remove. It can only shrink.",
+    "Two shapes. `kind` alone means nothing anywhere enqueues it. `kind` plus `root` means",
+    "the implementation named by `root` registers it and only the other implementation",
+    "produces it, so the handler is dead in that half of the codebase.",
     "",
-    "Nothing here is endorsed by being here. A row that stays is a feature that reads as",
-    "finished in review -- the handler exists, it is wired, the code inside it is correct",
-    "-- and has never executed. The fix is either the missing producer or deleting the",
-    "registration, and both are application decisions rather than CI ones."
+    "A ratchet, not a mute button: a row whose handler has gained a producer, or been",
+    "deleted, fails the check with the line to remove. It can only shrink. It already has —",
+    "expire_invites and purge_trash were here as dead everywhere, and PR #23 seeded all four",
+    "recurring kinds in the Postgres root, so those rows are gone and what is left is the",
+    "narrower fact that the in-memory root still schedules nothing.",
+    "",
+    "purge_trash and expire_invites are gone from here too now: MemoryJobs grew the same",
+    "scheduleRecurring the Postgres root already had, seeded with the same kinds and",
+    "intervals, so both are produced on the in-memory root as well. purge_documents is",
+    "untouched and stays -- nothing scheduled it there.",
+    "",
+    "Prose in these rows is the reason a future reader trusts the exemption, so it has to be",
+    "checkable. An earlier version of the expire_invites row claimed the sweep was called",
+    "from the account-jobs timer in apps/rest with a `.catch(() => 0)`. That call never",
+    "existed: runAccountJobs touches exports and deletions, and the `.catch(() => 0)` there",
+    "belongs to exports.expireOld, which is a different port. Two agents grepped for the",
+    "invite version independently and neither found it. Corrected below, and worth stating",
+    "as a rule: cite a line someone can open."
   ],
-  "known": []
+  "known": [
+    {
+      "kind": "purge_documents",
+      "root": "memory",
+      "why": "packages/services-memory/src/index.ts registers it; only the Postgres root seeds it. Unlike the trash there is no timer standing in, so on the in-memory path an expired document is never purged at all. That path loses everything on restart regardless, which is why this is recorded rather than urgent — and it is also the path the review calls the one failure that is both silent and total, so it should not be relied on either way."
+    }
+  ]
 }

@@ -65,6 +65,11 @@ import type { BlobStore } from '@photographic/documents';
 import { createS3BlobStore, LocalBlobStore } from '@photographic/documents';
 import { createLlmFromEnv } from '@photographic/llm';
 import { createMcpApp, defaultConfig } from '@photographic/mcp';
+import {
+  countingCodeSender,
+  DeliveryFailureLog,
+  type Queryable,
+} from '@photographic/ops';
 import { createMemoryServices } from '@photographic/services-memory';
 import {
   describeSupabase,
@@ -81,22 +86,9 @@ import type { RestConfig } from './config.js';
 import type { AppEnv } from './context.js';
 import type { Logger } from './logger.js';
 import { createOAuthProvider } from './oauth.js';
+import type { QueueSource } from './routes/ops.js';
 import { FIRST_PARTY_CLIENT_ID } from './oauth-contract.js';
 import type { OAuthProvider, TokenClaims } from './oauth-contract.js';
-
-/**
- * What one pass of the job runner found.
- *
- * `failures` exists because `PgJobs`/`MemoryJobs` catch a handler's error themselves —
- * that is what stops one broken job from taking the timer, and therefore the process,
- * down with it — and never rethrow it, which without this would mean the error simply
- * stops existing anywhere a person can see it. This is how it reaches `server.ts`'s
- * logger instead: every kind, not only whichever ones this file happens to name.
- */
-export interface JobRunResult {
-  ran: number;
-  failures: Array<{ kind: string; error: unknown }>;
-}
 
 export interface Wiring {
   app: Hono<AppEnv>;
@@ -118,12 +110,19 @@ export interface Wiring {
   /**
    * Background work, run by whoever owns the schedule.
    *
-   * This is also what drives `purge_trash` and `expire_invites`: both are seeded as a
-   * self-scheduling chain inside the composition root (`createPostgresServices` /
-   * `createMemoryServices`), not by a second timer here. See the comment beside their
-   * registration for why that is the one mechanism for each rather than two.
+   * This is also what drives `purge_trash`: both composition roots seed it as a
+   * self-scheduling chain (`PgJobs.scheduleRecurring` / `MemoryJobs.scheduleRecurring`),
+   * not a second timer here. See the comment beside `jobTimer` in `server.ts`.
    */
-  runJobs(): Promise<JobRunResult>;
+  runJobs(): Promise<unknown>;
+  /**
+   * Queue depth, stuck claims and failures. Null without a database.
+   *
+   * Exposed on the wiring rather than only through the route so `server.ts` can log it on
+   * a cadence: an endpoint answers when someone asks, and the failure this exists for is
+   * precisely the one nobody thinks to ask about.
+   */
+  queue: QueueSource | null;
   /**
    * The account lifecycle sweep: build queued exports, expire old archives, carry out
    * deletions whose freeze has run out.
@@ -135,6 +134,22 @@ export interface Wiring {
   runAccountJobs(): Promise<{ exportsBuilt: number; archivesExpired: number; accountsDeleted: number }>;
   /** Closes whatever the chosen backend holds open (a Postgres pool; nothing for memory). */
   close(): Promise<void>;
+
+  /**
+   * What the process ended up wired to, and where a failed delivery is counted.
+   *
+   * Returned rather than only logged because the alarms in `@photographic/ops` need
+   * exactly these facts, and re-deriving them from the environment would mean a second
+   * reading that can disagree with this one — a watchdog that reports the storage backend
+   * the environment implies rather than the one the process actually opened.
+   */
+  operations: {
+    persistence: 'postgres' | 'memory';
+    storageKind: string;
+    /** The pool, for read-only operational queries. Null on the in-memory path. */
+    db: Queryable | null;
+    deliveryFailures: DeliveryFailureLog;
+  };
 }
 
 /**
@@ -157,13 +172,15 @@ interface AuthStores {
 interface WiredServices {
   services: Services;
   authStores: AuthStores;
+  /** Queue observability, when there is a real queue to observe. */
+  queue: QueueSource | null;
   /**
    * Export and account deletion. Null without a database: an export that cannot be
    * produced and a deletion that cannot be carried out are worse offered than withheld.
    */
   exports: PgExports | null;
   accounts: PgAccounts | null;
-  runJobs(): Promise<JobRunResult>;
+  runJobs(): Promise<unknown>;
   close(): Promise<void>;
   llmKind: 'fake' | 'openai';
   persistence: 'postgres' | 'memory';
@@ -176,6 +193,8 @@ interface WiredServices {
   checkDatabase: (() => Promise<void>) | null;
   /** Which `BlobStore` document originals land in. See `resolveBlobStore`. */
   storageKind: string;
+  /** The pool when there is one. Read-only use only; see `Wiring.operations`. */
+  db: Queryable | null;
 }
 
 /**
@@ -245,6 +264,10 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
       llm,
       blobs: effectiveBlobs,
     });
+    // One instance, shared between the routes and the sweep. Two would mean two worker
+    // ids, and an export claimed under one and heartbeated under the other would look
+    // abandoned to whichever reaper ran next.
+    const exportsService = new PgExports(pool, effectiveBlobs);
     return {
       services: wired.services,
       authStores: {
@@ -257,15 +280,14 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
       // Both take the storage port directly: an export writes its archive through it
       // and a deletion removes files through it, and neither is a read or write of
       // memory, so neither belongs on `Services`.
-      exports: new PgExports(pool, effectiveBlobs),
+      exports: exportsService,
       accounts: new PgAccounts(pool, effectiveBlobs),
-      runJobs: async () => {
-        const ran = await wired.runJobsToCompletion();
-        // Drained rather than only read: a failure logged once by `server.ts` is the
-        // point, and an array nothing ever empties is a slow leak across a process that
-        // is meant to run indefinitely.
-        return { ran, failures: wired.jobs.failures.splice(0) };
+      queue: {
+        jobStats: () => wired.jobs.stats(),
+        failedKinds: () => wired.jobs.failedKinds(),
+        exportStats: () => exportsService.stats(),
       },
+      runJobs: () => wired.runJobsToCompletion(),
       close: () => wired.close(),
       llmKind,
       persistence: 'postgres',
@@ -273,6 +295,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
         await pool.query('SELECT 1');
       },
       storageKind,
+      db: pool,
     };
   }
 
@@ -288,10 +311,8 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     },
     exports: null,
     accounts: null,
-    runJobs: async () => {
-      const ran = await wired.jobs.runOnce();
-      return { ran, failures: wired.jobs.failures.splice(0) };
-    },
+    queue: null,
+    runJobs: () => wired.jobs.runOnce(),
     close: async () => {
       // Nothing to release: the reference implementation holds no handles.
     },
@@ -299,6 +320,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     llmKind,
     persistence: 'memory',
     storageKind,
+    db: null,
   };
 }
 
@@ -508,6 +530,13 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
    * codes it was told to email.
    */
   const delivery = createCodeSenderFromEnv(process.env, { logger });
+  /**
+   * Counts a failed send on its way past, so the watchdog can tell one 46elks timeout from
+   * nobody being able to log in at all. Wrapped rather than changed inside the provider for
+   * the same reason `recordingGrants` wraps the token store: `send` throwing *is* the
+   * moment a delivery failed, and there is no other way to reach it.
+   */
+  const deliveryFailures = new DeliveryFailureLog();
   // `mailProvider`, not `email`: the logger redacts any field called `email`, so this
   // line used to print the provider name as `[redacted]` and the one question it exists
   // to answer — "is this process actually delivering codes, or writing them to me?" —
@@ -568,7 +597,7 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     invites: wired.services.invites,
     sessions: wired.services.sessions,
     codes,
-    sender: delivery.sender,
+    sender: countingCodeSender(delivery.sender, deliveryFailures),
     issuer: new SignedSessionIssuer(sessionSecret),
     codeSecret,
     clock: () => new Date(),
@@ -625,6 +654,7 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     clientGrants: grants,
     exports: wired.exports,
     accounts: wired.accounts,
+    queue: wired.queue,
     health: {
       persistence: wired.persistence,
       ...(wired.checkDatabase ? { checkDatabase: wired.checkDatabase } : {}),
@@ -647,9 +677,16 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     clientGrants: wired.authStores.grants,
     exports: wired.exports,
     accounts: wired.accounts,
+    queue: wired.queue,
     runJobs: () => wired.runJobs(),
     runAccountJobs: () => runAccountJobs(wired, logger),
     close: () => wired.close(),
+    operations: {
+      persistence: wired.persistence,
+      storageKind: wired.storageKind,
+      db: wired.db,
+      deliveryFailures,
+    },
   };
 }
 
@@ -670,8 +707,19 @@ async function runAccountJobs(
   const idle = { exportsBuilt: 0, archivesExpired: 0, accountsDeleted: 0 };
   if (!wired.exports || !wired.accounts) return idle;
 
+  // First: exports whose worker died. A restart used to leave one at `running` for ever —
+  // a person had asked to take their memory with them and got a spinner that never
+  // resolved, which is the worst available way to break that particular promise.
+  const reaped = await wired.exports.reapStuck().catch(() => ({ requeued: 0, failed: 0 }));
+  if (reaped.requeued > 0 || reaped.failed > 0) {
+    logger.warn('exports_reclaimed', { requeued: reaped.requeued, failed: reaped.failed });
+  }
+
+  // One at a time. A build holds a multipart part and a database connection, and the
+  // request path shares both — two at once on a two-gigabyte machine is how an export
+  // takes down the product it is an escape hatch from.
   let exportsBuilt = 0;
-  for (const job of await wired.exports.pending(2)) {
+  for (const job of await wired.exports.pending(1)) {
     try {
       const finished = await wired.exports.run(job.id);
       if (finished?.status === 'ready') exportsBuilt += 1;

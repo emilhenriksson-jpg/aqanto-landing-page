@@ -79,18 +79,6 @@ export interface MemoryServices {
   runJobsToCompletion(): Promise<number>;
 }
 
-/**
- * Cadence for the recurring sweeps below. Trash purging is a promise ("gone in 30 days")
- * so it runs often; invite expiry only keeps `app.invite.status` honest for the owner's
- * list -- `peek` and `accept` already refuse an overdue invite by comparing `expiresAt`
- * themselves -- so five minutes of staleness on that column costs nothing.
- */
-const PURGE_TRASH_INTERVAL_MS = 60_000;
-const EXPIRE_INVITES_INTERVAL_MS = 5 * 60_000;
-
-const PURGE_TRASH_DEDUPE_KEY = 'purge_trash:recurring';
-const EXPIRE_INVITES_DEDUPE_KEY = 'expire_invites:recurring';
-
 export function createMemoryServices(options: MemoryServicesOptions = {}): MemoryServices {
   const clock = options.clock ?? (() => new Date());
 
@@ -140,59 +128,40 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
     await documents.summarise(payload['documentId'] as never);
   });
 
-  /**
-   * `purge_trash` and `expire_invites` used to be registered here and enqueued nowhere,
-   * so neither had ever run once. Both behaviours happened anyway, by other means: trash
-   * purging off a raw `setInterval` in `apps/rest/src/server.ts`, and invite expiry not
-   * at all in the background (only the runtime `expiresAt` check inside `peek`/`accept`,
-   * which is still there and still the actual security boundary).
-   *
-   * The job queue is now the one mechanism for both, not a second one beside the timer:
-   * it has a lease that survives a restart and a place a failure is recorded
-   * (`MemoryJobs.failures`, `app.job.last_error` on Postgres), which a timer has neither
-   * of. Each handler requeues its own next occurrence *before* doing the work, so a sweep
-   * that throws is retried and recorded (see `MemoryJobs.runOnce`) without ending the
-   * chain -- a transient failure must not silently stop future sweeps the way an
-   * uncaught rejection in a `setInterval` once did.
-   */
   jobs.work('purge_trash', async () => {
-    await jobs.enqueue({
-      kind: 'purge_trash',
-      dedupeKey: PURGE_TRASH_DEDUPE_KEY,
-      runAfter: new Date(clock().getTime() + PURGE_TRASH_INTERVAL_MS),
-    });
     await trash.purgeExpired();
   });
 
   // `expired` was in the enum from the start and nothing ever wrote it, so expiry was a
   // runtime comparison and `status` did not describe reality.
   jobs.work('expire_invites', async () => {
-    await jobs.enqueue({
-      kind: 'expire_invites',
-      dedupeKey: EXPIRE_INVITES_DEDUPE_KEY,
-      runAfter: new Date(clock().getTime() + EXPIRE_INVITES_INTERVAL_MS),
-    });
     await invites.expireOverdue();
   });
 
-  // Bootstraps both chains. Enqueuing again on every boot is safe and deliberate: the
-  // dedupe key means an existing pending row is simply pulled forward to run now, which
-  // costs nothing because both sweeps are idempotent, and it is what makes the chain
-  // self-healing if it was ever lost (a `MemoryJobs` restart always loses it, since
-  // nothing here is persisted -- which is also true of every other job kind in this
-  // implementation).
-  //
-  // `.catch` rather than `await`: this composition root is synchronous, by contract with
-  // every existing caller of `createMemoryServices`, and `MemoryJobs.enqueue` has already
-  // done its (synchronous, infallible) work by the time this line returns regardless. The
-  // handler exists only to satisfy `no-floating-promises`, which is right to ask for one —
-  // an ignored rejection here is exactly the shape of bug this file's other two timers
-  // used to have.
+  jobs.work('purge_documents', async () => {
+    await documents.purgeExpired();
+  });
+
+  /**
+   * The recurring half of the queue, seeded here — mirroring `createPostgresServices`,
+   * whose `PgJobs.scheduleRecurring` this is the `MemoryJobs` equivalent of.
+   *
+   * `purge_trash` and `expire_invites` had a handler and nothing that ever enqueued it,
+   * exactly as on the Postgres root before PR #23: the handler existed, so the feature
+   * read as built, and invites simply never expired here either. `purge_documents` and
+   * `reconcile_storage` stay unseeded — `scripts/job-producers-baseline.json` records
+   * that as a fact about this implementation, not a decision to make here.
+   *
+   * `.catch` rather than `await`: this composition root is synchronous, by contract with
+   * every existing caller of `createMemoryServices`, and `MemoryJobs.enqueue` has already
+   * done its (synchronous, infallible) work by the time this line returns regardless. The
+   * handler exists only to satisfy `no-floating-promises`.
+   */
   jobs
-    .enqueue({ kind: 'purge_trash', dedupeKey: PURGE_TRASH_DEDUPE_KEY, runAfter: clock() })
-    .catch(() => {});
-  jobs
-    .enqueue({ kind: 'expire_invites', dedupeKey: EXPIRE_INVITES_DEDUPE_KEY, runAfter: clock() })
+    .scheduleRecurring([
+      { kind: 'purge_trash', everySeconds: 3600 },
+      { kind: 'expire_invites', everySeconds: 900 },
+    ])
     .catch(() => {});
 
   const services: Services = {

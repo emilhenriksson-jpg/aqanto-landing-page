@@ -91,18 +91,6 @@ export interface PostgresServices {
   close(): Promise<void>;
 }
 
-/**
- * Cadence for the recurring sweeps below. Trash purging is a promise ("gone in 30 days")
- * so it runs often; invite expiry only keeps `app.invite.status` honest for the owner's
- * list -- `peek` and `accept` already refuse an overdue invite by comparing `expiresAt`
- * themselves -- so five minutes of staleness on that column costs nothing.
- */
-const PURGE_TRASH_INTERVAL_MS = 60_000;
-const EXPIRE_INVITES_INTERVAL_MS = 5 * 60_000;
-
-const PURGE_TRASH_DEDUPE_KEY = 'purge_trash:recurring';
-const EXPIRE_INVITES_DEDUPE_KEY = 'expire_invites:recurring';
-
 export async function createPostgresServices(
   options: PostgresServicesOptions,
 ): Promise<PostgresServices> {
@@ -184,52 +172,45 @@ export async function createPostgresServices(
     ]);
   });
 
-  /**
-   * `purge_trash` and `expire_invites` used to be registered here and enqueued nowhere,
-   * so neither had ever run once. Both behaviours happened anyway, by other means: trash
-   * purging off a raw `setInterval` in `apps/rest/src/server.ts`, and invite expiry not
-   * at all in the background (only the runtime `expiresAt` check inside `peek`/`accept`,
-   * which is still there and still the actual security boundary).
-   *
-   * The job queue is now the one mechanism for both, not a second one beside the timer:
-   * `app.job` gives it a lease that survives a restart (`FOR UPDATE SKIP LOCKED`) and a
-   * durable place a failure is recorded (`last_error`, `failed_at`), which a timer has
-   * neither of. Each handler requeues its own next occurrence *before* doing the work, so
-   * a sweep that throws is retried and recorded (see `PgJobs.runOnce`) without ending the
-   * chain -- a transient failure must not silently stop future sweeps the way an
-   * uncaught rejection in a `setInterval` once did.
-   */
   jobs.work('purge_trash', async () => {
-    await jobs.enqueue({
-      kind: 'purge_trash',
-      dedupeKey: PURGE_TRASH_DEDUPE_KEY,
-      runAfter: new Date(clock().getTime() + PURGE_TRASH_INTERVAL_MS),
-    });
     await trash.purgeExpired();
   });
 
   // `expired` was in the enum from the start and nothing ever wrote it, so expiry was a
   // runtime comparison and `status` did not describe reality.
   jobs.work('expire_invites', async () => {
-    await jobs.enqueue({
-      kind: 'expire_invites',
-      dedupeKey: EXPIRE_INVITES_DEDUPE_KEY,
-      runAfter: new Date(clock().getTime() + EXPIRE_INVITES_INTERVAL_MS),
-    });
     await invites.expireOverdue();
   });
 
-  // Bootstraps both chains. Enqueuing again on every boot is safe and deliberate: the
-  // dedupe key means an existing pending row (`job_dedupe_idx`) is simply pulled forward
-  // to run now rather than duplicated, which costs nothing because both sweeps are
-  // idempotent, and it is what makes the chain self-healing if the row was ever lost --
-  // including surviving the restart that a `setInterval` cannot.
-  await jobs.enqueue({ kind: 'purge_trash', dedupeKey: PURGE_TRASH_DEDUPE_KEY, runAfter: clock() });
-  await jobs.enqueue({
-    kind: 'expire_invites',
-    dedupeKey: EXPIRE_INVITES_DEDUPE_KEY,
-    runAfter: clock(),
+  jobs.work('purge_documents', async () => {
+    await documents.purgeExpired();
   });
+
+  /**
+   * Storage charged to somebody with nothing to show for it.
+   *
+   * The upload path compensates for what it can see, but a process that dies mid-upload
+   * cannot compensate for itself — so this is the half that runs afterwards. It is also
+   * the only thing that can clean up damage done before compensation existed.
+   */
+  jobs.work('reconcile_storage', async () => {
+    await documents.reconcileStorage();
+  });
+
+  /**
+   * The recurring half of the queue, seeded here.
+   *
+   * Every one of these had a handler and nothing that ever enqueued it, which is a
+   * particular kind of invisible: the handler exists, so the feature reads as built, and
+   * invites simply never expired. Each run schedules the next, so the chain survives a
+   * restart as long as the row does.
+   */
+  await jobs.scheduleRecurring([
+    { kind: 'purge_trash', everySeconds: 3600 },
+    { kind: 'expire_invites', everySeconds: 900 },
+    { kind: 'purge_documents', everySeconds: 3600 },
+    { kind: 'reconcile_storage', everySeconds: 3600 },
+  ]);
 
   const services: Services = {
     identity,

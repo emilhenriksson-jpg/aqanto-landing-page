@@ -1,3 +1,12 @@
+export {
+  cancelDeletion,
+  createExportLink,
+  getDeletionState,
+  getExport,
+  listExports,
+  requestDeletion,
+  requestExport,
+} from './account.js';
 export { getCalendarDay, getCalendarEvent } from './calendar.js';
 export { ApiError, apiFetch, apiUpload } from './client.js';
 export { listClients } from './clients.js';
@@ -8,10 +17,10 @@ export {
   getSessionToken,
   isDemoMode,
 } from './config.js';
-export { getInvite } from './invites.js';
 export { listHistory } from './history.js';
 export { forgetMemory, undoMemory } from './memory.js';
 export { getProfile } from './profile.js';
+export { getProvenance } from './provenance.js';
 export { listProposals, resolveProposal } from './proposals.js';
 export {
   getRoom,
@@ -31,17 +40,23 @@ export type {
   CalendarEntryDto,
   ClientHealthDto,
   CompassEntryDto,
+  DeletionReceiptDto,
+  DeletionStateDto,
+  EmbeddingProvenanceDto,
   EventProvenanceDto,
+  ExportJobDto,
+  ExportLinkDto,
   ForgetResponse,
   HistoryEntryDto,
   MemoryEventDetailDto,
   MemoryEventKindDto,
   MemorySourceDto,
-  InvitePreviewDto,
   ItemDto,
   ProfileDto,
   ProfileSectionsDto,
   ProposalDto,
+  ProposalIntentDto,
+  ProvenanceDto,
   RenderedItemDto,
   RoomDocumentDto,
   RoomDto,

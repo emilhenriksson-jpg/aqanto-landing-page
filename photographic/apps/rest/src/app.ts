@@ -52,6 +52,7 @@ import { documentRoutes } from './routes/documents.js';
 import { historyRoutes } from './routes/history.js';
 import { memoryRoutes } from './routes/memory.js';
 import { oauthRoutes } from './routes/oauth.js';
+import { opsRoutes, type QueueSource } from './routes/ops.js';
 import { publicInviteRoutes, roomRoutes } from './routes/rooms.js';
 import { trashRoutes } from './routes/trash.js';
 import {
@@ -122,6 +123,15 @@ export interface AppDeps {
    */
   exports?: ExportService | null;
   accounts?: AccountService | null;
+
+  /**
+   * Queue depth, stuck claims and failures, for `GET /v1/ops/queue`.
+   *
+   * Absent without a database: the in-memory queue is this process's own array, and
+   * reporting its depth would answer a question about the harness rather than about the
+   * product.
+   */
+  queue?: QueueSource | null;
 }
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
@@ -435,11 +445,30 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   authenticated.route('/', accountRoutes({ exports: deps.exports ?? null }));
   authenticated.route('/', deletionRoutes({ accounts: deps.accounts ?? null }));
 
+  // First-party too, though for a different reason: it says nothing about anyone's
+  // memory, and there is no client that has any business asking.
+  authenticated.route('/', opsRoutes({ queue: deps.queue ?? null }));
+
   app.route('/v1', authenticated);
 
   // ---------------------------------------------------------------------------
   // The browser app
   // ---------------------------------------------------------------------------
+
+  /**
+   * The short invite link, redirected to the landing that actually accepts an invite.
+   *
+   * There were two invite screens: the one every generated link points at
+   * (`/invite/:token`, served by the auth app, which signs the person up and accepts the
+   * invite) and a copy in the product app at `/i/:token` whose "Gå med" only set React
+   * state — it showed a success page and joined nothing. The copy is deleted rather than
+   * finished, because two versions of the first thing a person ever sees of this product
+   * will drift, and the dead one is the one someone eventually improves. The path stays
+   * as a redirect so a short link that was ever shared still works.
+   */
+  app.get('/i/:token', (c) =>
+    c.redirect(`/invite/${encodeURIComponent(c.req.param('token'))}`, 302),
+  );
 
   // Last, so they can only answer paths the API did not claim, and only where there is a
   // build to serve. This is what lets one hostname carry the API, the MCP endpoint, the

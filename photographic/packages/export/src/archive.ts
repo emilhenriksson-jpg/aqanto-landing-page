@@ -81,7 +81,13 @@ export interface ExportManifest {
   };
   /** Inclusive range of `app.event.seq` in `events.ndjson`. Null when there are none. */
   seqRange: { from: number; through: number } | null;
-  /** sha256 of every entry, keyed by path in the archive. */
+  /**
+   * sha256 of every entry, keyed by path in the archive.
+   *
+   * Every entry except the two that describe the archive: `manifest.json` cannot contain
+   * its own digest, and the README is written after it. Both are covered by the zip's own
+   * per-entry CRC and by the archive-wide sha256 the export row records.
+   */
   checksums: Record<string, string>;
   notes: string[];
 }
@@ -161,7 +167,7 @@ export function renderReadme(manifest: ExportManifest): string {
     '',
     '| Fil | Innehåll |',
     '|---|---|',
-    '| `manifest.json` | Formatversion, tidpunkt, rum, antal, sha256 per fil |',
+    '| `manifest.json` | Formatversion, tidpunkt, rum, antal, sha256 per fil i arkivet |',
     '| `events.ndjson` | Hela loggen, en händelse per rad, sorterad på `seq` |',
     '| `items.ndjson` | Nuläget som projektion |',
     '| `rooms.json` | Rum, roller och medlemmar |',

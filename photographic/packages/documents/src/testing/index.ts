@@ -8,9 +8,17 @@
  * bugs these two have.
  */
 
+import { createHash } from 'node:crypto';
+
 import { NotFoundError, STORAGE_LIMIT_BYTES } from '@photographic/core';
 
-import { blobKeyFor, checksumOf, type BlobStore, type StoredBlob } from '../blob-store.js';
+import {
+  blobKeyFor,
+  checksumOf,
+  type BlobStore,
+  type BlobUpload,
+  type StoredBlob,
+} from '../blob-store.js';
 import type { StorageLedger } from '../deps.js';
 
 export class MemoryBlobStore implements BlobStore {
@@ -39,6 +47,54 @@ export class MemoryBlobStore implements BlobStore {
     const found = this.objects.get(key);
     if (!found) throw new NotFoundError('Filen finns inte längre i lagringen.');
     return new Uint8Array(found);
+  }
+
+  getStream(key: string): AsyncIterable<Uint8Array> {
+    const objects = this.objects;
+    return {
+      async *[Symbol.asyncIterator]() {
+        const found = objects.get(key);
+        if (!found) throw new NotFoundError('Filen finns inte längre i lagringen.');
+        // Handed over in pieces rather than whole, so a caller that assumes one chunk
+        // fails here rather than against a real store.
+        for (let at = 0; at < found.byteLength; at += 64 * 1024) {
+          yield new Uint8Array(found.subarray(at, Math.min(at + 64 * 1024, found.byteLength)));
+        }
+      },
+    };
+  }
+
+  /**
+   * A streamed upload that keeps the bytes, because a test needs to read them back.
+   *
+   * The one thing it does not fake is the interface: `write` resolves before `complete`
+   * is allowed to see the object, and a stream nobody completed leaves nothing behind —
+   * which is the property the export's failure path depends on.
+   */
+  async createUpload(options: { key: string }): Promise<BlobUpload> {
+    const objects = this.objects;
+    const chunks: Uint8Array[] = [];
+    const hash = createHash('sha256');
+    let byteSize = 0;
+    let settled = false;
+
+    return {
+      async write(chunk: Uint8Array) {
+        if (settled) throw new Error('upload is already finished');
+        hash.update(chunk);
+        byteSize += chunk.byteLength;
+        chunks.push(new Uint8Array(chunk));
+      },
+      async complete() {
+        settled = true;
+        objects.set(options.key, new Uint8Array(Buffer.concat(chunks.map((c) => Buffer.from(c)))));
+        return { key: options.key, checksum: hash.digest('hex'), byteSize, deduplicated: false };
+      },
+      async abort() {
+        settled = true;
+        chunks.length = 0;
+      },
+    };
   }
 
   async exists(key: string): Promise<boolean> {

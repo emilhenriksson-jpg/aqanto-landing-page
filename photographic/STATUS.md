@@ -1118,6 +1118,133 @@ against; flagged rather than assumed working.
   served in production yet and the deploy track is fixing that separately, so nothing here
   changes SPA mounting or server routing.
 
+## Durability — export streaming, job leases, document life cycle
+
+Findings 7, 9 and 10 of the second review, plus Astra's note that the export download link
+was not single-use. All four verified against the code before anything was changed; all
+four were real, and one of them was worse than reported.
+
+**Where the review was right, in its own words.** `BufferingSink` (`exports.ts:107–115`)
+collected every chunk in an array and handed `Buffer.concat` to `BlobStore.put` — two
+copies of the whole archive — while `ZipWriter.assertWithinZipLimits` refused anything past
+4 GB against a 10 GB product limit on a 2 GB machine. `app.job` was claimed with `locked_at`
+and nothing else: no lease, no reaper, so a process that died after claiming held the row
+for ever. `documents.ts` wrote bytes and charged the person's quota before the document
+transaction with no compensation and no delete route. `export_download` counted `use_count`
+and never capped it, on a seven-day TTL.
+
+**Worse than reported, in two places.** First, the download path had the same memory bug as
+the build — `resolveDownload` did `blobs.get(key)` in full and the route answered
+`c.body(bytes)` — so even a successfully built 8 GB archive would have taken the machine
+down on the way out. Astra caught this (`B7`); the second review's finding 7 named only the
+build. Second, `purge_trash` and `expire_invites` had handlers registered in both
+composition roots and **nothing anywhere ever enqueued them**. So invite expiry was not
+"stopping after a crash" as finding 9 says — it had never run at all, and neither had the
+trash purge outside the timer in `server.ts`. A handler with no producer reads as a built
+feature, which is why it survived.
+
+**Export.** `ZipWriter` writes zip64 where it is needed: a streamed entry (unknown length)
+gets a 64-bit data descriptor, an entry of known length under 4 GB is written exactly as
+before, and the zip64 end records appear only once the directory outgrows zip32 — so a
+small archive is byte-identical to what shipped. `BlobStore` gained `createUpload` and
+`getStream`. `S3BlobStore` does a real multipart upload (8 MiB parts, awaited, so
+backpressure reaches the zip writer); `LocalBlobStore` streams to a temp file and renames;
+`SupabaseStorageBlobStore` spools to disk and streams off it, because the Storage REST API
+takes one request with a length. **Deploy note:** the Supabase path is capped at
+`SUPABASE_EXPORT_SPOOL_MAX_BYTES` (2 GB default) and refuses with an instruction rather
+than filling the machine's disk — for the full 10 GB, point `BLOB_S3_*` at Supabase's own
+S3-compatible endpoint and `S3BlobStore` takes over with no ceiling but the product's. One
+build at a time per process, and the download is piped from storage.
+
+Verified at the real limit rather than near it: a 10 GB archive written to disk through the
+streaming sink is read correctly by `python3 -m zipfile` — entry sizes right, and the entry
+whose local header sits past 4 GB found through the zip64 records
+(`PHOTOGRAPHIC_NEAR_LIMIT_GB=10 PHOTOGRAPHIC_NEAR_LIMIT_DISK=1`, 13 s). The default suite
+crosses the 4 GB cliff through a discarding sink and asserts the heap grows by less than
+64 MB. Against Postgres, a 3 GB export of six 512 MB documents runs end to end with heap
+growth under 96 MB and the archive digest computed as it streams.
+
+**Jobs.** A claim is now a lease: `locked_by` is a worker id (`host:pid:rand`),
+`lease_expires_at` is a deadline, and a handler heartbeats while it works, so "this takes
+eleven minutes" and "this process is gone" stop looking the same. Every sweep calls
+`app.reclaim_expired_jobs` first, which counts the attempt — a job that kills its worker
+every time therefore fails visibly instead of looping. Recurring maintenance is scheduled
+(`scheduleRecurring`, each run enqueuing the next), which is what fixes invite expiry
+never having run. Exports get the same lease plus a reaper that requeues a build whose
+machine went away, deletes its half-written object, and fails it visibly once attempts run
+out. `GET /v1/ops/queue` (first-party) and a once-a-minute log line report depth, oldest
+waiting job, lapsed leases and failure counts — counts and kinds only, never error text,
+which can carry fragments of somebody's memory.
+
+**Documents.** `app.blob_upload` records the storage charge as it is made, so a crash
+leaves something a reaper can act on; the upload path compensates for the failures it is
+alive to see, and `reconcile_storage` handles the rest, including ledger rows orphaned
+before any of this existed. A blob is deleted only when no document, ledger row or upload
+in flight references those bytes — content addressing means one object can belong to
+several people. Documents now have trash, restore and a thirty-day purge with events in the
+room's history; `app.search_chunks` skips the trash. The storage charge is held until the
+purge on purpose: releasing it at delete would let a restore fail at the limit.
+
+**The download link is single-use** in the sense that survives a dropped connection.
+`complete()` is called by the route after the last byte, so a transfer that broke leaves
+the link usable inside a 15-minute window, and a completed one kills it. One hour rather
+than seven days, five attempts maximum, and a spent link answers exactly like a link that
+never existed. Reasoning and the cost — the download stays proxied through our process
+rather than a signed Supabase URL, because a signed URL cannot be counted or revoked — in
+`EXPORT.md`, decision 3, which also records that this reverses 0013's stated choice.
+
+Migrations `0018` and `0019` — numbered off `main`'s applied `0016_app_role_grants` and
+`0017_lifecycle_atomicity`, which landed while this branch was open. Renumbering is free
+here because neither of mine has been applied anywhere but a throwaway database; the ledger
+keys on filename, so a rename after a real apply would re-run the DDL.
+
+New suites: `packages/db/src/services/jobs.test.ts` (10),
+`exports.test.ts` (14), `documents-lifecycle.test.ts` (12),
+`packages/documents/src/streaming.test.ts` (7, including the S3 multipart request sequence
+against a fake signer), `packages/export/src/near-limit.test.ts` (2),
+`apps/rest/src/durability.test.ts` (10), plus `e2e/src/documents.test.ts` +2 running on both
+drivers. Monorepo typecheck clean; every
+package suite green; `e2e` 64 on `HARNESS=memory` and 64 on `HARNESS=postgres`.
+
+**Merged with `main` rather than rebased**, so the history stays honest about what was
+written against which tree. Three conflicts, all mechanical: `jobs.ts` keeps the write
+path's transactional `enqueueJob` alongside the lease and heartbeat here; `wiring.ts` hands
+`createApp` both the readiness probe and the queue source; `STATUS.md` keeps both sections.
+Two of my tests were written against interfaces `main` has since changed — the
+client-supplied `confirmed` flag is gone (a memory into the person's own room needs no
+approval anyway) and `AgentClient` no longer has a bare `'claude'`.
+
+One interaction worth checking rather than assuming, because CI cannot see it: `0016`'s
+least-privilege role does not exist in CI or in local development, so nothing in the
+pipeline proves my new tables and functions are reachable by it. Migrated a throwaway
+database with `photographic_app` present and asked the role directly — INSERT and DELETE on
+`app.blob_upload`, SELECT on `app.job_stats` and `app.export_stats`, EXECUTE on
+`app.reclaim_expired_jobs`, `app.blob_is_unreferenced` and `app.orphaned_storage_objects`
+all granted, and the views and function actually readable as that role. `ALTER DEFAULT
+PRIVILEGES` in `0016` covers later migrations, which is what makes that true.
+
+**Checked against a running process, not only in tests.** `tsx src/server.ts` against local
+Postgres: the four recurring rows are seeded exactly once with future deadlines,
+`GET /v1/ops/queue` answers 401 without a token and real numbers with a signed session. An
+export requested over HTTP was built by the ten-second sweep, its link downloaded through
+the streaming route, `unzip -t` clean, and the `x-photographic-sha256` header matched
+`sha256sum` of the received file byte for byte — so the digest computed while streaming
+describes what the person actually gets. A second request for the same link answered 404.
+Re-driven after the merge on a real `SignedSessionIssuer` token rather than the old
+forgeable shape, so this is a check of the merged tree and not of the tree I wrote.
+Then the row was forced to `running` with a lapsed lease and a stray `pending_key`, as a
+dead machine leaves it: the next sweep logged `exports_reclaimed`, deleted the stray object,
+rebuilt the archive and returned it to `ready` at `attempts = 2`.
+
+**Left deliberately.** Finding 8's proposal/deletion state machines were not touched: they
+are the other agent's transactional lifecycle work in `ingest.ts` and `account.ts`, and two
+of us rewriting those would conflict. Document delete does *not* go through `app.trash` —
+that view is derived from item lifecycle events and belongs to that same track; documents
+carry their own `deleted_at`/`purge_after` in the same shape, so merging them into one
+trash surface later is additive. The `document.deleted` / `document.restored` /
+`document.purged` events are in the log but not in the `app.activity` view, which is track
+2's. No web screens: `DELETE /v1/documents/:id`, `/restore`, `/documents/trash` and
+`/v1/ops/queue` are API only, and the screens track owns the rest.
 ## write-path — the approval gate and the log as the truth
 
 Findings 2, 3, 5, 6 and 8 of `docs/review-second-opinion.md`, plus the `/v1/import` scope
@@ -1407,7 +1534,273 @@ the live e2e smoke sign anyone in.
   Driven against a running production-mode process rather than a harness: `NODE_ENV=production`
   with Postgres, `POST /v1/signup/request` answering 502 with no code anywhere in the log, the
   script minting from a separate process, the link signing in through a real browser, the replay
-  refused, and both event rows present. Fly credentials were not available in that environment,
-  so `fly ssh console` itself is the one step nobody has executed — the shape it needs is a
-  separate process on the machine with `DATABASE_URL` and `BREAK_GLASS_SECRET`, which is what
-  was tested.
+  refused, and both event rows present.
+
+  The `fly ssh console` step has since been walked on the live host against a real account:
+  the script normalised `072-987 65 43`, minted a link, the exchange set an `HttpOnly`
+  session with a real `expiresAt`, and replaying the same token answered 401. Reading a
+  code out of `fly logs` is no longer a fallback — the send-time refusal is live, so
+  `POST /v1/signup/request` answers 502 with `code_delivery_refused` and no code. Until
+  46elks is configured, `BREAK_GLASS_SECRET` is the only key to an account.
+## godkann-synlighet + proveniens per minne — PR #17
+
+Branch `cursor/godkann-synlighet-och-proveniens-per-minne-ad1f`. Owns the approval
+queue's visibility and the per-memory provenance path. The third review's "Vad båda
+missade": two promises the product makes and did not keep.
+
+### Godkänn-kön berättar nu att den finns
+
+`requiresApproval` routes every uncertain or sensitive write — and by construction every
+write into a shared room — to a human decision. Nothing in the app said so. Six rail
+items with no counter, and the only signal was a model saying "jag har frågat dig" in a
+conversation the person can close. Proposals piled up unseen, the AI looked like it had
+forgotten, and the conclusion a person reaches from that is that the product is broken.
+
+- `usePendingApprovals` is one module-level store read by the rail and by every screen
+  that mentions the queue: one fetch per page load, and the count drops in the same
+  instant a card is answered rather than a navigation later. `null` is "we do not know"
+  and is deliberately not `[]` — signed out, offline and a bad minute from the API all
+  land there, and reporting an empty queue on a failed read is the exact failure this
+  undoes.
+- A violet count on `Godkänn`, in the rail and the mobile tab bar, and only above zero.
+- `PendingApprovals` on the personal room, `Rum`, and room-scoped inside a shared room.
+  It names what is waiting, who would be able to read it, and says the missing sentence:
+  **"Tills du svarar är det inte sparat, och ingen modell kan läsa det."** No dismiss —
+  dismissing it would rebuild the invisible queue it exists to end.
+- `.hero--personal:has(+ .waiting)` gives up hero height while something is waiting, so
+  the notice is in the first viewport rather than one scroll below it. Measured: on a
+  402×874 phone the whole card including its button clears the tab bar.
+- The card on `Godkänn` says what accepting will do. `load.ts` was mapping `roomId` and
+  `intent` away, so a request to share with three colleagues rendered as "Claude vill
+  spara". Now "ChatGPT vill dela i Buyersclub Ledning", with the room's readership named
+  — or counted, when the members have no names, which is today's normal case.
+- A failed approval no longer looks like one that worked. The card was removed locally
+  and the error swallowed by an empty `catch`; it now stays and says so.
+
+### "Hur vet du det om mig?" går att ställa om ett minne
+
+`MemoryRow.tsx` had body text, a short id and "Ta bort". The provenance endpoint existed
+and the calendar answered per *event*, so the product's signature question could only be
+asked about a day.
+
+- Every memory row, personal and shared, carries "Hur vet du det?" and answers in place:
+  where it came from, **why it was saved** (next to each other on purpose), when, who
+  wrote it in, which room, whether you approved it, whether it has said something else
+  before — and, once PR #16 is deployed, whether the text was sent to a model.
+- `embedding` is only stated when the server recorded it. Absent means an older server
+  and `null` means no vector; neither is a "nej", and printing one would be the single
+  lie this panel cannot afford.
+- `apps/rest/src/routes/history.ts` was computing `motivation`, `source` and `changed`
+  and dropping all three. **This is the same edit PR #16 makes**; the rebase conflict is
+  one hunk and the resolution is to take #16's, which is a strict superset.
+- `PgHistory.provenance` filtered on nothing but the item id: no room filter, and
+  `payload ->> 'item_id'`, which cannot use `event_payload_idx` (`jsonb_path_ops`) and so
+  scanned every event on the platform. Now bounded to the asker's readable rooms and
+  matched with `@>`. Tolerable when nothing linked to it; not with a link on every row.
+
+### Verified against real data, not fixtures
+
+Local Postgres, an account created through the phone sign-up flow, Claude connected over
+real DCR + PKCE + OAuth and writing through MCP: four memories saved silently, four
+decisions queued (an instruction, a sensitive fact, a shared-room write, and a genuine
+`share`), two colleagues joined by invite. Then the merged tree (this branch + PR #16)
+run with `PHOTOGRAPHIC_LLM=openai` and the embedding backfill, so the model line is a
+real OpenAI answer rather than a fixture.
+
+Suites: `apps/web` 92, `apps/rest` 112, `packages/db` 107 (+2 skipped), monorepo
+typecheck clean.
+
+### For whoever owns navigation
+
+The app keeps its scroll position across routes, so any link from far down a long screen
+lands mid-page with the heading off screen. Worked around inside this one link rather
+than fixed in the router, which is not this branch's to touch.
+
+### Known gap, not fixed here
+
+Nothing in sign-up ever asks a person their name, so `app.person.display_name` is null
+for every phone account and a shared room's members cannot be listed by name. "Kan läsas
+av Anna och Jacob" therefore degrades to "Kan läsas av alla 3 i Buyersclub Ledning" in
+production today. All-or-nothing on purpose: a list quietly missing the two members who
+never entered a name would understate who can read it.
+## observabilitet — larm som når en människa, och en bevisad återställning
+
+- **`@photographic/ops`** (nytt paket). Fem kontroller en gång per minut i processen, och
+  ett meddelande när en av dem *ändrar sig* — inte ett mätvärde till: reservläget
+  (minnesimplementation eller lokal disk i produktion), migrationsliggaren mot det schema
+  den påstår, jobbkön, exporter som hängt, och upprepade misslyckade utskick. Kanaler är
+  webhook (Slack/Discord/ntfy) och SMS över samma 46elks-konto som inloggningskoderna;
+  SMS bara för `critical`, en timmes cooldown, och ett meddelande när det löser sig.
+  `HEARTBEAT_URL` pingas på varje frisk körning och medvetet *inte* när en kritisk
+  kontroll faller — den enda larmvägen som fungerar när maskinen är borta. Variablerna
+  står i `scripts/deploy.md`.
+- **Migrationskontrollen litar inte på liggaren.** Varje rad prövas mot något migrationen
+  faktiskt skapade (`MIGRATION_ARTIFACTS`), för att `migrate.ts` stämplar alla filer som
+  körda när liggaren är tom och `app.person` finns — reproducerat: schemat stannade på
+  0004, liggaren fick elva rader, noll filer kördes, och eftersom köraren bara läser
+  liggaren rättas det aldrig. Ett test failar om en ny migration saknar artefakt.
+- **Återställning körd, inte antagen.** 2 202 minnen, 2 892 händelser, 401 förslag och 80
+  dokument (20,9 MB) skrivna genom produktens egna tjänster, säkerhetskopierade och
+  återställda till ett scratch-mål: `pg_dump -Fc` 0,4 s → 2,1 MB, `pg_restore` 6,8 s,
+  varje tabell och varje dokument identiskt (`pnpm --filter @photographic/ops
+  verify-restore`, som hämtar och hashar om varje dokument, inte bara räknar rader).
+  Samma läsvägar gav samma svar mot originalet och mot kopian.
+- **Två fällor mätta.** `pg_restore --data-only` mot ett migrerat schema återställer
+  *ingenting* — tabellerna laddas i bokstavsordning, så varje barntabell faller på sin
+  främmande nyckel innan `person` och `room` finns. Och Supabases säkerhetskopior
+  innehåller inte Storage, bara metadata om objekten, så dokumenten behöver en egen kopia.
+
+### dokumentarkivet — den halva Supabase inte säkerhetskopierar
+
+Supabases egen dokumentation säger att deras säkerhetskopior **inte** innehåller objekt som
+lagras via Storage-API:t; databasen innehåller bara metadata om dem. Alltså: minnen,
+händelser, rum och förslag kommer tillbaka från en daglig kopia, och de uppladdade
+originalen kommer inte tillbaka alls. Det var den enda delen av en persons minne som inte
+gick att återställa, och asymmetrin syns inte utifrån.
+
+- **`backup-documents`** går igenom `app.document` i stället för att lista bucketen, så den
+  kan inte hoppa över en fil produkten fortfarande refererar. Varje objekt prövas mot sin
+  egen nyckel på vägen (nyckeln *är* innehållets sha256); ett objekt som inte stämmer
+  rapporteras och kopieras medvetet **inte** — att arkivera det under originalets namn
+  skulle göra ett upptäckbart fel permanent. Inkrementell: andra körningen kopierar noll.
+- **`assertOffSite`** vägrar de två konfigurationer som ser ut som en säkerhetskopia och
+  inte är det: en bucket i samma Supabase-projekt (raderas med projektet) och en katalog på
+  Fly-maskinen (byts vid varje deploy).
+- **Schemat ligger i `.github/workflows/document-archive.yml`**, alltså utanför både
+  Supabase-projektet och Fly-maskinen. Nattligt inkrementellt, veckovis omhashning av hela
+  arkivet. Tre oberoende sätt att märka att det slutat: GitHub mejlar vid misslyckad
+  schemalagd körning, jobbet pingar `BACKUP_HEARTBEAT_URL` bara vid en ren körning, och
+  API:t läser själv manifestets ålder.
+- **`document_backup`** är den sjunde kontrollen: ingen kopia alls, en kopia som slutat
+  röra sig, ett färskt manifest över ett arkiv som saknar objekt, och ett original som
+  försvunnit ur Storage — med besked om det går att hämta tillbaka eller inte.
+- **`restore-documents`** skriver tillbaka genom produktens egen `BlobStore`, alltså genom
+  Storage-API:t som återskapar metadatan i `storage.objects`, och avslutar med att verifiera
+  varje rad mot lagringen.
+- **Övat:** 80 dokument (20,9 MB) kopierade i 0,6 s, hela bucketen raderad, allt återställt i
+  0,4 s, verifiering 80/80 utan saknade eller skadade, `avtal-78.txt` serverad igen av
+  produkten med samma sha256 som före raderingen, och jämförelsen mot produktionsavtrycket
+  `identical: true`.
+- **`scripts/restore-database.sh`** gör den uppmätta fällan onåbar i stället för varnad för:
+  `pg_restore --data-only` mot ett migrerat schema återställer *ingenting*. Skriptet väljer
+  flaggorna, vägrar ett mål som redan har minnen utan `--into-existing`, vägrar produktion
+  utan uttryckligt medgivande, och avslutar med fel om resultatet är tomt eller om liggaren
+  påstår migreringar som schemat saknar (verifierat: avslutskod 66, 70 och 71).
+## Export, radering och tre front-end-luckor från granskningarna
+
+- **web** — Export och kontoradering hade **ingen anropare**. Båda var byggda, testade och
+  `firstPartyOnly`-grindade utan att någon skärm kunde trycka på dem, så de två löftena som
+  gör en minnesprodukt värd att lita på — att man kan ta med sig sitt minne och att man kan
+  lämna på riktigt — gällde API:et men inte produkten. De ligger nu bakom en `Konto`-plats i
+  railen:
+
+  - `/konto/export` (`Ta med ditt minne`) säger **vad arkivet innehåller innan man begär
+    det**: hela det privata rummet, personens egna bidrag i delade rum men *inte* de andras
+    anteckningar, rummens metadata, dokumenten i original, plus `README.md` och
+    `manifest.json` med sha256 per fil. Räckvidden är ett beslut (`EXPORT.md` beslut 1), inte
+    en detalj, så den står på skärmen. Jobbet köas, skärmen pollar var femte sekund medan
+    bakgrundssvepet bygger arkivet, och nedladdningslänken mintas när personen ber om den.
+    Inga påhittade nollor medan jobbet inte har körts — "0 händelser" läses som ett tomt
+    minne, vilket är det enda en export aldrig får antyda.
+  - `/konto/radera` (`Radera konto`) **hämtar samtyckestexten från API:et** i stället för att
+    skriva om den, så det en person läser innan hen raderar inte kan glida från det inbjudan
+    lovade. Inget är förvalt, i båda valen. Bekräftelsen säger rakt ut det man annars antar
+    fel: **papperskorgens 30 dagar gäller enskilda minnen, inte ett raderat konto.** Den
+    omedelbara vägen kräver den skrivna frasen som servern validerar
+    (`IMMEDIATE_CONFIRMATION`), och kvittot säger hur många anslutna AI:er som kopplades bort.
+
+- **web** — Papperskorg, Historik och Kompass **var redan nåbara** via fotlänkarna på
+  startskärmen (`App.tsx` beskriver det som ett medvetet val). En tidigare granskning hade
+  fel om det, och ingen andra navigation byggdes. Vad som saknades var skyddsnätet **i det
+  ögonblick det betyder något**: en borttagen rad säger nu "Ligger i papperskorgen i 30
+  dagar" och länkar dit, i stället för att den kunskapen ska hittas en vecka senare.
+
+- **web** — Delade rummens aktivitetsflöde läste `DEMO_ACTIVITY[room.id]` **utan
+  flaggkontroll**. Fixturerna nycklas på slug och ett riktigt `room.id` är en UUID, så
+  uppslaget missade alltid: varje verkligt rum rapporterade "Ingen aktivitet ännu" för alltid.
+  Flödet läser nu rummets egen historik ur event-loggen (`GET /v1/history?room=…&limit=12`),
+  och ett tomt flöde betyder en tom logg. Ett trasigt anrop kostar inte rummet.
+
+- **web/onboarding** — Det fanns **två inbjudningsskärmar**. Alla genererade länkar pekar på
+  `/invite/:token` i auth-appen, som registrerar personen och accepterar inbjudan; kopian på
+  `/i/:token` i produktappen satte bara React-state och gick med i ingenting. Kopian är
+  borttagen (skärm, route, `api/invites.ts`, mappare, fixturer och CSS), `/i/:token` är en
+  302 till den riktiga, och den kvarvarande skärmen bär nu **vem, vad och vad som stannar
+  kvar ovanför knappen**: vem som bjuder in, att rummet är delat, att man får ett eget privat
+  rum, och att det man skriver i rummet stannar där även om man lämnar det. Mätt: allt det
+  plus `Gå med` och hela `SHARED_ROOM_CONSENT` ligger inom första vyn på 320×640 och uppåt.
+
+- **onboarding** — `/start` är en publik sida för apex-värdnamnet, som idag servar
+  ingenting. Plain svenska, en väg in för den som redan har konto (`Logga in`), och
+  ingenting som inte är byggt: ingen röst, inga sammanfattningar, och den säger uttryckligen
+  att nya konton inte är öppna för alla och att svenska mobilnummer är enda vägen in.
+  **Routningen av apex är inte gjord här** — den ägs av deploy-spåret. Det som behövs:
+  `A`/`AAAA` för `photographic.space` mot Fly, plus antingen en redirect till
+  `https://mcp.photographic.space/start` eller en värdbaserad regel som låter apex `/` servera
+  auth-appens shell i stället för produktappens.
+
+- **web** — Layouten är **mätt, inte ögonmätt**, på 320×640, 360×640, 390×664, 414×736 och
+  744×420 (kort landskap), över alla 13 inloggade skärmar plus `/start` och inbjudan: sidled
+  scroll, element utanför skärmen, avkapade tabbaretiketter, innehåll under den fasta
+  tabbaren, träffytor under 40px och sektioner utan luft. Två riktiga fel hittades och är
+  lagade: `.ask-form__input` saknade `min-width: 0`, så `Sök` på `/fraga` låg 53px (320px) och
+  13px (360px) utanför skärmen och gav sidled scroll; och `Dokument` på startskärmen låg
+  tätt intill sista minneskortet eftersom `.sections` är en flex-kolumn med egen gap och
+  syskonreglerna därför inte gällde. Kalenderns mobillayout rördes inte — den är mätt och
+  korrekt sedan tidigare. Efter fixarna: 75 kombinationer, noll problem.
+
+  Verifierat i en riktig webbläsare mot ett riktigt konto (telefonsignup, kod ur loggen,
+  `VITE_USE_DEMO=0`, Postgres): 17 kontroller, inklusive att en export verkligen byggs och
+  laddas ner som en zip med 19 händelser och 7 minnen ur just det kontots logg, att
+  papperskorgen visar det minne kontot självt tog bort, och att aktivitetsflödet visar
+  rummets egna händelser. Ingen radering slutfördes.
+
+  Kvar att veta: en telefonsignup sätter inget `display_name`, så en riktig inbjudan säger
+  "Du är inbjuden till ett delat rum" i stället för "Emil bjuder in dig". Skärmen hanterar
+  båda; att sätta namnet någonstans i flödet är ett produktbeslut, inte en bugg här.
+
+  Raderingsvägen är dessutom körd hela vägen **på ett engångskonto, aldrig Emils**: begäran
+  från skärmen → kvitto → `GET /v1/account/deletion` visar en pågående radering med
+  `executeAfter` 30 dagar fram och `contributions: keep` → `Avbryt raderingen` → `pending`
+  är `null` igen. Skärmbild av det pågående läget finns i `media/`.
+
+  En sak att veta för nästa körning: `pnpm test` med `DATABASE_URL` satt **nollställer den
+  delade lokala databasen** (flera sviter i `packages/db` och `apps/rest` gör det), så ett
+  verifieringskonto överlever inte en full testkörning. Skriptet som återskapar kontot ligger
+  utanför repot; ordningen är signup → minnen → delat rum → godkännanden → en borttagning →
+  inbjudan, och den behövs igen om någon vill upprepa verifieringen.
+
+### Två linterfynd i samma pass
+
+- **`[object Object]` i briefen, i båda implementationerna.** `String(payload['filename'] ??
+  'ett dokument')` gav `[object Object]` för varje `document.uploaded`-payload vars filnamn
+  inte var en sträng, och raden var identisk i `packages/db/src/services/projection.ts` och
+  `packages/services-memory/src/projection.ts`. Samma bugg två gånger är vad två kopior
+  producerar, så meningen bor nu på **ett** ställe: `briefEventLine` i
+  `packages/projection` (som var ett tomt skal med `export {}`), med sex tester varav ett
+  itererar över payloads som inte går att läsa. Ingenting tvingas till sträng längre — det
+  som inte är en sträng blir "ett dokument". Både `packages/db` och
+  `packages/services-memory` beror nu på `@photographic/projection`; det är två paket utanför
+  `apps/web`, och skälet är just att fixen annars hade blivit en tredje kopia.
+
+  Bevisat mot Postgres med **två riktiga medlemmar**: A laddade upp `offert-kok.txt` i ett
+  delat rum, B (registrerad via inbjudningslänken, alltså också ett bevis på att den
+  kvarvarande inbjudningsskärmens väg fungerar) läste `GET /v1/context?room=…` och fick
+  `- Någon laddade upp offert-kok.txt`, utan `[object Object]` någonstans i kontextpaketet.
+  ("Någon" därför att telefonsignup inte sätter `display_name` — samma sak som noteras ovan.)
+
+- **Villkorligt anropad hook.** `SharedRoom` returnerade `<Navigate>` före `useRoomData`, så
+  hooken anropades bara på vissa renders. Det failar inte högt; det failar som state som
+  matchas på anropsordning mot en tidigare render med en hook till. Omdirigeringarna ligger nu
+  i ett yttre skal och laddningen i `SharedRoomLoader`, samma mönster som
+  `DocumentsSection` redan använder. Den andra förekomsten låg i produktappens
+  `InvitePreview`, som är borttagen.
+
+- **Lintern körd mot branchen** i en separat worktree med [#19](https://github.com/emilhenriksson-jpg/aqanto-landing-page/pull/19):s
+  konfiguration ovanpå, i stället för att vänta på CI. Noll fynd i mina filer efter fixarna.
+  Två saker att veta för den som mergar: `no-floating-promises` är konfigurerad så att `void
+  promise` **inte** räcker, så klickhanterarna i de nya skärmarna avslutar med `.catch` som
+  faktiskt visar felet för personen; och min projektionsfix gör två `no-base-to-string`-
+  suppressions i `eslint-suppressions.json` obsoleta, så `pnpm lint:prune` ska köras när #19
+  och den här branchen möts. De två återstående fynden i `apps/rest/src/server.ts` är #19:s
+  egna — dess diff lagar dem, den här rör dem inte.

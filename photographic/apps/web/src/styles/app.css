@@ -37,6 +37,7 @@
 }
 
 .rail__link {
+  position: relative;
   width: 44px;
   height: 44px;
   border-radius: var(--radius-pill);
@@ -46,6 +47,28 @@
   transition:
     color var(--dur-base) var(--ease-spring),
     background var(--dur-base) var(--ease-spring);
+}
+
+/*
+ * The one count in the rail, and the only violet on it.
+ *
+ * Small on purpose. The rail already tells you where Godkänn is; the badge only has to
+ * say that the product is waiting for you, and a number that shouts would turn the
+ * calmest screen in the app into an inbox.
+ */
+.rail__badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  color: #fff;
+  font: 500 0.6875rem/18px var(--font-sans);
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--canvas);
 }
 
 .rail__link:hover {
@@ -158,6 +181,27 @@
   justify-content: space-between;
   gap: var(--space-12);
   animation: room-enter var(--dur-slow) var(--ease-spring) both;
+}
+
+/*
+ * The hero gives up some of its height when a decision is waiting.
+ *
+ * At its designed 78dvh the notice below it is entirely off the first viewport, and
+ * "impossible to miss" then rests on the rail badge alone. This is the one condition
+ * under which the room is not the most important thing on the screen, and it lasts
+ * exactly as long as the queue does.
+ */
+.hero--personal:has(+ .waiting) {
+  min-height: min(54dvh, 440px);
+  margin-bottom: var(--space-10);
+  gap: var(--space-8);
+}
+
+/* Further on a phone, where the notice is taller and the tab bar takes the last 60px. */
+@media (max-width: 720px) {
+  .hero--personal:has(+ .waiting) {
+    min-height: min(40dvh, 340px);
+  }
 }
 
 /* Brand sits high; identity rests at the floor — one composition, no secondary chrome. */
@@ -304,6 +348,16 @@
   margin-top: var(--space-16);
 }
 
+/*
+ * Measured on the start screen: `.sections` is a flex column with its own 64px gap, so a
+ * `.section-block` after it — Dokument, on the personal room — inherited no spacing from
+ * the sibling rules above and sat flush against the last memory card while every other
+ * section had 64px. `DESIGN.md` asks for 64–80px between major sections.
+ */
+.sections + .section-block {
+  margin-top: var(--space-16);
+}
+
 /* ----------------------------------------------------------------- cards */
 
 .card {
@@ -360,6 +414,56 @@
   margin-left: auto;
 }
 
+/*
+ * "Hur vet du det?" — quiet until asked.
+ *
+ * Same weight as Ta bort, because neither is the point of the row: the memory is. What
+ * matters is that the question can be asked here, where a person is already looking at
+ * the thing they are wondering about.
+ */
+.memory__why {
+  text-align: left;
+}
+
+.memory__proof {
+  padding: var(--space-4) 0 var(--space-1);
+  border-top: 1px solid var(--hairline);
+  animation: rise var(--dur-fast) var(--ease-spring) both;
+}
+
+.memory__proof .provenance__row {
+  grid-template-columns: 9.5rem 1fr;
+  gap: var(--space-3);
+}
+
+/*
+ * Stacked on a phone, which is the primary case here — a person asks where a memory came
+ * from while they are talking. The narrower label column above is an override of the
+ * shared `.provenance__row` rule and beat its own mobile collapse on specificity, which
+ * squeezed every answer into a 158px ribbon.
+ */
+@media (max-width: 720px) {
+  .memory__proof .provenance__row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}
+
+.memory__proof-more {
+  margin: var(--space-3) 0 0;
+}
+
+.memory__gone-text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.memory__gone-text a {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
 .chip {
   font: var(--type-meta);
   font-family: var(--font-mono);
@@ -392,6 +496,13 @@
   transition:
     transform var(--dur-fast) var(--ease-spring),
     box-shadow var(--dur-fast) var(--ease-spring);
+}
+
+/* A disabled control has to look disabled: both new account screens gate their action on
+   a choice being made, and a button that looks pressable but is not reads as a bug. */
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .btn--quiet {
@@ -450,10 +561,98 @@
   margin: 0;
 }
 
+.approval-card__audience {
+  font: var(--type-label);
+  letter-spacing: var(--track-body);
+  margin: 0;
+  color: var(--ink);
+}
+
+/* An answer that did not land has to look different from one that did. */
+.approval-card__failed {
+  font: var(--type-meta);
+  margin: 0;
+  color: var(--bad);
+}
+
 .approval-card__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+}
+
+/* ------------------------------------------------- a decision that is waiting */
+
+/*
+ * The notice that carries the queue onto the screens a person already visits.
+ *
+ * Brand-tinted rather than brand-filled: it is the product waiting for you, not an
+ * alarm. It appears only when something is actually pending and it has no dismiss —
+ * dismissing it would recreate the exact invisible queue it exists to end.
+ */
+.waiting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+  max-width: 36rem;
+  margin: 0 0 var(--space-12);
+  padding: var(--space-6);
+  background: var(--brand-soft);
+  box-shadow: none;
+  animation: rise var(--dur-base) var(--ease-spring) both;
+}
+
+.waiting__eyebrow {
+  margin: 0;
+  color: var(--brand);
+  text-transform: none;
+}
+
+.waiting__title {
+  font: var(--type-heading);
+  letter-spacing: var(--track-heading);
+  margin: 0;
+}
+
+.waiting__lead {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  margin: 0;
+}
+
+.waiting__quote {
+  font-style: italic;
+  font-weight: 500;
+}
+
+.waiting__why,
+.waiting__rest {
+  margin: 0;
+}
+
+.waiting__audience {
+  font: var(--type-label);
+  letter-spacing: var(--track-body);
+  margin: 0;
+  color: var(--ink);
+}
+
+/* The sentence the product was missing: what the silence has been costing. */
+.waiting__cost {
+  font: var(--type-label);
+  letter-spacing: var(--track-body);
+  margin: 0;
+  color: var(--ink);
+}
+
+.waiting__action {
+  margin-top: var(--space-2);
+  text-decoration: none;
 }
 
 /* --------------------------------------------------------- client health */
@@ -887,6 +1086,231 @@
   margin-top: var(--space-4);
 }
 
+/* ----------------------------------------------------------------- konto */
+
+/*
+ * The account screen is a list of destinations, so the rows are the whole design: one
+ * tap target per row, the name in body type, and a line of real detail under it. The
+ * detail is not decoration — "Papperskorg" cannot tell a person whether what their AI
+ * deleted this morning is still there, and "3 minnen ligger kvar" can.
+ */
+.konto-list {
+  max-width: 40rem;
+}
+
+.konto-row {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.konto-row:last-child {
+  border-bottom: 0;
+}
+
+.konto-row__link {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-5);
+  transition: background var(--dur-fast) var(--ease-spring);
+}
+
+.konto-row__link:hover {
+  background: color-mix(in srgb, var(--canvas) 55%, var(--surface));
+}
+
+.konto-row__title {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
+.konto-notice {
+  max-width: 40rem;
+  margin-bottom: var(--space-10);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--brand-soft);
+  font: var(--type-label);
+}
+
+.konto-notice a {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------- export */
+
+.export-facts {
+  max-width: 40rem;
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
+.export-note {
+  max-width: 40rem;
+  margin-top: var(--space-4);
+}
+
+.export-list {
+  max-width: 40rem;
+}
+
+.export-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.export-row:last-child {
+  border-bottom: 0;
+}
+
+.export-row .btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+.export-row__main {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.export-row__status {
+  font: var(--type-label);
+}
+
+.export-row__main a {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------- radera */
+
+.radera-first {
+  max-width: 40rem;
+  margin-bottom: var(--space-12);
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  color: var(--ink-muted);
+}
+
+.radera-first a {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.radera-help {
+  max-width: 40rem;
+  margin-bottom: var(--space-5);
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
+.radera-choices {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+  max-width: 40rem;
+}
+
+.radera-choices__legend {
+  font: var(--type-meta);
+  color: var(--ink-muted);
+  padding: 0 0 var(--space-3);
+}
+
+/* Brand-soft fill for the chosen option, the same quiet wayfinding the rail uses. */
+.radera-choice {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-spring);
+}
+
+.radera-choice--on {
+  background: var(--brand-soft);
+}
+
+.radera-choice__input {
+  margin: 3px 0 0;
+  accent-color: var(--brand);
+  flex: none;
+}
+
+.radera-choice__text {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.radera-choice__title {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
+.radera-panel {
+  max-width: 40rem;
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  margin-bottom: var(--space-10);
+  justify-items: start;
+}
+
+.radera-panel--confirm {
+  box-shadow: var(--shadow-lift);
+  animation: rise var(--dur-base) var(--ease-spring) both;
+}
+
+.radera-panel__body {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
+.radera-phrase {
+  display: grid;
+  gap: var(--space-2);
+  width: min(100%, 20rem);
+}
+
+.radera-phrase__label {
+  font: var(--type-label);
+}
+
+.radera-phrase__input {
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 10px 16px;
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+.radera-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.radera-continue {
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-10);
+}
+
+.radera-error {
+  max-width: 40rem;
+  margin-top: var(--space-4);
+}
+
 /* -------------------------------------------------------------- kalender */
 
 .day-nav {
@@ -1108,6 +1532,13 @@
 
 .ask-form__input {
   flex: 1;
+  /*
+   * A flex item will not shrink below its intrinsic width without this, and an `input`
+   * carries one from its default `size`. Measured at 320px and 360px — the two commonest
+   * narrow widths — the row pushed "Sök" 53px and 13px past the edge and gave the search
+   * screen a sideways scroll.
+   */
+  min-width: 0;
   border: 0;
   border-radius: var(--radius-pill);
   padding: 12px 20px;
@@ -1282,7 +1713,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .page,
-  .approval-card {
+  .approval-card,
+  .waiting,
+  .memory__proof {
     animation: none;
   }
 
@@ -1299,245 +1732,5 @@
   .room-card,
   .btn {
     transition: none;
-  }
-}
-
-/* --------------------------------------------------------------- invite */
-
-/*
- * Recipient landing — outside the shell rail. Full-bleed calm surface.
- * First viewport (invite__stage): Wordmark, title, brief, one violet CTA.
- * Memories sit below the fold so a 900px-tall desktop needs no scroll for join.
- */
-.invite {
-  min-height: 100dvh;
-  display: flex;
-  justify-content: center;
-  background:
-    radial-gradient(
-      90% 55% at 12% -8%,
-      color-mix(in srgb, var(--brand-soft) 70%, transparent) 0%,
-      transparent 58%
-    ),
-    radial-gradient(
-      60% 40% at 88% 8%,
-      color-mix(in srgb, var(--surface) 80%, var(--canvas)) 0%,
-      transparent 50%
-    ),
-    var(--canvas);
-}
-
-.invite__page {
-  width: 100%;
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 0 var(--space-6) var(--space-20);
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  animation: rise var(--dur-slow) var(--ease-spring) both;
-}
-
-.invite__page--joined {
-  min-height: 100dvh;
-  justify-content: center;
-  padding-top: var(--space-12);
-  padding-bottom: var(--space-20);
-  gap: var(--space-8);
-}
-
-/* One composition for the first viewport — brand, title, brief, CTA. */
-.invite__stage {
-  box-sizing: border-box;
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: var(--space-10);
-  padding: var(--space-12) 0 var(--space-16);
-}
-
-.invite__hero {
-  animation: room-enter var(--dur-slow) var(--ease-spring) both;
-}
-
-.invite__hero .wordmark {
-  margin-bottom: var(--space-8);
-}
-
-.invite__from {
-  margin: 0 0 var(--space-3);
-}
-
-.invite__title {
-  font: var(--type-display);
-  letter-spacing: var(--track-display);
-  font-size: clamp(1.625rem, 4vw, 2.125rem);
-  font-weight: 600;
-  margin: 0 0 var(--space-4);
-}
-
-.invite__brief {
-  color: var(--ink-muted);
-  max-width: 34rem;
-  margin: 0;
-  font: var(--type-body);
-  letter-spacing: var(--track-body);
-  line-height: 1.5;
-}
-
-.invite__content,
-.invite__empty {
-  margin-top: var(--space-4);
-  padding-bottom: var(--space-8);
-  animation: rise var(--dur-base) var(--ease-spring) both;
-  animation-delay: 40ms;
-}
-
-.invite__lines {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  background: var(--surface);
-  border-radius: var(--radius-xxl);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-
-.invite__line {
-  padding: var(--space-6);
-  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
-}
-
-.invite__line:last-child {
-  border-bottom: 0;
-}
-
-.invite__line-body {
-  font: var(--type-body);
-  letter-spacing: var(--track-body);
-  margin: 0;
-}
-
-.invite__empty {
-  margin-top: var(--space-4);
-}
-
-.invite__cta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 0;
-  animation: rise var(--dur-slow) var(--ease-spring) both;
-  animation-delay: 80ms;
-}
-
-/* Quiet, but present in the first viewport — the promise has to be read before the
-   button is pressed, not found afterwards in a settings screen. */
-.invite__consent {
-  max-width: 34rem;
-  line-height: 1.55;
-  text-wrap: pretty;
-}
-
-.invite__join {
-  min-width: 12rem;
-  padding: 14px 28px;
-  font-size: 0.9375rem;
-}
-
-.invite__join:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--brand-shadow), var(--shadow-lift);
-}
-
-.invite__confirm {
-  font: var(--type-heading);
-  letter-spacing: var(--track-heading);
-  color: var(--ink);
-  margin: 0;
-  animation: rise var(--dur-base) var(--ease-spring) both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .invite__page,
-  .invite__hero,
-  .invite__content,
-  .invite__cta,
-  .invite__confirm {
-    animation: none;
-    animation-delay: 0ms;
-  }
-
-  .invite__join:hover {
-    transform: none;
-  }
-}
-
-@media (max-width: 720px) {
-  .invite__page {
-    padding: 0 var(--space-4) var(--space-16);
-  }
-
-  .invite__stage {
-    gap: var(--space-8);
-    padding: var(--space-8) 0 var(--space-12);
-  }
-
-  .invite__hero .wordmark {
-    margin-bottom: var(--space-6);
-  }
-}
-
-/* Keep Gå med in the first viewport on narrow phones (browser chrome, short svh). */
-@media (max-width: 480px) {
-  .invite__page {
-    padding: 0 var(--space-4) var(--space-12);
-  }
-
-  .invite__stage {
-    /* svh = visible viewport while chrome is showing; CTA stays on-screen. */
-    min-height: 100vh;
-    min-height: 100svh;
-    justify-content: space-between;
-    gap: var(--space-6);
-    padding: max(var(--space-6), env(safe-area-inset-top, 0px)) 0
-      max(var(--space-8), env(safe-area-inset-bottom, 0px));
-  }
-
-  .invite__hero .wordmark {
-    margin-bottom: var(--space-4);
-  }
-
-  .invite__hero .wordmark--large {
-    font-size: 1.75rem;
-  }
-
-  .invite__hero .wordmark--large .wordmark__dot {
-    width: 36px;
-    height: 36px;
-  }
-
-  .invite__title {
-    font-size: 1.5rem;
-  }
-
-  .invite__cta {
-    flex-shrink: 0;
-  }
-
-  .invite__join {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .invite__page--joined {
-    min-height: 100vh;
-    min-height: 100svh;
-    padding-bottom: max(var(--space-12), env(safe-area-inset-bottom, 0px));
   }
 }

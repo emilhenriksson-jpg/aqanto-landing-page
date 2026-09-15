@@ -119,16 +119,6 @@ export interface ForgetResponse {
   daysRecoverable: number;
 }
 
-/** Public GET /v1/invites/:token — no auth, harder rate limit. */
-export interface InvitePreviewDto {
-  room: { title: string; description: string | null };
-  invitedByName: string | null;
-  /** Newline-separated memory bodies, capped server-side. */
-  preview: string | null;
-  role: string;
-  expiresAt: string;
-}
-
 /** GET /v1/clients — per-AI delivery lights. */
 export interface ClientHealthDto {
   agentClient: string;
@@ -145,15 +135,63 @@ export interface ClientHealthDto {
   revoked: boolean;
 }
 
+/**
+ * What accepting a proposal will actually do.
+ *
+ * Kept on the card rather than collapsed into "spara", because a request to share
+ * something with four people and a request to write one line into your own private
+ * memory are not the same decision and must not read the same.
+ */
+export type ProposalIntentDto = 'remember' | 'share' | 'update';
+
 /** GET /v1/memory/proposals — pending approval cards. */
 export interface ProposalDto {
   id: string;
   roomId: string;
+  intent: ProposalIntentDto;
   kind: string;
   body: string;
   reason: string;
   proposedByClient: string | null;
   createdAt: string;
+}
+
+/**
+ * Which model has seen this memory's own words.
+ *
+ * `external` is the one a person cares about: true means the text was sent to a third
+ * party to make it searchable by meaning. Null on the response means no vector was ever
+ * computed, and absent means this server predates the field — two different things, and
+ * neither of them is "no".
+ */
+export interface EmbeddingProvenanceDto {
+  provider: string;
+  model: string;
+  external: boolean;
+  at: string;
+}
+
+/**
+ * GET /v1/memory/:shortId/provenance — the answer to "hur vet du det om mig?" for one
+ * memory, rather than for one day in the calendar.
+ */
+export interface ProvenanceDto {
+  shortId: string;
+  body: string | null;
+  roomTitle: string;
+  savedAt: string;
+  savedByClient: string | null;
+  approvedByName: string | null;
+  /** Why it was stored where it was stored, in one sentence the router wrote. */
+  motivation: string | null;
+  /** Where the information came from before it was a memory. */
+  source: MemorySourceDto | null;
+  /** True once it has been corrected at least once. */
+  changed: boolean;
+  /** Optional: served once `0016_embedding_provenance` is deployed, null before a vector. */
+  embedding?: EmbeddingProvenanceDto | null;
+  /** Everything that has happened to this one memory, oldest first. */
+  timeline: HistoryEntryDto[];
 }
 
 /** GET /v1/trash — soft-deleted memories still recoverable. */
@@ -290,4 +328,66 @@ export interface HistoryEntryDto {
   actorName: string | null;
   wasApproved: boolean;
   redacted: boolean;
+}
+
+/**
+ * POST/GET /v1/export — a queued archive, never built inside a request.
+ *
+ * `counts` and `byteSizeLabel` are null until the job has run: the screen has to say
+ * "förbereds" rather than show a zero, because a zero reads as "your memory is empty".
+ */
+export interface ExportJobDto {
+  id: string;
+  scope: 'own' | 'rooms';
+  status: 'pending' | 'running' | 'ready' | 'failed' | 'expired';
+  byteSize: number | null;
+  byteSizeLabel: string | null;
+  counts: { events: number | null; items: number | null; documents: number | null };
+  requestedAt: string;
+  finishedAt: string | null;
+  expiresAt: string;
+  error: string | null;
+}
+
+/** POST /v1/export/:exportId/link — a signed download URL, minted when asked for. */
+export interface ExportLinkDto {
+  url: string;
+  expiresAt: string;
+}
+
+/**
+ * GET /v1/account/deletion — the state, and the copy the person must read first.
+ *
+ * The wording is served rather than written in the screen so that what a person reads
+ * before deleting their account cannot drift from what the invite promised them.
+ */
+export interface DeletionStateDto {
+  pending: {
+    id: string;
+    immediate: boolean;
+    contributions: 'keep' | 'remove';
+    requestedAt: string;
+    executeAfter: string;
+    daysRemaining: number;
+  } | null;
+  freezeDays: number;
+  copy: {
+    freeze: string;
+    immediate: string;
+    sharedRooms: string;
+    removeContributions: string;
+  };
+}
+
+/** POST /v1/account/deletion — the receipt, including how many clients were cut off. */
+export interface DeletionReceiptDto {
+  deletion: {
+    id: string;
+    immediate: boolean;
+    contributions: 'keep' | 'remove';
+    executeAfter: string;
+  };
+  clientsDisconnected: number;
+  notice: string;
+  sharedRooms: string;
 }
