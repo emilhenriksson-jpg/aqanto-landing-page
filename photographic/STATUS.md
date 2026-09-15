@@ -1129,3 +1129,40 @@ against; flagged rather than assumed working.
   *ingenting* — tabellerna laddas i bokstavsordning, så varje barntabell faller på sin
   främmande nyckel innan `person` och `room` finns. Och Supabases säkerhetskopior
   innehåller inte Storage, bara metadata om objekten, så dokumenten behöver en egen kopia.
+
+### dokumentarkivet — den halva Supabase inte säkerhetskopierar
+
+Supabases egen dokumentation säger att deras säkerhetskopior **inte** innehåller objekt som
+lagras via Storage-API:t; databasen innehåller bara metadata om dem. Alltså: minnen,
+händelser, rum och förslag kommer tillbaka från en daglig kopia, och de uppladdade
+originalen kommer inte tillbaka alls. Det var den enda delen av en persons minne som inte
+gick att återställa, och asymmetrin syns inte utifrån.
+
+- **`backup-documents`** går igenom `app.document` i stället för att lista bucketen, så den
+  kan inte hoppa över en fil produkten fortfarande refererar. Varje objekt prövas mot sin
+  egen nyckel på vägen (nyckeln *är* innehållets sha256); ett objekt som inte stämmer
+  rapporteras och kopieras medvetet **inte** — att arkivera det under originalets namn
+  skulle göra ett upptäckbart fel permanent. Inkrementell: andra körningen kopierar noll.
+- **`assertOffSite`** vägrar de två konfigurationer som ser ut som en säkerhetskopia och
+  inte är det: en bucket i samma Supabase-projekt (raderas med projektet) och en katalog på
+  Fly-maskinen (byts vid varje deploy).
+- **Schemat ligger i `.github/workflows/document-archive.yml`**, alltså utanför både
+  Supabase-projektet och Fly-maskinen. Nattligt inkrementellt, veckovis omhashning av hela
+  arkivet. Tre oberoende sätt att märka att det slutat: GitHub mejlar vid misslyckad
+  schemalagd körning, jobbet pingar `BACKUP_HEARTBEAT_URL` bara vid en ren körning, och
+  API:t läser själv manifestets ålder.
+- **`document_backup`** är den sjunde kontrollen: ingen kopia alls, en kopia som slutat
+  röra sig, ett färskt manifest över ett arkiv som saknar objekt, och ett original som
+  försvunnit ur Storage — med besked om det går att hämta tillbaka eller inte.
+- **`restore-documents`** skriver tillbaka genom produktens egen `BlobStore`, alltså genom
+  Storage-API:t som återskapar metadatan i `storage.objects`, och avslutar med att verifiera
+  varje rad mot lagringen.
+- **Övat:** 80 dokument (20,9 MB) kopierade i 0,6 s, hela bucketen raderad, allt återställt i
+  0,4 s, verifiering 80/80 utan saknade eller skadade, `avtal-78.txt` serverad igen av
+  produkten med samma sha256 som före raderingen, och jämförelsen mot produktionsavtrycket
+  `identical: true`.
+- **`scripts/restore-database.sh`** gör den uppmätta fällan onåbar i stället för varnad för:
+  `pg_restore --data-only` mot ett migrerat schema återställer *ingenting*. Skriptet väljer
+  flaggorna, vägrar ett mål som redan har minnen utan `--into-existing`, vägrar produktion
+  utan uttryckligt medgivande, och avslutar med fel om resultatet är tomt eller om liggaren
+  påstår migreringar som schemat saknar (verifierat: avslutskod 66, 70 och 71).

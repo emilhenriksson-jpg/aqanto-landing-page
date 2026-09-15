@@ -168,6 +168,10 @@ of it goes to the log, which is the state we were already in.
 fly secrets set ALERT_WEBHOOK_URL='https://hooks.slack.com/services/...'   # or Discord, ntfy
 fly secrets set ALERT_SMS_TO='+467...'      # criticals only; reuses the 46elks sign-up credentials
 fly secrets set HEARTBEAT_URL='https://hc-ping.com/<uuid>'                 # dead-man's switch
+# And so the process can tell whether the documents have an off-site copy at all:
+fly secrets set DOCUMENT_ARCHIVE_S3_BASE_URL='https://<account>.r2.cloudflarestorage.com/photographic-dokumentarkiv' \
+                DOCUMENT_ARCHIVE_S3_ACCESS_KEY_ID='...' \
+                DOCUMENT_ARCHIVE_S3_SECRET_ACCESS_KEY='...'
 ```
 
 | Variable | Default | What it does |
@@ -180,6 +184,8 @@ fly secrets set HEARTBEAT_URL='https://hc-ping.com/<uuid>'                 # dea
 | `ALERT_COOLDOWN_MINUTES` | `60` | How often a still-failing check is repeated. Fires immediately on the change, then hourly, plus one message when it recovers. |
 | `WATCHDOG_INTERVAL_SECONDS` | `60` | |
 | `HEARTBEAT_URL` | unset | Pinged on every healthy pass and deliberately **not** pinged while a critical check fails. This is the only alarm that can fire when the machine is gone, which is the failure a one-machine deploy is most exposed to. |
+| `DOCUMENT_ARCHIVE_S3_*` | unset | The off-site copy of the document originals — see the next section. Read here so the `document_backup` check can tell whether the copy is fresh and complete. Refuses at boot if pointed at the same Supabase project. |
+| `DOCUMENT_ARCHIVE_MAX_AGE_HOURS` | `26` | How stale that copy may be before the alarm fires. |
 
 Two boot log lines say whether any of it is live: `alerting_selected` names the channels,
 and `alerting_not_configured` / `heartbeat_not_configured` are warnings in production.
@@ -191,31 +197,64 @@ fly ssh console -C 'pnpm --filter @photographic/ops check -- --send --test'
 fly ssh console -C 'pnpm --filter @photographic/ops check'   # one pass, JSON, exit 1 if failing
 ```
 
-### Restoring: what is proven and the two traps
+### The document archive: the half Supabase does not back up
 
-The full runbook is `docs/recovery.md` in the project notes. The parts that belong beside
-the code:
+Supabase's own documentation is explicit that "database backups do not include objects you
+store via the Storage API, as the database only includes metadata about these objects." So
+the daily backup covers memories, events, rooms and proposals, and covers **none** of the
+uploaded files. Without the archive below, the documents are the one part of a person's
+memory that cannot be recovered while everything around them can.
 
-- **Supabase's backups do not include Storage.** Their own documentation is explicit:
-  the database keeps only metadata about objects. So the daily backup covers memories and
-  not document originals, and the bucket needs its own copy — `aws s3 sync` against the
-  project's S3 endpoint, or `supabase storage cp -r`.
-- **Verify a restore, do not eyeball it.** `pnpm --filter @photographic/ops verify-restore`
-  fingerprints a memory — per-table digests, event-log continuity, and every document's
-  bytes re-fetched and re-hashed — and diffs two fingerprints. Read-only, safe against
-  production, which is where the baseline has to come from:
-  ```bash
-  DATABASE_URL=<prod>    pnpm --filter @photographic/ops verify-restore -- --out /tmp/before.json
-  DATABASE_URL=<scratch> pnpm --filter @photographic/ops verify-restore -- --baseline /tmp/before.json
-  ```
-- **`pg_restore --data-only` into a migrated database restores nothing.** Measured: tables
-  load alphabetically, so every child table fails its foreign key before `person` and
-  `room` arrive, and the result is an empty schema and exit code 1 after a wall of errors
-  that reads like noise. Restore into an *empty* database, or pass `--disable-triggers`.
-- **An empty migration ledger beside an existing `app.person` makes the schema permanently
-  wrong.** `migrate.ts` stamps all eleven files as applied without running any of them;
-  since the runner only ever consults the ledger, nothing will fix it later. Reproduced,
-  and it is what the `migrations` check exists to catch.
+```bash
+# One-off: a bucket at a provider that is not Supabase and not Fly (R2 here).
+# Scope the credential to that bucket, and prefer one that cannot delete — this job never
+# needs to, and a key that cannot delete cannot be used to erase the backup too.
+
+pnpm --filter @photographic/ops backup-documents              # incremental
+pnpm --filter @photographic/ops backup-documents -- --verify   # re-fetch and re-hash all of it
+pnpm --filter @photographic/ops backup-documents -- --dry-run
+pnpm --filter @photographic/ops restore-documents              # put back what Storage is missing
+```
+
+`.github/workflows/document-archive.yml` runs it nightly and re-hashes everything weekly,
+from GitHub's runners rather than the Fly machine — a backup must not depend on the health
+of the thing it protects. Three independent things keep a stopped backup visible: GitHub
+emails on a failed scheduled workflow, the job pings `BACKUP_HEARTBEAT_URL` only on a clean
+run, and the API's own `document_backup` check alerts when the archive's manifest stops
+moving, which survives the workflow being disabled.
+
+The backup walks `app.document` rather than listing the bucket, so it cannot omit a file the
+product still references, and it verifies every object against its own key — the keys *are*
+SHA-256 of the contents. An object whose bytes do not match is reported and deliberately not
+copied.
+
+### Restoring: use the script, because one of the traps is unsurvivable
+
+```bash
+pg_dump "$DATABASE_URL" -Fc --schema=app -f /tmp/app.dump
+createdb photographic_scratch
+TARGET_DATABASE_URL=postgres://…/photographic_scratch ./scripts/restore-database.sh /tmp/app.dump
+```
+
+`scripts/restore-database.sh` exists because `pg_restore --data-only` into a database that
+already has the schema restores **nothing** — tables load alphabetically, so every child
+table fails its foreign key before `person` and `room` arrive, and what you get is an empty
+database behind a wall of errors that reads like noise. The script never produces that
+combination, refuses a target that already holds memories unless you pass `--into-existing`,
+refuses production unless you say so in the environment, and fails if the result is empty or
+if the migration ledger claims migrations the schema does not have. That last state — an
+empty ledger beside an existing `app.person`, which makes `migrate.ts` stamp all eleven files
+as applied without running any — is the only one that can never repair itself, because the
+runner only ever reads the ledger.
+
+**Then verify, do not eyeball.** `verify-restore` fingerprints a memory — per-table digests,
+event-log continuity, and every document's bytes re-fetched and re-hashed — and diffs two
+fingerprints. Read-only, so the baseline can come from production:
+
+```bash
+DATABASE_URL=<prod>    pnpm --filter @photographic/ops verify-restore -- --out /tmp/before.json
+DATABASE_URL=<scratch> pnpm --filter @photographic/ops verify-restore -- --baseline /tmp/before.json
+```
 
 ### What this still needs from the platform track
 
