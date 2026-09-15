@@ -26,6 +26,7 @@ import {
   serialiseDispute,
   serialiseItem,
   serialiseProposal,
+  serialiseRouting,
   serialiseSearchHit,
 } from '../serialise.js';
 import { parseJsonBody, parseParams, parseQuery } from '../validation.js';
@@ -57,10 +58,14 @@ export function memoryRoutes(): Hono<AppEnv> {
   routes.post('/memory', async (c) => {
     const actor = getActor(c);
     const input = await parseJsonBody(c, rememberSchema);
-    const roomId = await resolveRoom(c, actor, input);
+
+    // Only resolved when the caller actually named somewhere. Naming nothing no longer
+    // means "the personal room" — it means Photographic decides, and says why.
+    const roomId =
+      input.roomId || input.room ? await resolveRoom(c, actor, input) : undefined;
 
     const decision = await getServices(c).ingest.remember(actor, {
-      roomId,
+      ...(roomId ? { roomId } : {}),
       body: input.body,
       ...(input.kind ? { kind: input.kind } : {}),
       ...(input.sensitivity ? { sensitivity: input.sensitivity } : {}),
@@ -70,13 +75,24 @@ export function memoryRoutes(): Hono<AppEnv> {
 
     switch (decision.outcome) {
       case 'auto':
-        return c.json({ outcome: 'auto', item: serialiseItem(decision.item) }, 201);
+        return c.json(
+          {
+            outcome: 'auto',
+            item: serialiseItem(decision.item),
+            ...(decision.routing ? { routing: serialiseRouting(decision.routing) } : {}),
+          },
+          201,
+        );
 
       case 'needs_approval':
         // 202: accepted, not yet done. The model is meant to tell the person it is
         // asking rather than report a save that has not happened.
         return c.json(
-          { outcome: 'needs_approval', proposal: serialiseProposal(decision.proposal) },
+          {
+            outcome: 'needs_approval',
+            proposal: serialiseProposal(decision.proposal),
+            ...(decision.routing ? { routing: serialiseRouting(decision.routing) } : {}),
+          },
           202,
         );
 

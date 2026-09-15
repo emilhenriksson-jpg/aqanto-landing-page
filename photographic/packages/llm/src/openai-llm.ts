@@ -16,6 +16,11 @@ import {
   clampToBudget,
   COMPARE_SCHEMA,
   COMPARE_SCHEMA_NAME,
+  PLACEMENT_SCHEMA,
+  PLACEMENT_SCHEMA_NAME,
+  PLACEMENT_SYSTEM_PROMPT,
+  buildPlacementUserMessage,
+  parsePlacement,
   COMPARE_SYSTEM_PROMPT,
   EXTRACT_SYSTEM_PROMPT,
   FACTS_SCHEMA,
@@ -186,6 +191,30 @@ export class OpenAiLlm implements LlmPort {
     });
 
     return parseCompare(raw);
+  }
+
+  /**
+   * Confirms or rejects a shortlisted room. It cannot choose one — see `RoutingDeps`.
+   *
+   * Every failure path lands on `belongs: false`, which keeps the memory private. That is
+   * the one direction where being wrong costs nothing that cannot be undone in a click.
+   */
+  async confirmPlacement(input: {
+    text: string;
+    roomTitle: string;
+    roomHeadline: string;
+  }): Promise<{ belongs: boolean; because?: string }> {
+    try {
+      const raw = await this.json({
+        system: PLACEMENT_SYSTEM_PROMPT,
+        user: buildPlacementUserMessage(input),
+        schemaName: PLACEMENT_SCHEMA_NAME,
+        schema: PLACEMENT_SCHEMA,
+      });
+      return parsePlacement(raw);
+    } catch {
+      return { belongs: false };
+    }
   }
 
   async summarise(input: {

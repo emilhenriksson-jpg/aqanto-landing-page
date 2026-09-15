@@ -49,6 +49,7 @@ import type {
   Transport,
   TrashEntry,
 } from './domain.js';
+import type { RoutingDecision } from './routing.js';
 
 /**
  * Who is acting, resolved from an OAuth token before any port is called.
@@ -218,8 +219,8 @@ export interface InvitePort {
  *  - `duplicate`       already known. Bumps salience instead of adding a row.
  */
 export type WriteDecision =
-  | { outcome: 'auto'; item: Item }
-  | { outcome: 'needs_approval'; proposal: Proposal }
+  | { outcome: 'auto'; item: Item; routing?: RoutingDecision }
+  | { outcome: 'needs_approval'; proposal: Proposal; routing?: RoutingDecision }
   | { outcome: 'duplicate'; existing: Item };
 
 /**
@@ -260,10 +261,21 @@ export interface WriteProvenance {
 }
 
 export interface IngestPort {
+  /**
+   * The write path.
+   *
+   * `roomId` is optional, and leaving it out is the interesting case: it means nobody
+   * named a room, so Photographic decides where the memory belongs and records why. That
+   * used to default silently to the personal room, which made "the system decides where
+   * it goes" untrue in the only case where it mattered. See `routeMemory`.
+   *
+   * Routing picks a target; it does not decide whether the write lands. A routed room
+   * still meets the same approval gate a hand-named one would.
+   */
   remember(
     actor: Actor,
     input: {
-      roomId: RoomId;
+      roomId?: RoomId;
       body: string;
       kind?: ItemKind;
       sensitivity?: 'normal' | 'sensitive';
@@ -647,6 +659,25 @@ export interface LlmPort {
 
   /** Decides whether a candidate restates, contradicts or is unrelated to an existing item. */
   compare(a: string, b: string): Promise<'same' | 'contradicts' | 'unrelated'>;
+
+  /**
+   * Confirms or rejects a room the router already shortlisted. Never proposes one.
+   *
+   * Optional on purpose, and the asymmetry is the point. The shortlist is computed from
+   * text without a model, so routing works identically against the deterministic fake, an
+   * unconfigured process and a provider outage — the feature is not invisible in the
+   * environment it is tested in. When a model is available it can only make the outcome
+   * *more* private, which means neither an outage nor a model talked into something by a
+   * document it read can cause a memory to reach people it should not.
+   *
+   * `because` is shown to the person as the reason their memory stayed private, so it is
+   * a short Swedish sentence rather than a debug string.
+   */
+  confirmPlacement?(input: {
+    text: string;
+    roomTitle: string;
+    roomHeadline: string;
+  }): Promise<{ belongs: boolean; because?: string }>;
 
   /**
    * Compresses text for a model to read later.

@@ -87,6 +87,34 @@ export const AUTO_WRITE_MAX_CHARS = 240;
 export const APPROVAL_REQUIRED_SENSITIVITY: readonly Sensitivity[] = ['sensitive', 'local_only'];
 
 /**
+ * How strong a match has to be before a memory is routed to a room at all.
+ *
+ * A fraction of the memory's own distinctive words that the room accounts for. Low enough
+ * that "Peab har offererat 340 000 kr för köket" finds the renovation room, high enough
+ * that one shared word does not.
+ *
+ * Getting this wrong is not symmetric, which is why it sits nearer the cautious end. Too
+ * high and a memory lands privately when it belonged in a room: mildly annoying, fixed by
+ * moving it. Too low and the person is asked about a room that has nothing to do with it,
+ * which teaches them to clear the queue without reading — and a queue nobody reads is the
+ * failure mode that makes every other safeguard here decorative.
+ */
+export const ROUTING_MIN_SCORE = 0.34;
+
+/**
+ * How far ahead of the runner-up the winner has to be.
+ *
+ * Two rooms that match about equally well is not a close call to be settled by arithmetic;
+ * it is a question. The same reasoning the trust model applies to resolving a spoken room
+ * name: several matches means ask, because writing into the wrong shared room is the
+ * expensive direction of a cheap mistake.
+ */
+export const ROUTING_MIN_MARGIN = 0.12;
+
+/** How many of a room's own memories the router reads to work out what it is about. */
+export const ROUTING_SAMPLE_SIZE = 12;
+
+/**
  * Kinds that always require explicit human approval regardless of everything else.
  *
  * An instruction changes the behaviour of every connected model simultaneously, so its

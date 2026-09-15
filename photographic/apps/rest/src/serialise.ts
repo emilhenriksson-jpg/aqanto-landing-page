@@ -27,6 +27,7 @@ import type {
   Proposal,
   Room,
   RoomSummary,
+  RoutingDecision,
   SearchHit,
   TrashEntry,
 } from '@photographic/core';
@@ -89,6 +90,25 @@ export function serialiseProposal(proposal: Proposal) {
     reason: proposal.reason,
     proposedByClient: proposal.proposedByClient,
     createdAt: proposal.createdAt.toISOString(),
+  };
+}
+
+/**
+ * Where Photographic decided a memory belonged, and why.
+ *
+ * `considered` is included on purpose: a person who disagrees with a placement should be
+ * able to see that it was a ranking rather than a shrug, and a placement that cannot be
+ * argued with is one nobody trusts.
+ */
+export function serialiseRouting(routing: RoutingDecision) {
+  return {
+    placement: routing.placement,
+    roomId: routing.roomId,
+    roomTitle: routing.roomTitle,
+    motivation: routing.motivation,
+    uncertainty: routing.uncertainty,
+    reachesOtherPeople: routing.reachesOtherPeople,
+    considered: routing.considered,
   };
 }
 

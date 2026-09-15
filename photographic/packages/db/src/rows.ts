@@ -309,6 +309,7 @@ export interface ProposalRow {
   kind: ItemKind;
   body: string;
   reason: string;
+  motivation: string | null;
   conflicts_with: string | null;
   source_item: string | null;
   proposed_by_client: AgentClient | null;
@@ -316,7 +317,7 @@ export interface ProposalRow {
   created_at: Date;
 }
 
-export const PROPOSAL_COLUMNS = `id, room_id, person_id, intent, kind, body, reason,
+export const PROPOSAL_COLUMNS = `id, room_id, person_id, intent, kind, body, reason, motivation,
   conflicts_with, source_item, proposed_by_client, status, created_at`;
 
 export function mapProposal(row: ProposalRow): Proposal {
@@ -328,6 +329,7 @@ export function mapProposal(row: ProposalRow): Proposal {
     kind: row.kind,
     body: row.body,
     reason: row.reason,
+    motivation: row.motivation,
     conflictsWith: row.conflicts_with as ItemId | null,
     sourceItemId: row.source_item as ItemId | null,
     proposedByClient: row.proposed_by_client,

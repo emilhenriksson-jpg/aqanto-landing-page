@@ -460,6 +460,154 @@ describe('two members who disagree', () => {
   });
 });
 
+/**
+ * Automatic routing: Photographic decides where a memory belongs when nobody said.
+ *
+ * The three properties worth an end-to-end test are the ones that would be catastrophic
+ * rather than annoying if they broke — nothing reaches a shared room on its own, the
+ * reason is recorded in the log at the moment of the decision, and uncertainty resolves
+ * towards private.
+ */
+describe('deciding where a memory belongs', () => {
+  const email = `routing-${randomUUID()}@example.com`;
+
+  itWhenWired('keeps something about the person private, and says why in Swedish', async () => {
+    const person = await harness.registerPerson(email, 'Emil');
+    const actor = harness.actorFor(person.person, 'claude-desktop');
+
+    // No room named. This used to mean "the personal room" by default; now it means
+    // Photographic decides.
+    const decision = await harness.services.ingest.remember(actor, {
+      body: 'Allergisk mot skaldjur',
+    });
+
+    expect(decision.outcome).toBe('auto');
+    expect(decision.routing.placement).toBe('private');
+
+    const personal = await harness.services.identity.personalRoomOf(actor.personId);
+    expect(decision.item.roomId).toBe(personal.id);
+
+    // Recorded at decision time, in the log, phrased for a person — not reconstructed
+    // later from a room list that has since changed.
+    const day = await harness.services.calendar.day(actor, { date: today() });
+    const saved = day.entries.find(
+      (entry: { body: string | null }) => entry.body === 'Allergisk mot skaldjur',
+    );
+    expect(saved.provenance.motivation).toBe('Sparat privat eftersom det handlar om dig.');
+  });
+
+  itWhenWired('finds the room a memory is plainly about — and still asks first', async () => {
+    const actor = await harness.actorForEmail(email, 'claude-desktop');
+    const room = await harness.services.rooms.create(actor, { title: 'Villan' });
+    await harness.services.rooms.describe(
+      actor,
+      room.id,
+      'Renovering av villan: offerter, hantverkare och tidplan',
+    );
+
+    // A room earns its subject matter. An empty room with one line of description is
+    // genuinely weak evidence, and the router treating it as weak is the correct
+    // behaviour — so this puts something in the room first, the way a real one fills up.
+    await harness.saveIntoRoom(actor, {
+      roomId: room.id,
+      body: 'Renoveringen av köket börjar i mars',
+      kind: 'note',
+    });
+    await harness.saveIntoRoom(actor, {
+      roomId: room.id,
+      body: 'Elektrikern heter Micke',
+      kind: 'fact',
+    });
+
+    const decision = await harness.services.ingest.remember(actor, {
+      body: 'Hantverkarna lämnar offert på tidplanen för villan',
+    });
+
+    // Routed to the room, and queued rather than written. The router picks a target; the
+    // approval gate decides whether it lands, exactly as for a hand-named room.
+    expect(decision.routing.placement).toBe('room');
+    expect(decision.routing.roomTitle).toBe('Villan');
+    expect(decision.outcome).toBe('needs_approval');
+
+    // The person clearing the queue is told which room and why, not just that a rule fired.
+    expect(decision.proposal.reason).toContain('Villan');
+
+    // Nothing landed. The two memories placed above are there; the routed one is not.
+    const bodies = (await harness.services.retrieval.listForRoom(actor, room.id)).map(
+      (item: { body: string }) => item.body,
+    );
+    expect(bodies).not.toContain('Hantverkarna lämnar offert på tidplanen för villan');
+  });
+
+  itWhenWired('records the routing reason once the person approves', async () => {
+    const actor = await harness.actorForEmail(email, 'claude-desktop');
+    const [pending] = await harness.services.ingest.listProposals(actor);
+    const item = await harness.services.ingest.resolveProposal(actor, pending.id, true);
+
+    const room = await harness.roomByTitle(actor, 'Villan');
+    const day = await harness.services.calendar.day(actor, { date: today(), roomId: room.id });
+    const placed = day.entries.find(
+      (entry: { shortId: string | null }) => entry.shortId === item.shortId,
+    );
+
+    expect(placed.provenance.motivation).toMatch(/^Hör till Villan eftersom det nämner /);
+  });
+
+  itWhenWired('stays private when two rooms match about equally', async () => {
+    const actor = await harness.actorForEmail(email, 'claude-desktop');
+    const second = await harness.services.rooms.create(actor, { title: 'Villan i Dalarna' });
+    await harness.services.rooms.describe(
+      actor,
+      second.id,
+      'Renovering av villan: offerter, hantverkare och tidplan',
+    );
+    await harness.saveIntoRoom(actor, {
+      roomId: second.id,
+      body: 'Renoveringen av köket börjar i mars',
+      kind: 'note',
+    });
+
+    // Matches both rooms through the description they share, and neither through its title.
+    const decision = await harness.services.ingest.remember(actor, {
+      body: 'Offerten på tidplanen ska in före midsommar',
+    });
+
+    // Two rooms matching about equally is a question, not a coin toss. Private is the
+    // reversible answer: a memory in the wrong room can be moved, a memory four people
+    // have already read cannot be unread.
+    expect(decision.routing.placement).toBe('private');
+    expect(decision.outcome).toBe('auto');
+    expect(decision.routing.uncertainty).toMatch(/både/);
+  });
+
+  itWhenWired('never routes into a room the person only reads', async () => {
+    // A viewer cannot write, so the router must not consider the room at all — otherwise
+    // automatic placement becomes a way to attempt a write that would be refused.
+    const owner = await harness.registerPerson(`agare-${randomUUID()}@example.com`, 'Anna');
+    const ownerActor = harness.actorFor(owner.person, 'web');
+    const room = await harness.services.rooms.create(ownerActor, { title: 'Styrelsen' });
+
+    const reader = await harness.personByEmail(email);
+    const { url } = await harness.services.invites.create(ownerActor, {
+      roomId: room.id,
+      channel: 'email',
+      destination: email,
+      role: 'viewer',
+    });
+    await harness.services.invites.accept(harness.tokenFromUrl(url), reader.id);
+
+    const readerActor = harness.actorFor(reader, 'claude-desktop');
+    const decision = await harness.services.ingest.remember(readerActor, {
+      body: 'Styrelsen sammanträder i juni',
+    });
+
+    expect(decision.routing.placement).toBe('private');
+    expect(
+      decision.routing.considered.map((candidate: { title: string }) => candidate.title),
+    ).not.toContain('Styrelsen');
+  });
+});
+
 describe('what the trash promises', () => {
   const email = `radering-${randomUUID()}@example.com`;
 

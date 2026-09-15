@@ -480,6 +480,14 @@ export interface Proposal {
   body: string;
   /** Human-readable explanation of why this could not be written automatically. */
   reason: string;
+  /**
+   * Why it belongs where it is going, decided when the proposal was raised.
+   *
+   * Not the same sentence as `reason`: that one explains the asking, this one explains the
+   * placement, and it is the one that follows the memory onto its event if the person says
+   * yes. Null when nothing chose a destination — a hand-named room needs no explanation.
+   */
+  motivation: string | null;
   conflictsWith: ItemId | null;
   /** Set when `intent` is `share`: the memory being shared. */
   sourceItemId: ItemId | null;

@@ -23,6 +23,12 @@ Kort: API + MCP går att köra lokalt **mot Postgres** eller in-memory. Riktig O
 
 ## Ändrat beteende värt att veta innan du demar
 
+**Ett minne utan angivet rum routas nu automatiskt.** `remember` utan `room` betyder inte
+längre "det personliga rummet" — Photographic avgör var det hör hemma och skriver en
+motivering på svenska i loggen ("Sparat privat eftersom det handlar om dig."). Routing
+väljer bara ett mål; om målet är ett delat rum går skrivningen till Godkänn-kön som
+vanligt. Ingenting delas automatiskt, och osäkra fall blir privata.
+
 **Varje skrivning till ett delat rum går genom Godkänn-kön**, även när användaren ber om
 det rakt ut. `explicit: true` räcker inte längre: flaggan sätts av modellen utifrån text
 den läst, och en del av den texten kommer från dokument vi inte skrivit. Demovägen "lägg

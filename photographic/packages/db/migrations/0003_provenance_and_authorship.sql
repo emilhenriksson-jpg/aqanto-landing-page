@@ -216,7 +216,16 @@ CREATE TRIGGER membership_personal_owner_only
 -- queue exists for: letting automation be useful about something it may not do alone.
 ALTER TABLE app.proposal
   ADD COLUMN intent      text NOT NULL DEFAULT 'remember',
-  ADD COLUMN source_item uuid REFERENCES app.item (id) ON DELETE CASCADE;
+  ADD COLUMN source_item uuid REFERENCES app.item (id) ON DELETE CASCADE,
+  -- Why this belongs where it is going, decided when the proposal was raised and carried
+  -- onto the memory if it is accepted.
+  --
+  -- Distinct from `reason`, which says why we are *asking* — "delade rum ändras bara
+  -- efter ditt godkännande" explains the queue, not the placement. Storing only the
+  -- reason would mean the memory that eventually lands carries a sentence about approval
+  -- where its explanation should be, and working the explanation out again at acceptance
+  -- time, from a room list that may have changed since, is guessing.
+  ADD COLUMN motivation  text;
 
 ALTER TABLE app.proposal
   ADD CONSTRAINT proposal_intent_known CHECK (intent IN ('remember', 'share', 'update')),

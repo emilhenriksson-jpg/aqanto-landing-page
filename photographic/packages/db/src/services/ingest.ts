@@ -26,6 +26,7 @@ import type {
   ProjectionPort,
   Room,
   RoomId,
+  RoomKind,
   Sensitivity,
   SharedWith,
   ShortId,
@@ -35,6 +36,7 @@ import type {
 } from '@photographic/core';
 import { NotFoundError, NotPermittedError, ValidationError } from '@photographic/core';
 import {
+  ROUTING_SAMPLE_SIZE,
   canRemoveMemory,
   dedupeHash,
   deriveMotivation,
@@ -43,7 +45,10 @@ import {
   generateShortId,
   purgeDeadline,
   requiresApproval,
+  joinReason,
+  routeMemory,
 } from '@photographic/core';
+import type { RoutingDeps } from '@photographic/core';
 import type { Pool } from 'pg';
 
 import { queryOne, queryRows, withTransaction, type Db } from '../pool.js';
@@ -104,15 +109,13 @@ export class PgIngest implements IngestPort {
   async remember(
     actor: Actor,
     input: {
-      roomId: RoomId;
+      roomId?: RoomId;
       body: string;
       kind?: ItemKind;
       sensitivity?: 'normal' | 'sensitive';
       explicit?: boolean;
     } & WriteProvenance,
   ): Promise<WriteDecision> {
-    if (!(await canWrite(this.pool, actor.personId, input.roomId))) throw new NotPermittedError();
-
     const body = input.body.trim().replace(/\s+/g, ' ');
     if (!body) throw new ValidationError('Tomt minne kan inte sparas.');
     if (body.length > MAX_BODY_CHARS) {
@@ -120,9 +123,20 @@ export class PgIngest implements IngestPort {
     }
 
     const kind = input.kind ?? classifyKind(body);
+
+    // Nobody named a room, so Photographic decides where it belongs and records why. See
+    // `MemoryIngest.remember`: the router picks a target, the gate below decides whether
+    // the write lands.
+    const routing = input.roomId
+      ? null
+      : await routeMemory(this.routingDeps(), actor, { body, kind });
+    const roomId = input.roomId ?? routing!.roomId;
+
+    if (!(await canWrite(this.pool, actor.personId, roomId))) throw new NotPermittedError();
+
     const sensitivity = input.sensitivity ?? 'normal';
-    const room = await this.room(input.roomId);
-    const siblings = await this.activeSiblings(input.roomId);
+    const room = await this.room(roomId);
+    const siblings = await this.activeSiblings(roomId);
 
     const hash = dedupeHash(body);
     const identical = siblings.find((i) => dedupeHash(i.body) === hash);
@@ -151,30 +165,83 @@ export class PgIngest implements IngestPort {
       sensitivity,
     });
 
+    const motivation = input.motivation ?? routing?.motivation;
+
     if (gate.required) {
       const proposal = await this.queueProposal(actor, {
-        roomId: input.roomId,
+        roomId,
         intent: 'remember',
         kind,
         body,
-        reason: gate.reason,
+        reason: joinReason(routing?.uncertainty, gate.reason),
         conflictsWith: conflicting,
-        ...(input.motivation ? { motivation: input.motivation } : {}),
+        ...(motivation ? { motivation } : {}),
       });
-      return { outcome: 'needs_approval', proposal };
+      return { outcome: 'needs_approval', proposal, ...(routing ? { routing } : {}) };
     }
 
     const item = await this.write(actor, {
-      roomId: input.roomId,
+      roomId,
       kind,
       body,
       sensitivity,
       explicit: input.explicit ?? false,
-      ...(input.motivation ? { motivation: input.motivation } : {}),
+      ...(motivation ? { motivation } : {}),
       ...(input.source ? { source: input.source } : {}),
     });
 
-    return { outcome: 'auto', item };
+    return { outcome: 'auto', item, ...(routing ? { routing } : {}) };
+  }
+
+  /**
+   * What the router is allowed to consider: rooms this person may write to.
+   *
+   * One query rather than one per room — routing runs on every unaddressed write, and a
+   * fan-out over eleven rooms on the save path is how a voice turn starts to feel slow.
+   */
+  private routingDeps(): RoutingDeps {
+    return {
+      llm: this.llm,
+      candidates: async (actor) => {
+        const rows = await queryRows<{
+          room_id: string;
+          kind: RoomKind;
+          title: string;
+          headline: string | null;
+          member_count: string;
+          sample: string[] | null;
+        }>(
+          this.pool,
+          `SELECT r.id AS room_id, r.kind, r.title,
+                  -- Owner's own description first, then the summarised brief. Both are
+                  -- nullif-ed, so an empty one falls through instead of winning.
+                  coalesce(nullif(r.description, ''), nullif(b.rendered, ''), '') AS headline,
+                  (SELECT count(*) FROM app.membership m
+                    WHERE m.room_id = r.id AND m.left_at IS NULL) AS member_count,
+                  (SELECT array_agg(i.body ORDER BY i.created_at DESC)
+                     FROM (
+                       SELECT body, created_at FROM app.item
+                       WHERE room_id = r.id AND status = 'active'
+                       ORDER BY created_at DESC
+                       LIMIT $2
+                     ) i) AS sample
+           FROM app.accessible_room_ids($1) a
+           JOIN app.room r ON r.id = a.room_id
+           LEFT JOIN app.brief b ON b.room_id = r.id
+           WHERE a.role IN ('owner', 'editor')`,
+          [actor.personId, ROUTING_SAMPLE_SIZE],
+        );
+
+        return rows.map((row) => ({
+          roomId: row.room_id as RoomId,
+          kind: row.kind,
+          title: row.title,
+          headline: row.headline ?? '',
+          memberCount: Number(row.member_count),
+          sample: row.sample ?? [],
+        }));
+      },
+    };
   }
 
   async propose(
@@ -685,6 +752,8 @@ export class PgIngest implements IngestPort {
           sensitivity: 'normal',
           approvedBy: actor.personId,
           explicit: true,
+          // The sentence the router wrote when it chose this room, not a fresh one.
+          ...(proposal.motivation ? { motivation: proposal.motivation } : {}),
           supersedes: acrossAuthors ? null : conflicting?.id ?? null,
           previousBody: acrossAuthors ? null : conflicting?.body ?? null,
         },
@@ -1107,9 +1176,9 @@ export class PgIngest implements IngestPort {
   ): Promise<Proposal> {
     const row = await queryOne<ProposalRow>(
       this.pool,
-      `INSERT INTO app.proposal (room_id, person_id, intent, kind, body, reason, conflicts_with,
-                                 source_item, proposed_by_client)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO app.proposal (room_id, person_id, intent, kind, body, reason, motivation,
+                                 conflicts_with, source_item, proposed_by_client)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING ${PROPOSAL_COLUMNS}`,
       [
         input.roomId,
@@ -1118,6 +1187,7 @@ export class PgIngest implements IngestPort {
         input.kind,
         input.body,
         input.reason,
+        input.motivation ?? null,
         input.conflictsWith,
         input.sourceItemId ?? null,
         actor.agentClient,

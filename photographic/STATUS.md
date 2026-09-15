@@ -44,6 +44,7 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
   <!-- Corrected on the Track 2 branch: this line said "no real email or SMS", which
        d8731c7 had already made false. Fixed here rather than on the foundation, because
        every push there re-conflicts the stacked PRs. -->
+
 - **Shared-room Aktivitet is still demo data.** Left alone on purpose: it is being
   rebuilt as a view over the append-only event log with full provenance, so a standalone
   activity endpoint now would be thrown away.
@@ -101,6 +102,59 @@ think about.
 - `sensitivity` now forces the approval gate, so the MCP tool description stops promising
   something the code did not do. `local_only` was never in the public tool schema.
 
+### Automatic memory routing
+
+The last unbuilt piece of the core idea. A write with no room named used to default to the
+personal room silently, so "Photographic decides where it goes" was really "the client
+decides, and the client always says private". `remember`'s `roomId` is optional now, and
+leaving it out means `routeMemory` decides and records why.
+
+Three properties hold by construction rather than by care:
+
+- **Nothing auto-shares.** The router picks a target; it does not decide whether the write
+  lands. A routed room meets the same `requiresApproval` gate a hand-named one does, and
+  that gate refuses every write into a shared room. The worst a wrong routing decision can
+  do is put a question in the Godkänn queue. There is no code path here that returns "and
+  no approval needed".
+- **Uncertainty resolves towards private.** A weak best match or two rooms matching about
+  equally both mean private — not because private is neutral but because it is the
+  reversible one.
+- **The model may only make the outcome more private.** The shortlist is lexical and
+  deterministic; `LlmPort.confirmPlacement` can veto a candidate and can never propose
+  one. Same asymmetry as the `explicit` fix: untrusted input may tighten a decision, never
+  loosen it.
+
+**On the fake or unavailable LLM** — the question worth writing down. Falling back to
+"always private, always ask" would have been safe and would have made the feature invisible
+in the only environment it is tested in. Instead the decision is split: *which room is a
+candidate* is computed from text without a model, and the model only ever narrows. So
+routing behaves identically against `FakeLlm`, an unconfigured process and a provider
+outage — the e2e suites exercise real room placements, not a stub — while a real model adds
+a veto. `confirmPlacement` is optional on the port for exactly this reason, and every
+failure path inside `OpenAiLlm.confirmPlacement` lands on `belongs: false`, which keeps the
+memory private.
+
+The room match is crude on purpose: token overlap against title, description and the room's
+own memories, with a short function-word list and a few Swedish suffixes stripped. Without
+the suffixes it cannot match "ledningen" to a room called "Ledning", which in a Swedish
+product is most of the misses. It should be replaced by Postgres' Swedish dictionary once
+the search index exists rather than grown here — that is Track 3's.
+
+Two things found while building it, both now tested:
+
+- **Routing bypassed the token's room scope.** `assertRoomInScope` guards every path where
+  a room is *named*; routing is the path where none is, so a token issued for one room
+  could reach the personal room by not mentioning it. `routeMemory` filters candidates by
+  `actor.roomScope` and refuses with `NotPermittedError` when nothing is reachable.
+- **The routing reason was lost on approval.** It was recorded on `proposal.created` but
+  the memory that eventually landed carried a generic sentence. `app.proposal.motivation`
+  now carries it through, because deciding again at approval time — from a room list that
+  may have changed since — is a different decision wearing the first one's clothes.
+
+Also: the explanation quotes the person's own spelling. Matching runs on stripped, stemmed
+tokens; "eftersom det nämner forvarv, buyersclub" is the inside of the matcher, not a
+sentence anybody wrote.
+
 ### Notes for whoever touches this next
 
 - **Two bugs the new tests found**, both pre-existing: purging a memory failed on a
@@ -125,10 +179,10 @@ these numbers include that work. Two conflicts, both resolved by keeping the uni
 `e2e/vitest.config.ts` — they excluded the live smoke from the default run and gave it
 `test:live`, I set `fileParallelism: false`; both are needed and the merged file says why.
 
-Green: monorepo typecheck clean; core 38, agent 54, auth 34, connect 91, delivery 28,
-llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 39 memory +
-39 postgres (22 journey + 17 calendar), plus `pnpm --filter @photographic/e2e test:live`
-against a running process.
+Green: monorepo typecheck clean; core 52, agent 54, auth 34, connect 91, delivery 28,
+llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 memory +
+44 postgres (22 journey + 22 calendar/routing), plus
+`pnpm --filter @photographic/e2e test:live` against a running process.
 
 ### Verified against a running system, not only by tests
 

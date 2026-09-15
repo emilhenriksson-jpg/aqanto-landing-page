@@ -42,11 +42,17 @@ export const RESULT_TOKEN_BUDGET = 3000;
 export function renderWrite(decision: WriteDecision, roomTitle: string): string {
   switch (decision.outcome) {
     case 'auto':
-      return `Sparat i ${roomTitle} (${decision.item.shortId}).`;
+      return [
+        `Sparat i ${roomTitle} (${decision.item.shortId}).`,
+        // When Photographic chose the room rather than the model, say so and say why —
+        // the person will see this reason in their calendar, and a model that can repeat
+        // it is the difference between a placement and a black box.
+        ...(decision.routing ? [decision.routing.motivation] : []),
+      ].join(' ');
 
     case 'needs_approval':
       return [
-        `Inte sparat än — det här kräver personens godkännande: ${decision.proposal.reason}.`,
+        `Inte sparat än — det här kräver personens godkännande: ${decision.proposal.reason}`,
         `Förslaget ligger och väntar (${decision.proposal.id}).`,
         '',
         'Berätta för personen att du har frågat, och vad du frågade om. Säg inte att det',

@@ -42,6 +42,7 @@ import type {
 } from '@photographic/core';
 import { NotFoundError, NotPermittedError, ValidationError } from '@photographic/core';
 import {
+  ROUTING_SAMPLE_SIZE,
   canRemoveMemory,
   dedupeHash,
   deriveMotivation,
@@ -50,7 +51,10 @@ import {
   generateShortId,
   purgeDeadline,
   requiresApproval,
+  joinReason,
+  routeMemory,
 } from '@photographic/core';
+import type { RoutingDeps } from '@photographic/core';
 
 import { MemoryStore, newId } from './store.js';
 
@@ -111,15 +115,13 @@ export class MemoryIngest implements IngestPort {
   async remember(
     actor: Actor,
     input: {
-      roomId: RoomId;
+      roomId?: RoomId;
       body: string;
       kind?: ItemKind;
       sensitivity?: 'normal' | 'sensitive';
       explicit?: boolean;
     } & WriteProvenance,
   ): Promise<WriteDecision> {
-    if (!this.store.canWrite(actor.personId, input.roomId)) throw new NotPermittedError();
-
     const body = input.body.trim().replace(/\s+/g, ' ');
     if (!body) throw new ValidationError('Tomt minne kan inte sparas.');
     if (body.length > MAX_BODY_CHARS) {
@@ -127,10 +129,21 @@ export class MemoryIngest implements IngestPort {
     }
 
     const kind = input.kind ?? classifyKind(body);
+
+    // Nobody named a room, so Photographic decides where it belongs and records why.
+    // The decision only picks a target — whether the write lands is still the approval
+    // gate's call, below, exactly as it would be for a room named by hand.
+    const routing = input.roomId
+      ? null
+      : await routeMemory(this.routingDeps(), actor, { body, kind });
+    const roomId = input.roomId ?? routing!.roomId;
+
+    if (!this.store.canWrite(actor.personId, roomId)) throw new NotPermittedError();
+
     const sensitivity = input.sensitivity ?? 'normal';
-    const room = this.store.rooms.get(input.roomId)!;
+    const room = this.store.rooms.get(roomId)!;
     const siblings = this.store
-      .itemsInRoom(input.roomId)
+      .itemsInRoom(roomId)
       .filter((i) => i.status === 'active');
 
     // Exact restatement first, because it is the common case and needs no model call:
@@ -164,32 +177,81 @@ export class MemoryIngest implements IngestPort {
       sensitivity,
     });
 
+    // The router's own sentence, unless the caller had a better one. Recorded at decision
+    // time either way: working out afterwards why something was placed somewhere, from a
+    // room list that has since changed, is guessing.
+    const motivation = input.motivation ?? routing?.motivation;
+
     if (gate.required) {
       return {
         outcome: 'needs_approval',
         proposal: this.queueProposal(actor, {
-          roomId: input.roomId,
+          roomId,
           intent: 'remember',
           kind,
           body,
-          reason: gate.reason,
+          // The routing sentence explains the room; the gate explains the asking. A person
+          // clearing the queue needs both, and "delade rum ändras bara efter ditt
+          // godkännande" alone does not say why this room.
+          reason: joinReason(routing?.uncertainty, gate.reason),
           conflictsWith: conflicting,
-          ...(input.motivation ? { motivation: input.motivation } : {}),
+          ...(motivation ? { motivation } : {}),
         }),
+        ...(routing ? { routing } : {}),
       };
     }
 
     const item = await this.write(actor, {
-      roomId: input.roomId,
+      roomId,
       kind,
       body,
       sensitivity,
       explicit: input.explicit ?? false,
-      ...(input.motivation ? { motivation: input.motivation } : {}),
+      ...(motivation ? { motivation } : {}),
       ...(input.source ? { source: input.source } : {}),
     });
 
-    return { outcome: 'auto', item };
+    return { outcome: 'auto', item, ...(routing ? { routing } : {}) };
+  }
+
+  /**
+   * What the router is allowed to consider: rooms this person may write to.
+   *
+   * Scope is settled before the decision runs, so there is no path where routing reaches
+   * a room the actor could not have named by hand.
+   */
+  private routingDeps(): RoutingDeps {
+    return {
+      llm: this.llm,
+      candidates: async (actor) =>
+        this.store
+          .accessibleRoomIds(actor.personId)
+          .filter((roomId) => this.store.canWrite(actor.personId, roomId))
+          .map((roomId) => {
+            const room = this.store.rooms.get(roomId)!;
+            return {
+              roomId,
+              kind: room.kind,
+              title: room.title,
+              // The owner's own description first, then the summarised headline. Both are
+              // skipped when empty rather than preferred-if-present: a room whose headline
+              // has been cached as empty still has a description worth matching on, and
+              // `??` would hand back the empty string.
+              headline:
+                room.description?.trim() ||
+                this.store.headlines.get(roomId)?.rendered?.trim() ||
+                '',
+              memberCount: this.store.memberships.filter(
+                (m) => m.roomId === roomId && m.leftAt === null,
+              ).length,
+              sample: this.store
+                .itemsInRoom(roomId)
+                .filter((item) => item.status === 'active')
+                .slice(0, ROUTING_SAMPLE_SIZE)
+                .map((item) => item.body),
+            };
+          }),
+    };
   }
 
   /**
@@ -606,6 +668,10 @@ export class MemoryIngest implements IngestPort {
       sensitivity: 'normal',
       approvedBy: actor.personId,
       explicit: true,
+      // The sentence the router wrote when it chose this room, not a fresh one. Deciding
+      // again at approval time would be a different decision wearing the first one's
+      // clothes.
+      ...(proposal.motivation ? { motivation: proposal.motivation } : {}),
       // A disputed pair supersedes nothing, so the new memory is not a correction and
       // must not be recorded as one.
       supersedes: acrossAuthors ? null : conflicting?.id ?? null,
@@ -1069,6 +1135,7 @@ export class MemoryIngest implements IngestPort {
       kind: input.kind,
       body: input.body,
       reason: input.reason,
+      motivation: input.motivation ?? null,
       conflictsWith: input.conflictsWith,
       sourceItemId: input.sourceItemId ?? null,
       proposedByClient: actor.agentClient,
