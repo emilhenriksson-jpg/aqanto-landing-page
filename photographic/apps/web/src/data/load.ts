@@ -20,7 +20,9 @@ export function mapRoomSummary(summary: RoomSummaryDto): RoomCard {
     title: summary.kind === 'personal' ? summary.title || 'Ditt rum' : summary.title,
     headline:
       summary.oneLine ||
-      (summary.kind === 'personal' ? 'Ditt personliga minne' : 'Inget sparat än'),
+      (summary.kind === 'personal'
+        ? 'Det Claude och ChatGPT läser om dig innan de svarar'
+        : 'Inget sparat än'),
     memberCount: summary.memberCount,
     memberNames: [],
     unseenCount: summary.unseenCount,

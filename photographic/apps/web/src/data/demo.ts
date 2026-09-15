@@ -42,7 +42,7 @@ export const DEMO_ROOMS: RoomCard[] = [
     id: 'personal',
     kind: 'personal',
     title: 'Ditt rum',
-    headline: 'Ditt personliga minne',
+    headline: 'Det Claude och ChatGPT läser om dig innan de svarar',
     memberCount: 1,
     memberNames: ['Emil'],
     unseenCount: 0,
