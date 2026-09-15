@@ -97,10 +97,36 @@ Finns ingen databas skriver körningen ut vilka sviter som hoppades över och ko
 ger dig en (`pgvector/pgvector:pg16` i Docker, eller `postgresql-16-pgvector` via apt) —
 och avslutar med fel, för en körning som inte kunde testa SQL:et är inte en grön körning.
 
+**Märk databasen först, och märk inte den du arbetar i.**
+
+```bash
+pnpm db:mark-test
+```
+
+Fyra sviter i `packages/db` anropar `reset(pool)`, som släpper hela schemat `app`. Utan
+märkning vägrar `reset()` — för annars tar `pnpm test` mot databasen du satt `pnpm db:seed`
+i allt som ligger där, utan att fråga. `AGENTS.md:130` säger tvärtom att databasen delas
+och att man aldrig ska `TRUNCATE`:a; spärren finns för att stänga den motsägelsen. Databaser
+vars namn slutar på `_test` eller `_e2e` släpps igenom utan märkning, eftersom sviterna
+skapar dem själva. Vill du behålla innehållet: `createdb photographic_test` och peka
+`DATABASE_URL` dit.
+
+**Rollen produktionen ansluter som.** `pnpm test:rest` kör `apps/rest` som
+`photographic_app` i stället för som ägaren, och kontrollerar först att varje tabell,
+sekvens och funktion i `app` går att nå därifrån. Skapa rollen **före** migreringarna —
+`0016` delar bara ut rättigheter när rollen finns, och liggaren gör att den aldrig körs
+igen:
+
+```bash
+psql "$DATABASE_URL" -c "CREATE ROLE photographic_app LOGIN PASSWORD 'photographic_app'"
+pnpm db:reset
+```
+
 Enskilda grupper: `pnpm test:unit` (inget databasbehov), `pnpm test:e2e:memory` (inget
-databasbehov), `pnpm test:db` (`packages/db` + `apps/rest`), `pnpm test:e2e`
-(acceptanssviten mot riktigt schema). `pnpm typecheck` och `pnpm check:test-doubles`
-behöver ingen databas.
+databasbehov), `pnpm test:db` (`packages/db`, som ägaren), `pnpm test:rest` (`apps/rest`,
+som `photographic_app`), `pnpm test:e2e` (acceptanssviten mot riktigt schema).
+`pnpm typecheck`, `pnpm lint`, `pnpm check:test-doubles`, `pnpm check:migrations` och
+`pnpm check:typecheck-coverage` behöver ingen databas.
 
 Samma grupper körs i CI (`.github/workflows/ci.yml`) på varje PR och varje push till
 `main`, mot en Postgres-servicecontainer — definitionen bor i `scripts/run-suites.mjs`, så

@@ -51,6 +51,22 @@ jobs:
         with:
           node-version: '22'
       - run: node scripts/check-test-doubles.mjs
+      # Three branches landed on `0016` in one afternoon and a fourth renumbered to
+      # `0018`/`0019`. The migration runner sorts by filename and keys its ledger on the
+      # filename, so a shared number applies in alphabetical order, and renaming a
+      # migration to fix its number makes it run again on every database that already had
+      # it — which is why a collision has to be caught before the merge, not after.
+      - run: node scripts/check-migrations.mjs
+      # `scripts/break-glass-signin.ts` had never been typechecked, because `pnpm -r run
+      # typecheck` is per workspace package and `scripts/` is not one. That is fixed; this
+      # is about the pattern, so the next directory outside the packages cannot go quiet
+      # the same way.
+      - run: node scripts/check-typecheck-coverage.mjs
+      # Invite expiry and trash purging had handlers registered in both composition roots
+      # with no producer anywhere, so neither had ever run once — and a registration reads
+      # exactly like a finished feature, which is how both passed two reviews. Nobody
+      # scans for the absence of a caller; this does.
+      - run: node scripts/check-job-producers.mjs
 
   typecheck:
     runs-on: ubuntu-latest
@@ -87,10 +103,13 @@ jobs:
 
   # The suites that only mean something against real SQL.
   #
-  # `db`  — `packages/db` (schema, repositories, triggers) and `apps/rest`, whose
-  #         `wiring.merge.test.ts` is the test that guards the Postgres-backed OAuth
-  #         stores being wired at all. It cannot run without a database, and until now
-  #         nothing ran it.
+  # `db`  — `packages/db` (schema, repositories, triggers), which needs the owner role
+  #         because its suites `reset()` the schema between files.
+  # `rest`— `apps/rest` connected as `photographic_app`, the least-privilege role
+  #         production uses. Its suite does no DDL, so it is the one that can run in the
+  #         production configuration rather than as the owner — which means a missing
+  #         grant now fails here instead of on the live host, on one query, at whatever
+  #         hour someone first uses that feature.
   # `e2e` — the acceptance suite with `HARNESS=postgres`, which is where the transaction
   #         boundaries, the append-only trigger, the placement triggers, the unique
   #         constraints and the hybrid search query are exercised. Without it the green
@@ -103,7 +122,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [db, e2e]
+        suite: [db, rest, e2e]
     services:
       postgres:
         # `pgvector/pgvector:pg16`, not `postgres:16`. `0001_init.sql` creates the
@@ -147,6 +166,50 @@ jobs:
               exit 1
             fi
           done
+
+      # Production connects as `photographic_app` — DML, no DDL — so that an injection or
+      # a mistake in application code cannot reach `DROP TABLE app.event` or disable the
+      # triggers that hold the append-only rules. The role existed in neither CI nor local
+      # development, so nothing in the pipeline could tell whether a database object was
+      # reachable from it. `0017_lifecycle_atomicity.sql` was never checked against it at
+      # all, and it works today only because `0016` sets `ALTER DEFAULT PRIVILEGES`, which
+      # covers objects created by the role that executed it and nothing else.
+      #
+      # Created *before* the migrations run, which is the order `scripts/deploy.md`
+      # documents and the order that matters: `0016_app_role_grants.sql` is guarded on the
+      # role existing, and the ledger means it never runs a second time. A role created
+      # after `0016` has already applied therefore gets no grants at all, ever.
+      - name: Create the least-privilege role production connects as
+        env:
+          PGPASSWORD: photographic
+        run: |
+          psql -h 127.0.0.1 -U photographic -d photographic -tAc \
+            "SELECT 1 FROM pg_roles WHERE rolname = 'photographic_app'" | grep -q 1 \
+            || psql -h 127.0.0.1 -U photographic -d photographic -v ON_ERROR_STOP=1 -c \
+                 "CREATE ROLE photographic_app LOGIN PASSWORD 'photographic_app'"
+
+      # `reset()` refuses a database nobody marked as disposable, because four suites in
+      # `packages/db` drop the whole `app` schema and a developer who points them at the
+      # database they were working in loses it without a prompt. This container is thrown
+      # away either way, so marking it is how CI says that out loud rather than being
+      # exempt from the rule.
+      - run: pnpm db:mark-test
+
+      # The apply-in-order-from-empty property, asserted where it is actually provable.
+      #
+      # This container was created seconds ago, so nothing in it has been renamed and
+      # `applied_at` genuinely rises with the filename. That is not true on a laptop:
+      # `migrate.ts` recognises a renamed migration by content and moves the ledger row to
+      # the new name while keeping its original timestamp, which is correct and which means
+      # a renumbered migration has a timestamp that does not match its new position. Four
+      # branches renumbered in one afternoon, so that is the normal case. The runner's own
+      # preflight therefore checks everything except the ordering, and `--from-empty` lives
+      # only here.
+      - name: The migrations apply in order from nothing
+        if: matrix.suite == 'db'
+        run: |
+          pnpm db:migrate
+          pnpm exec node --import tsx scripts/check-migration-ledger.ts --from-empty
 
       - run: pnpm test:${{ matrix.suite }}
 
@@ -258,6 +321,57 @@ jobs:
           echo "::error::/health svarade inte inom 45s."
           docker logs photographic-ci 2>&1 | tail -60
           exit 1
+
+      # The other half of the boot guarantee, and the half only a negative test can hold.
+      #
+      # `CMD` used to separate the migration from the server with `;` rather than `&&`, so
+      # a failed migration was logged and the server started anyway against a partial
+      # schema. The symptom was individual 500s on whichever routes touched the new
+      # column — not a crash loop anyone would investigate — and with `/health` answering
+      # unconditionally, Fly called the deploy healthy. It is fixed now (`set -e` plus an
+      # explicit refusal), and a fix without a test is a fix that comes back: the `;` is
+      # one character and the next person to edit that line has no way to know.
+      #
+      # Four assertions, because "the container exited" on its own would also be satisfied
+      # by exiting for an unrelated reason, and a test that passes for the wrong reason is
+      # what this workflow exists to prevent.
+      - name: It refuses to serve against a failed migration
+        run: |
+          set +e
+          timeout 120 docker run --rm \
+            -e PORT=8080 \
+            -e SESSION_SECRET=ci-throwaway-session-secret \
+            -e CODE_SECRET=ci-throwaway-code-secret \
+            -e DATABASE_URL=postgres://nobody:nobody@127.0.0.1:1/nothing \
+            photographic:ci > /tmp/nodb.log 2>&1
+          code=$?
+          set -e
+          echo "--- container exited $code, log follows"
+          tail -25 /tmp/nodb.log
+
+          if [ "$code" = "124" ]; then
+            echo "::error::Containern levde i 120s med en misslyckad migrering. Det är" \
+                 "precis felet: servern kör mot ett halvt schema. Kontrollera att CMD i" \
+                 "Dockerfile fortfarande avbryter på migreringsfel."
+            exit 1
+          fi
+          if [ "$code" = "0" ]; then
+            echo "::error::Containern startade och avslutade rent trots att migreringen" \
+                 "misslyckades. CMD måste vägra starta servern när db:migrate faller."
+            exit 1
+          fi
+          if grep -q '"msg":"listening"' /tmp/nodb.log; then
+            echo "::error::HTTP-servern började lyssna trots en misslyckad migrering." \
+                 "Det är semikolon-felet tillbaka, oavsett vad slutkoden blev."
+            exit 1
+          fi
+          if ! grep -q 'ECONNREFUSED' /tmp/nodb.log; then
+            echo "::error::Containern dog, men inte av databasen — ingen ECONNREFUSED i" \
+                 "loggen. Testet skulle ha bevisat migreringsspärren och bevisade något" \
+                 "annat, så det bevisade ingenting. Läs loggen ovan."
+            exit 1
+          fi
+          echo "Vägrade starta, av rätt skäl."
 
       - name: Stop it
         if: always()
