@@ -37,6 +37,7 @@ import {
   defaultProtectedResourceMetadata,
   OAUTH_PATHS,
 } from './oauth-contract.js';
+import { calendarRoutes } from './routes/calendar.js';
 import { connectRoutes, publicConnectRoutes } from './routes/connect.js';
 import {
   accountRoutes,
@@ -270,6 +271,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   authenticated.route('/', memoryRoutes());
   authenticated.route('/', trashRoutes());
   authenticated.route('/', historyRoutes());
+  authenticated.route('/', calendarRoutes());
   authenticated.route('/', roomRoutes());
   authenticated.route('/', documentRoutes());
 

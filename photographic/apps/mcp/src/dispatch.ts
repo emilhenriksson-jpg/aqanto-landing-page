@@ -27,7 +27,7 @@ import {
   renderRestored,
   renderSearch,
   renderTrash,
-  renderUpdated,
+  renderUpdate,
   renderWrite,
   roomTitleIndex,
 } from './render.js';
@@ -185,16 +185,29 @@ async function run<N extends ToolName>(
 
     case 'remember': {
       const input = args as ArgsOf<'remember'>;
-      const roomId = await resolveRoomRef(services, actor, { room: input.room });
+
+      // A model that names no room is not asking for the personal room, it is declining
+      // to decide — so Photographic decides, and tells it where the memory went.
+      const roomId = input.room
+        ? await resolveRoomRef(services, actor, { room: input.room })
+        : undefined;
+
       const decision = await services.ingest.remember(actor, {
-        roomId,
+        ...(roomId ? { roomId } : {}),
         body: input.text,
         ...(input.kind ? { kind: input.kind } : {}),
         ...(input.sensitive ? { sensitivity: 'sensitive' as const } : {}),
         ...(input.explicit === undefined ? {} : { explicit: input.explicit }),
       });
 
-      return renderWrite(decision, await titleOf(services, actor, roomId));
+      const landedIn =
+        decision.outcome === 'auto'
+          ? decision.item.roomId
+          : decision.outcome === 'duplicate'
+            ? decision.existing.roomId
+            : decision.proposal.roomId;
+
+      return renderWrite(decision, await titleOf(services, actor, landedIn));
     }
 
     case 'search_memory': {
@@ -217,8 +230,8 @@ async function run<N extends ToolName>(
     case 'update_memory': {
       const input = args as ArgsOf<'update_memory'>;
       const roomId = await resolveRoomRef(services, actor, { room: input.room });
-      const item = await services.ingest.update(actor, input.id as ShortId, roomId, input.text);
-      return renderUpdated(item);
+      const decision = await services.ingest.update(actor, input.id as ShortId, roomId, input.text);
+      return renderUpdate(decision);
     }
 
     case 'forget_memory': {

@@ -6,6 +6,7 @@ import type {
   Actor,
   MemberRole,
   Person,
+  PersonId,
   ProjectionPort,
   Room,
   RoomId,
@@ -15,16 +16,27 @@ import type {
 import { matchRoomByName, NotPermittedError } from '@photographic/core';
 import type { Pool } from 'pg';
 
-import { execute, queryOne, queryRows } from '../pool.js';
-import { mapPerson, mapRoom, type PersonRow, type RoomRow } from '../rows.js';
+import { execute, queryOne, queryRows, withTransaction } from '../pool.js';
+import {
+  ITEM_COLUMNS,
+  mapItem,
+  mapPerson,
+  mapRoom,
+  type ItemRow,
+  type PersonRow,
+  type RoomRow,
+} from '../rows.js';
 import { slugify } from '../slug.js';
 import { appendEvent } from './events.js';
+import type { PgIngest } from './ingest.js';
 import { accessibleRoomIds, canRead, canWrite, roleIn } from './permissions.js';
 
 export class PgRooms implements RoomPort {
   constructor(
     private readonly pool: Pool,
     private readonly projection: Pick<ProjectionPort, 'headlinesFor' | 'invalidate'>,
+    /** Leaving a room can take the author's own contributions with it, through the trash. */
+    private readonly ingest: Pick<PgIngest, 'softDelete'>,
   ) {}
 
   async create(actor: Actor, input: { title: string; description?: string }): Promise<Room> {
@@ -192,6 +204,47 @@ export class PgRooms implements RoomPort {
     return rows.map((row) => ({ person: mapPerson(row), role: row.role }));
   }
 
+  /**
+   * Leaves a shared room. The membership ends; the contributions stay.
+   *
+   * See `MemoryRooms.leave` for the reasoning. Mechanically: `left_at` is set rather than
+   * the row being deleted, so the room keeps knowing who wrote what, and `member.left`
+   * goes into the log in the same transaction. No token revocation, because access is the
+   * intersection of the token's scope with *current* memberships on every request.
+   */
+  async leave(
+    actor: Actor,
+    roomId: RoomId,
+    input: { removeContributions?: boolean } = {},
+  ): Promise<void> {
+    const role = await roleIn(this.pool, actor.personId, roomId);
+    if (!role) throw new NotPermittedError();
+
+    const room = await this.require(roomId);
+    if (room.kind === 'personal') {
+      throw new NotPermittedError('Du kan inte lämna ditt eget rum.');
+    }
+
+    await this.endMembership(actor, roomId, actor.personId, {
+      removeContributions: input.removeContributions ?? false,
+      removedBy: null,
+    });
+  }
+
+  /** Owner-only. Never touches the removed member's contributions. */
+  async removeMember(actor: Actor, roomId: RoomId, personId: PersonId): Promise<void> {
+    if ((await roleIn(this.pool, actor.personId, roomId)) !== 'owner') throw new NotPermittedError();
+    if (!(await roleIn(this.pool, personId, roomId))) throw new NotPermittedError();
+    if (personId === actor.personId) {
+      throw new NotPermittedError('Använd "lämna rummet" för att gå ur själv.');
+    }
+
+    await this.endMembership(actor, roomId, personId, {
+      removeContributions: false,
+      removedBy: actor.personId,
+    });
+  }
+
   async markSeen(actor: Actor, roomId: RoomId): Promise<void> {
     if (!(await canRead(this.pool, actor.personId, roomId))) throw new NotPermittedError();
 
@@ -210,5 +263,139 @@ export class PgRooms implements RoomPort {
        DO UPDATE SET last_seen_seq = $3, last_seen_at = now()`,
       [actor.personId, roomId, seq],
     );
+  }
+
+  private async endMembership(
+    actor: Actor,
+    roomId: RoomId,
+    personId: PersonId,
+    options: { removeContributions: boolean; removedBy: PersonId | null },
+  ): Promise<void> {
+    if (options.removeContributions) {
+      // Through the ordinary trash: visible to the other members as `item.deleted` with a
+      // motivation, and undoable by an owner for thirty days. A silent mass deletion of
+      // somebody's contributions is precisely what the log exists to make impossible.
+      const own = await queryRows<ItemRow>(
+        this.pool,
+        `SELECT ${ITEM_COLUMNS} FROM app.item
+         WHERE room_id = $1 AND author_person_id = $2 AND status = 'active'`,
+        [roomId, personId],
+      );
+
+      for (const row of own) {
+        await this.ingest.softDelete(
+          actor,
+          mapItem(row),
+          'borttaget av författaren när hon lämnade rummet',
+        );
+      }
+    }
+
+    await withTransaction(this.pool, async (tx) => {
+      await tx.query(
+        `UPDATE app.membership SET left_at = now()
+         WHERE room_id = $1 AND person_id = $2 AND left_at IS NULL`,
+        [roomId, personId],
+      );
+
+      await appendEvent(tx, {
+        roomId,
+        eventType: 'member.left',
+        payload: {
+          person_id: personId,
+          ...(options.removedBy ? { removed_by: options.removedBy } : {}),
+          contributions: options.removeContributions ? 'removed' : 'kept',
+        },
+        actorPersonId: actor.personId,
+        agentClient: actor.agentClient,
+        clientId: actor.clientId ?? null,
+        explicit: true,
+        motivation: options.removeContributions
+          ? 'Lämnade rummet och tog bort sina egna bidrag.'
+          : 'Medlemskapet upphörde. Bidragen stannar i rummet.',
+      });
+    });
+
+    await this.succeedOwnership(actor, roomId, personId);
+    await this.projection.invalidate({ roomId });
+  }
+
+  /**
+   * A room always has an owner, or it has no reason to exist.
+   *
+   * The longest-serving editor inherits, as the person most likely to know what the room
+   * is for. With nobody to inherit it the room is archived, which already removes it from
+   * everyone's accessible rooms rather than leaving content nobody can administer.
+   */
+  private async succeedOwnership(
+    actor: Actor,
+    roomId: RoomId,
+    departed: PersonId,
+  ): Promise<void> {
+    const heir = await queryOne<{ person_id: string }>(
+      this.pool,
+      `SELECT person_id FROM app.membership
+       WHERE room_id = $1 AND left_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM app.membership o
+           WHERE o.room_id = $1 AND o.left_at IS NULL AND o.role = 'owner'
+         )
+         AND role = 'editor'
+       ORDER BY joined_at ASC
+       LIMIT 1`,
+      [roomId],
+    );
+
+    if (heir) {
+      await execute(
+        this.pool,
+        `UPDATE app.membership SET role = 'owner' WHERE room_id = $1 AND person_id = $2`,
+        [roomId, heir.person_id],
+      );
+      await appendEvent(this.pool, {
+        roomId,
+        eventType: 'room.owner_changed',
+        payload: { person_id: heir.person_id, previous_owner: departed, reason: 'succession' },
+        actorPersonId: actor.personId,
+        agentClient: actor.agentClient,
+        motivation: 'Rummets ägare lämnade. Ägarskapet gick till den editor som varit med längst.',
+      });
+      return;
+    }
+
+    const remaining = await queryOne<{ owners: string }>(
+      this.pool,
+      `SELECT count(*) AS owners FROM app.membership
+       WHERE room_id = $1 AND left_at IS NULL AND role = 'owner'`,
+      [roomId],
+    );
+    if (Number(remaining?.owners ?? 0) > 0) return;
+
+    const archived = await execute(
+      this.pool,
+      `UPDATE app.room SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`,
+      [roomId],
+    );
+    if (archived === 0) return;
+
+    await appendEvent(this.pool, {
+      roomId,
+      eventType: 'room.archived',
+      payload: { reason: 'no_owner_remaining' },
+      actorPersonId: actor.personId,
+      agentClient: actor.agentClient,
+      motivation: 'Ingen ägare kvar i rummet.',
+    });
+  }
+
+  private async require(roomId: RoomId): Promise<Room> {
+    const row = await queryOne<RoomRow>(
+      this.pool,
+      `SELECT id, kind, slug, title, description, sensitivity, created_by, created_at, archived_at
+       FROM app.room WHERE id = $1`,
+      [roomId],
+    );
+    if (!row) throw new NotPermittedError();
+    return mapRoom(row);
   }
 }

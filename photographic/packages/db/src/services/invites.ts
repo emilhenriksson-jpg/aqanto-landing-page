@@ -20,12 +20,13 @@ import type {
   RoomId,
 } from '@photographic/core';
 import { NotFoundError, NotPermittedError, ValidationError } from '@photographic/core';
+import { canInvite } from '@photographic/core';
 import type { Pool } from 'pg';
 
-import { queryOne, queryRows } from '../pool.js';
+import { queryOne, queryRows, withTransaction } from '../pool.js';
 import { mapInvite, mapPerson, mapRoom, type InviteRow, type PersonRow, type RoomRow } from '../rows.js';
 import { appendEvent } from './events.js';
-import { canWrite, roleIn } from './permissions.js';
+import { roleIn } from './permissions.js';
 
 export const INVITE_TTL_DAYS = 14;
 export const PREVIEW_ITEM_COUNT = 3;
@@ -50,7 +51,9 @@ export class PgInvites implements InvitePort {
     actor: Actor,
     input: { roomId: RoomId; channel: 'email' | 'sms'; destination: string; role?: MemberRole },
   ): Promise<{ invite: Invite; url: string }> {
-    if (!(await canWrite(this.pool, actor.personId, input.roomId))) throw new NotPermittedError();
+    // Owner only. Inviting is not a write, it is a disclosure decision: it settles who
+    // gets to read everything already in the room, retroactively.
+    await this.assertOwner(actor, input.roomId);
 
     const room = await queryOne<RoomRow>(
       this.pool,
@@ -111,7 +114,10 @@ export class PgInvites implements InvitePort {
     if (!row) return null;
 
     const invite = mapInvite(row);
-    if (invite.status === 'revoked') return null;
+    // An invite that has been used, revoked or run out is not a window into the room any
+    // more. `pending` is the only state that shows content, which also makes a spent link
+    // and a fictional one the same answer.
+    if (invite.status !== 'pending') return null;
     if (invite.expiresAt <= new Date()) return null;
 
     const room = await queryOne<RoomRow>(
@@ -137,6 +143,19 @@ export class PgInvites implements InvitePort {
     };
   }
 
+  /**
+   * Redeems an invite, once.
+   *
+   * An invite link travels through email, SMS, screenshots and forwarded threads, and
+   * "it only works once" is the only assumption a person actually makes about one.
+   * Nothing here used to check `status`, so after the first acceptance the link kept
+   * letting people in until someone revoked it or fourteen days passed — and whoever sent
+   * it had no way to know.
+   *
+   * The status update is conditional on `status = 'pending'` in SQL rather than checked
+   * and then written, so two people clicking the same link at the same moment cannot both
+   * pass: one row update wins and the other gets the same not-found as an unknown token.
+   */
   async accept(token: string, personId: PersonId): Promise<{ room: Room; role: MemberRole }> {
     const row = await queryOne<InviteRow>(
       this.pool,
@@ -147,8 +166,6 @@ export class PgInvites implements InvitePort {
     if (!row) throw new NotFoundError('Inbjudan finns inte.');
 
     const invite = mapInvite(row);
-    if (invite.status === 'revoked') throw new NotPermittedError('Inbjudan är återkallad.');
-    if (invite.expiresAt <= new Date()) throw new NotPermittedError('Inbjudan har gått ut.');
 
     const roomRow = await queryOne<RoomRow>(
       this.pool,
@@ -159,32 +176,49 @@ export class PgInvites implements InvitePort {
     if (!roomRow) throw new NotFoundError('Rummet finns inte.');
     const room = mapRoom(roomRow);
 
+    // Before the status check, because the link genuinely does arrive by email and get
+    // clicked twice by the same person — and the second click must not read as a stranger
+    // reusing a spent invite.
     const already = await roleIn(this.pool, personId, invite.roomId);
     if (already) return { room, role: already };
 
-    await this.pool.query(
-      `INSERT INTO app.membership (person_id, room_id, role, invited_by)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (person_id, room_id) DO UPDATE SET role = $3, left_at = NULL`,
-      [personId, invite.roomId, invite.role, invite.invitedBy],
-    );
+    return withTransaction(this.pool, async (tx) => {
+      const claimed = await tx.query(
+        `UPDATE app.invite
+         SET status = 'accepted', accepted_by = $1, accepted_at = now()
+         WHERE id = $2 AND status = 'pending' AND expires_at > now()`,
+        [personId, invite.id],
+      );
+      if (claimed.rowCount === 0) throw new NotFoundError('Inbjudan finns inte.');
 
-    await this.pool.query(
-      `UPDATE app.invite SET status = 'accepted', accepted_by = $1, accepted_at = now() WHERE id = $2`,
-      [personId, invite.id],
-    );
+      await tx.query(
+        `INSERT INTO app.membership (person_id, room_id, role, invited_by)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (person_id, room_id) DO UPDATE SET role = $3, left_at = NULL`,
+        [personId, invite.roomId, invite.role, invite.invitedBy],
+      );
 
-    await appendEvent(this.pool, {
-      roomId: invite.roomId,
-      eventType: 'member.joined',
-      payload: { person_id: personId, role: invite.role, via: 'invite' },
-      actorPersonId: personId,
-      agentClient: 'web',
+      await appendEvent(tx, {
+        roomId: invite.roomId,
+        eventType: 'member.joined',
+        payload: { person_id: personId, role: invite.role, via: 'invite' },
+        actorPersonId: personId,
+        agentClient: 'web',
+        motivation: 'Gick med via en inbjudan.',
+      });
+
+      return { room, role: invite.role };
     });
-
-    return { room, role: invite.role };
   }
 
+  /**
+   * Revoking stops a link that has not been redeemed yet.
+   *
+   * It does *not* remove anyone who already joined — that is `RoomPort.removeMember`.
+   * This is the most common misunderstanding in products with invites, and it is
+   * dangerous in the wrong direction: you believe you have shut someone out while they go
+   * on reading everything.
+   */
   async revoke(actor: Actor, inviteId: InviteId): Promise<void> {
     const row = await queryOne<InviteRow>(
       this.pool,
@@ -194,9 +228,47 @@ export class PgInvites implements InvitePort {
     );
     if (!row) throw new NotFoundError('Inbjudan finns inte.');
     const invite = mapInvite(row);
-    if (!(await canWrite(this.pool, actor.personId, invite.roomId))) throw new NotPermittedError();
+    await this.assertOwner(actor, invite.roomId);
 
     await this.pool.query(`UPDATE app.invite SET status = 'revoked' WHERE id = $1`, [inviteId]);
+  }
+
+  /** Owner-only, because the list is the room's future audience. */
+  async listForRoom(actor: Actor, roomId: RoomId): Promise<Invite[]> {
+    await this.assertOwner(actor, roomId);
+
+    const rows = await queryRows<InviteRow>(
+      this.pool,
+      `SELECT id, room_id, invited_by, channel, destination, role, status, preview_allowed, expires_at, accepted_by
+       FROM app.invite WHERE room_id = $1 ORDER BY created_at DESC`,
+      [roomId],
+    );
+    return rows.map(mapInvite);
+  }
+
+  /**
+   * Writes `expired` on invites whose deadline has passed, from the `expire_invites` job.
+   *
+   * The enum value existed and nothing ever set it, so expiry was a runtime comparison
+   * and `status` did not describe reality — which made any list of open invites a lie.
+   */
+  async expireOverdue(limit = 500): Promise<number> {
+    const result = await this.pool.query(
+      `UPDATE app.invite SET status = 'expired'
+       WHERE id IN (
+         SELECT id FROM app.invite
+         WHERE status = 'pending' AND expires_at <= now()
+         ORDER BY expires_at
+         LIMIT $1
+       )`,
+      [limit],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  private async assertOwner(actor: Actor, roomId: RoomId): Promise<void> {
+    const role = await roleIn(this.pool, actor.personId, roomId);
+    if (!role || !canInvite(role)) throw new NotPermittedError();
   }
 
   private async previewOf(roomId: RoomId): Promise<string | null> {

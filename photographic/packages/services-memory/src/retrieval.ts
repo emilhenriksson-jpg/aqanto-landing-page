@@ -80,7 +80,7 @@ export class MemoryRetrieval implements RetrievalPort {
     contribute(lexical);
     contribute(semantic);
 
-    return [...fused.values()]
+    const hits = [...fused.values()]
       .sort((a, b) => b.score - a.score)
       .slice(0, input.limit ?? DEFAULT_SEARCH_LIMIT)
       .map(({ candidate, score }) => ({
@@ -91,7 +91,10 @@ export class MemoryRetrieval implements RetrievalPort {
         text: candidate.text,
         score,
         documentId: candidate.documentId,
+        disputed: this.isDisputed(candidate.id),
       }));
+
+    return this.withDisputedPartners(hits);
   }
 
   async listForRoom(
@@ -105,6 +108,51 @@ export class MemoryRetrieval implements RetrievalPort {
       .filter((item) => item.status === 'active')
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .map((item) => ({ shortId: item.shortId, kind: item.kind, body: item.body }));
+  }
+
+  private isDisputed(id: string): boolean {
+    return (this.store.items.get(id as never)?.disputedBy.length ?? 0) > 0;
+  }
+
+  /**
+   * A disputed statement never travels alone.
+   *
+   * If one side of a disagreement matches the query, the other side comes with it even
+   * when it ranks below the cut. A model handed one of two contradictory statements
+   * answers confidently and wrongly; a model handed both says there are two different
+   * answers, which is true and is also what gets a person to settle it. Appended past the
+   * limit rather than displacing a better hit, because this is about completeness rather
+   * than relevance.
+   */
+  private withDisputedPartners(hits: SearchHit[]): SearchHit[] {
+    const present = new Set(hits.map((hit) => hit.id));
+    const extra: SearchHit[] = [];
+
+    for (const hit of hits) {
+      if (!hit.disputed) continue;
+      const item = this.store.items.get(hit.id as never);
+      if (!item) continue;
+
+      for (const partnerId of item.disputedBy) {
+        if (present.has(partnerId)) continue;
+        const partner = this.store.items.get(partnerId);
+        if (!partner || partner.status !== 'active') continue;
+
+        present.add(partnerId);
+        extra.push({
+          kind: 'item',
+          id: partner.id,
+          roomId: partner.roomId,
+          shortId: partner.shortId,
+          text: partner.body,
+          score: hit.score,
+          documentId: null,
+          disputed: true,
+        });
+      }
+    }
+
+    return [...hits, ...extra];
   }
 
   /**

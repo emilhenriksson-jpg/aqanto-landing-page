@@ -44,6 +44,14 @@ export interface RankableHit {
   lastUsedAt: Date | null;
   useCount: number;
   fusedScore: number;
+  /**
+   * One side of an unresolved disagreement between two members of a room.
+   *
+   * Never used to rank — a disputed statement is not less relevant, and demoting it would
+   * be a quiet way of picking a winner. It rides along so the caller can keep both sides
+   * together and label them.
+   */
+  disputed?: boolean;
 }
 
 export interface RankAdjustment {
@@ -180,5 +188,6 @@ export function toSearchHit(hit: RankedHit): SearchHit {
     text: hit.text,
     score: hit.score,
     documentId: hit.documentId,
+    disputed: hit.disputed ?? false,
   };
 }

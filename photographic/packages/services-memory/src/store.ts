@@ -33,6 +33,7 @@ import type {
   MemberRole,
   Membership,
   MemoryEvent,
+  MemorySource,
   Person,
   PersonId,
   Profile,
@@ -44,6 +45,7 @@ import type {
   SessionId,
   ShortId,
 } from '@photographic/core';
+import { NotPermittedError } from '@photographic/core';
 
 /**
  * Mirrors `app.document` after migration 0010.
@@ -149,8 +151,14 @@ export class MemoryStore {
     payload: Record<string, unknown>;
     actorPersonId?: PersonId | null;
     agentClient?: AgentClient | null;
+    clientId?: string | null;
     sessionRef?: string | null;
     approvedBy?: PersonId | null;
+    motivation?: string | null;
+    explicit?: boolean;
+    source?: MemorySource | null;
+    fromRoomId?: RoomId | null;
+    toRoomId?: RoomId | null;
   }): MemoryEvent {
     const event: MemoryEvent = {
       seq: (this.events.length + 1) as EventSeq,
@@ -160,9 +168,15 @@ export class MemoryStore {
       payload: { ...input.payload },
       actorPersonId: input.actorPersonId ?? null,
       agentClient: input.agentClient ?? null,
+      clientId: input.clientId ?? null,
       sessionRef: input.sessionRef ?? null,
       approvedBy: input.approvedBy ?? null,
       occurredAt: this.now(),
+      motivation: input.motivation?.trim() || null,
+      explicit: input.explicit ?? false,
+      source: input.source ?? null,
+      fromRoomId: input.fromRoomId ?? null,
+      toRoomId: input.toRoomId ?? null,
     };
     this.events.push(event);
     return event;
@@ -185,10 +199,83 @@ export class MemoryStore {
   redactItemText(itemIds: ItemId[]): void {
     const targets = new Set<string>(itemIds);
     for (const event of this.events) {
-      if (!targets.has(String(event.payload['item_id']))) continue;
-      const { body: _b, text: _t, structured: _s, excerpt: _e, ...rest } = event.payload;
-      event.payload = { ...rest, redacted: true, redacted_at: this.now() };
+      if (targets.has(String(event.payload['item_id']))) {
+        const {
+          body: _b,
+          text: _t,
+          structured: _s,
+          excerpt: _e,
+          // What the memory used to say. An edit keeps both values on purpose, so a
+          // purge has to take both or the trash kept half a promise.
+          previous: _p,
+          ...rest
+        } = event.payload;
+        event.payload = { ...rest, redacted: true, redacted_at: this.now() };
+        event.motivation = null;
+        continue;
+      }
+
+      // A correction quotes what it replaced, on the *new* memory's event. Purging the
+      // old one therefore has to reach an event that is not about it — surgically, because
+      // the new memory's own text is still live.
+      if (targets.has(String(event.payload['supersedes'])) && 'previous' in event.payload) {
+        const { previous: _p, ...rest } = event.payload;
+        event.payload = { ...rest, previous_redacted: true };
+      }
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Lifecycle, read out of the log
+  // -------------------------------------------------------------------------
+
+  /**
+   * The last thing that happened to an item, out of the log rather than out of a column.
+   *
+   * What is in the trash is a question about the log: an item whose most recent lifecycle
+   * event was a deletion and which has not been restored or purged since. Deriving it
+   * fixes a class of bug rather than one bug — a delete-undo-delete sequence has one
+   * answer here and cannot have two.
+   */
+  lastLifecycleEvent(itemId: ItemId): MemoryEvent | null {
+    for (let i = this.events.length - 1; i >= 0; i -= 1) {
+      const event = this.events[i]!;
+      if (event.payload['item_id'] !== itemId) continue;
+      if (
+        event.eventType === 'item.deleted' ||
+        event.eventType === 'item.restored' ||
+        event.eventType === 'item.purged'
+      ) {
+        return event;
+      }
+    }
+    return null;
+  }
+
+  /** True when the log says this item is sitting in the trash right now. */
+  isInTrash(itemId: ItemId): boolean {
+    return this.lastLifecycleEvent(itemId)?.eventType === 'item.deleted';
+  }
+
+  // -------------------------------------------------------------------------
+  // Room isolation
+  // -------------------------------------------------------------------------
+
+  /**
+   * Nothing lands in a shared room unless a person put it there.
+   *
+   * The same rule as the `item_shared_placement_explicit` trigger in migration 0003, and
+   * here for the same reason it is there: a model deciding a private fact belongs in a
+   * room five people read is not a recoverable mistake. Policy refuses it first; this
+   * refuses it again, at the point of storage, where no future write path can skip it.
+   */
+  assertPlacementAllowed(roomId: RoomId, placementExplicit: boolean): void {
+    if (placementExplicit) return;
+    if (this.rooms.get(roomId)?.kind !== 'shared') return;
+
+    throw new NotPermittedError(
+      'Automatik får inte lägga minnen i ett delat rum. Delning är alltid en uttrycklig handling.',
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -260,7 +347,8 @@ export class MemoryStore {
     return null;
   }
 
-  put(item: Item): Item {
+  put(item: Item, placementExplicit = false): Item {
+    this.assertPlacementAllowed(item.roomId, placementExplicit);
     this.items.set(item.id, item);
     return item;
   }

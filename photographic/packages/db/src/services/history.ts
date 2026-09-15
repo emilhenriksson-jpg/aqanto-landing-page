@@ -7,16 +7,28 @@ import type { Actor, HistoryAction, HistoryEntry, HistoryPort, MemoryEvent, Prov
 import type { Pool } from 'pg';
 
 import { queryOne, queryRows } from '../pool.js';
-import { mapEvent, mapItem, type EventRow, type ItemRow } from '../rows.js';
+import {
+  EVENT_COLUMNS_PREFIXED,
+  ITEM_COLUMNS,
+  mapEvent,
+  mapItem,
+  mapSource,
+  type EventRow,
+  type ItemRow,
+} from '../rows.js';
 import { accessibleRoomIds, canRead } from './permissions.js';
 
 const ACTION_OF: Record<string, HistoryAction> = {
   'item.created': 'saved',
   'item.updated': 'updated',
   'item.superseded': 'superseded',
+  'item.shared': 'shared',
+  'item.moved': 'moved',
   'item.deleted': 'deleted',
   'item.restored': 'restored',
   'item.purged': 'purged',
+  'item.disputed': 'disputed',
+  'item.dispute_resolved': 'dispute_resolved',
   'proposal.created': 'proposed',
   'proposal.accepted': 'approved',
   'proposal.rejected': 'rejected',
@@ -42,8 +54,7 @@ export class PgHistory implements HistoryPort {
 
     const rows = await queryRows<EventRow & { room_title: string; actor_name: string | null }>(
       this.pool,
-      `SELECT e.seq, e.id, e.room_id, e.event_type, e.payload, e.actor_person_id, e.agent_client,
-              e.session_ref, e.approved_by, e.occurred_at, r.title AS room_title, p.display_name AS actor_name
+      `SELECT ${EVENT_COLUMNS_PREFIXED}, r.title AS room_title, p.display_name AS actor_name
        FROM app.event e
        JOIN app.room r ON r.id = e.room_id
        LEFT JOIN app.person p ON p.id = e.actor_person_id
@@ -64,10 +75,7 @@ export class PgHistory implements HistoryPort {
 
     const itemRow = await queryOne<ItemRow>(
       this.pool,
-      `SELECT id, short_id, room_id, kind, body, structured, sensitivity, status, valid_from,
-              valid_to, superseded_by, salience, token_estimate, last_used_at, use_count,
-              created_at, deleted_at, deleted_by, deleted_by_client, purge_after, delete_reason
-       FROM app.item WHERE short_id = $1 AND room_id = ANY($2::uuid[])`,
+      `SELECT ${ITEM_COLUMNS} FROM app.item WHERE short_id = $1 AND room_id = ANY($2::uuid[])`,
       [shortId, scope],
     );
     if (!itemRow) return null;
@@ -80,8 +88,7 @@ export class PgHistory implements HistoryPort {
 
     const eventRows = await queryRows<EventRow & { room_title: string; actor_name: string | null }>(
       this.pool,
-      `SELECT e.seq, e.id, e.room_id, e.event_type, e.payload, e.actor_person_id, e.agent_client,
-              e.session_ref, e.approved_by, e.occurred_at, r.title AS room_title, p.display_name AS actor_name
+      `SELECT ${EVENT_COLUMNS_PREFIXED}, r.title AS room_title, p.display_name AS actor_name
        FROM app.event e
        JOIN app.room r ON r.id = e.room_id
        LEFT JOIN app.person p ON p.id = e.actor_person_id
@@ -91,7 +98,9 @@ export class PgHistory implements HistoryPort {
     );
 
     const timeline = eventRows.map((row) => toEntry(row));
-    const created = eventRows.find((r) => r.event_type === 'item.created');
+    const created = eventRows.find(
+      (r) => r.event_type === 'item.created' || r.event_type === 'item.shared',
+    );
 
     let approvedByName: string | null = null;
     if (created?.approved_by) {
@@ -110,6 +119,13 @@ export class PgHistory implements HistoryPort {
       savedAt: item.createdAt,
       savedByClient: created?.agent_client ?? null,
       approvedByName,
+      // The two questions section 4 asks that a timeline alone cannot answer: why it was
+      // stored where it is, and where the information came from.
+      motivation: created?.motivation ?? null,
+      source: created ? mapSource(created) : null,
+      changed: eventRows.some(
+        (r) => r.event_type === 'item.updated' || r.event_type === 'item.superseded',
+      ),
       timeline,
     };
   }

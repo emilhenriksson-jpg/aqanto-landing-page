@@ -18,21 +18,18 @@ import { NotFoundError, NotPermittedError } from '@photographic/core';
 import type { Pool } from 'pg';
 
 import { queryOne, queryRows } from '../pool.js';
-import { mapItem, mapTrashEntry, type ItemRow, type TrashEntryRow } from '../rows.js';
+import {
+  ITEM_COLUMNS,
+  mapItem,
+  mapTrashEntry,
+  type ItemRow,
+  type TrashEntryRow,
+} from '../rows.js';
 import { appendEvent } from './events.js';
 import type { PgIngest } from './ingest.js';
 import { accessibleRoomIds, canRead, canWrite } from './permissions.js';
 
 export const DEFAULT_PURGE_LIMIT = 500;
-
-const ITEM_COLUMNS = `id, short_id, room_id, kind, body, structured, sensitivity, status,
-  valid_from, valid_to, superseded_by, salience, token_estimate, last_used_at, use_count,
-  created_at, deleted_at, deleted_by, deleted_by_client, purge_after, delete_reason`;
-
-const ITEM_COLUMNS_PREFIXED = `i.id, i.short_id, i.room_id, i.kind, i.body, i.structured, i.sensitivity,
-  i.status, i.valid_from, i.valid_to, i.superseded_by, i.salience, i.token_estimate,
-  i.last_used_at, i.use_count, i.created_at, i.deleted_at, i.deleted_by, i.deleted_by_client,
-  i.purge_after, i.delete_reason`;
 
 export class PgTrash implements TrashPort {
   constructor(
@@ -47,13 +44,16 @@ export class PgTrash implements TrashPort {
       : await accessibleRoomIds(this.pool, actor.personId);
     if (scope.length === 0) return [];
 
+    // `app.trash` is a view over the log: membership comes from the most recent lifecycle
+    // event for each item, and who deleted it, from which client and why come from that
+    // event rather than from five mutable columns that recorded the same thing twice.
     const rows = await queryRows<TrashEntryRow>(
       this.pool,
-      `SELECT ${ITEM_COLUMNS_PREFIXED}, r.title AS room_title
-       FROM app.item i
-       JOIN app.room r ON r.id = i.room_id
-       WHERE i.room_id = ANY($1::uuid[]) AND i.status = 'deleted'
-       ORDER BY i.deleted_at DESC
+      `SELECT short_id, room_id, room_title, kind, body, deleted_at, deleted_by,
+              deleted_by_client, delete_reason, purge_after
+       FROM app.trash
+       WHERE room_id = ANY($1::uuid[])
+       ORDER BY deleted_at DESC
        LIMIT $2`,
       [scope, input.limit ?? 50],
     );
@@ -64,7 +64,9 @@ export class PgTrash implements TrashPort {
 
   async restore(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<Item> {
     const item = await this.findByShortId(actor.personId, shortId, roomId);
-    if (!item || item.status !== 'deleted') throw new NotFoundError('Det finns inget att återställa.');
+    if (!item || !(await this.isInTrash(item.id))) {
+      throw new NotFoundError('Det finns inget att återställa.');
+    }
     if (!(await canWrite(this.pool, actor.personId, item.roomId))) throw new NotPermittedError();
 
     return this.ingest.restore(actor, item);
@@ -90,6 +92,7 @@ export class PgTrash implements TrashPort {
         payload: { item_id: item.id, short_id: item.shortId },
         actorPersonId: item.deletedBy,
         agentClient: item.deletedByClient,
+        motivation: 'Trettio dagar gick. Texten är permanent raderad.',
       });
     }
 
@@ -103,7 +106,9 @@ export class PgTrash implements TrashPort {
 
   async purgeNow(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<void> {
     const item = await this.findByShortId(actor.personId, shortId, roomId);
-    if (!item || item.status !== 'deleted') throw new NotFoundError('Det finns inget att radera.');
+    if (!item || !(await this.isInTrash(item.id))) {
+      throw new NotFoundError('Det finns inget att radera.');
+    }
     if (!(await canWrite(this.pool, actor.personId, item.roomId))) throw new NotPermittedError();
 
     await appendEvent(this.pool, {
@@ -112,6 +117,9 @@ export class PgTrash implements TrashPort {
       payload: { item_id: item.id, short_id: item.shortId },
       actorPersonId: actor.personId,
       agentClient: actor.agentClient,
+      clientId: actor.clientId ?? null,
+      explicit: true,
+      motivation: 'Permanent raderat på din begäran, före de trettio dagarna.',
     });
 
     await this.pool.query(
@@ -120,6 +128,21 @@ export class PgTrash implements TrashPort {
     );
     await this.pool.query('SELECT app.purge_expired_items($1)', [1]);
     await this.invalidateAfterPurge([item]);
+  }
+
+  /**
+   * Whether the log says this item is in the trash right now.
+   *
+   * Asked of the view rather than of `item.status`, so a delete-undo-delete sequence has
+   * exactly one answer instead of two that can disagree.
+   */
+  private async isInTrash(itemId: string): Promise<boolean> {
+    const row = await queryOne<{ present: boolean }>(
+      this.pool,
+      `SELECT EXISTS (SELECT 1 FROM app.trash WHERE item_id = $1) AS present`,
+      [itemId],
+    );
+    return row?.present ?? false;
   }
 
   private async findByShortId(personId: PersonId, shortId: ShortId, roomId?: RoomId): Promise<Item | null> {

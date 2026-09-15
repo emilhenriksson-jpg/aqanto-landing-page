@@ -7,13 +7,15 @@
  * `@photographic/agent` describe exactly these operations.
  */
 
-import type { ProposalId, ShortId } from '@photographic/core';
+import type { PlacementDecision, ProposalId, RoomId, ShortId } from '@photographic/core';
 import { Hono } from 'hono';
 
-import type { AppEnv } from '../context.js';
+import type { AppContext, AppEnv } from '../context.js';
 import {
+  placementSchema,
   proposeSchema,
   rememberSchema,
+  resolveDisputeSchema,
   resolveProposalSchema,
   searchSchema,
   shortIdParam,
@@ -21,12 +23,28 @@ import {
   updateSchema,
 } from '../schemas.js';
 import {
+  serialiseDispute,
   serialiseItem,
   serialiseProposal,
+  serialiseRouting,
   serialiseSearchHit,
 } from '../serialise.js';
 import { parseJsonBody, parseParams, parseQuery } from '../validation.js';
-import { getActor, getServices, resolveRoom } from './shared.js';
+import { assertRoomInScope, getActor, getServices, resolveRoom } from './shared.js';
+
+/** Placed, or queued. Same two shapes for `share` and `move`, so a client learns one. */
+function serialisePlacement(c: AppContext, decision: PlacementDecision) {
+  if (decision.outcome === 'needs_approval') {
+    return c.json(
+      { outcome: 'needs_approval', proposal: serialiseProposal(decision.proposal) },
+      202,
+    );
+  }
+  return c.json(
+    { outcome: 'placed', item: serialiseItem(decision.item), seq: decision.event.seq },
+    201,
+  );
+}
 
 export function memoryRoutes(): Hono<AppEnv> {
   const routes = new Hono<AppEnv>();
@@ -40,25 +58,41 @@ export function memoryRoutes(): Hono<AppEnv> {
   routes.post('/memory', async (c) => {
     const actor = getActor(c);
     const input = await parseJsonBody(c, rememberSchema);
-    const roomId = await resolveRoom(c, actor, input);
+
+    // Only resolved when the caller actually named somewhere. Naming nothing no longer
+    // means "the personal room" — it means Photographic decides, and says why.
+    const roomId =
+      input.roomId || input.room ? await resolveRoom(c, actor, input) : undefined;
 
     const decision = await getServices(c).ingest.remember(actor, {
-      roomId,
+      ...(roomId ? { roomId } : {}),
       body: input.body,
       ...(input.kind ? { kind: input.kind } : {}),
       ...(input.sensitivity ? { sensitivity: input.sensitivity } : {}),
       ...(input.explicit === undefined ? {} : { explicit: input.explicit }),
+      ...(input.motivation ? { motivation: input.motivation } : {}),
     });
 
     switch (decision.outcome) {
       case 'auto':
-        return c.json({ outcome: 'auto', item: serialiseItem(decision.item) }, 201);
+        return c.json(
+          {
+            outcome: 'auto',
+            item: serialiseItem(decision.item),
+            ...(decision.routing ? { routing: serialiseRouting(decision.routing) } : {}),
+          },
+          201,
+        );
 
       case 'needs_approval':
         // 202: accepted, not yet done. The model is meant to tell the person it is
         // asking rather than report a save that has not happened.
         return c.json(
-          { outcome: 'needs_approval', proposal: serialiseProposal(decision.proposal) },
+          {
+            outcome: 'needs_approval',
+            proposal: serialiseProposal(decision.proposal),
+            ...(decision.routing ? { routing: serialiseRouting(decision.routing) } : {}),
+          },
           202,
         );
 
@@ -99,18 +133,106 @@ export function memoryRoutes(): Hono<AppEnv> {
     return c.json({ accepted: accept, item: item ? serialiseItem(item) : null });
   });
 
+  /**
+   * Editing a memory, through the same gate as saving one.
+   *
+   * Two outcomes rather than one, and the 202 matters: an edit in a shared room is now a
+   * question, and a client that reported it as done would be telling the person their
+   * correction had landed when four other people still see the old text.
+   */
   routes.patch('/memory/:shortId', async (c) => {
     const actor = getActor(c);
     const { shortId } = parseParams(c, shortIdParam);
     const input = await parseJsonBody(c, updateSchema);
     const roomId = await resolveRoom(c, actor, input);
 
-    const item = await getServices(c).ingest.update(
+    const decision = await getServices(c).ingest.update(
       actor,
       shortId as ShortId,
       roomId,
       input.body,
+      input.motivation ? { motivation: input.motivation } : {},
     );
+
+    if (decision.outcome === 'needs_approval') {
+      return c.json(
+        { outcome: 'needs_approval', proposal: serialiseProposal(decision.proposal) },
+        202,
+      );
+    }
+
+    return c.json({ outcome: 'updated', item: serialiseItem(decision.item) });
+  });
+
+  /**
+   * Sharing a memory into another room. Always an explicit act.
+   *
+   * `confirmed` comes from the app, where a person pressed something. Without it this
+   * returns a proposal, whichever client asked — and the database refuses the row
+   * underneath regardless, so a future code path that forgets cannot place anything in
+   * front of other people.
+   */
+  routes.post('/memory/:shortId/share', async (c) => {
+    const actor = getActor(c);
+    const { shortId } = parseParams(c, shortIdParam);
+    const input = await parseJsonBody(c, placementSchema);
+
+    const decision = await getServices(c).ingest.share(actor, {
+      shortId: shortId as ShortId,
+      toRoomId: assertRoomInScope(actor, input.toRoomId as RoomId),
+      ...(input.fromRoomId ? { fromRoomId: input.fromRoomId as RoomId } : {}),
+      ...(input.confirmed === undefined ? {} : { confirmed: input.confirmed }),
+      ...(input.motivation ? { motivation: input.motivation } : {}),
+    });
+
+    return serialisePlacement(c, decision);
+  });
+
+  /** Moving a memory: private -> room, or room -> room. The short id survives. */
+  routes.post('/memory/:shortId/move', async (c) => {
+    const actor = getActor(c);
+    const { shortId } = parseParams(c, shortIdParam);
+    const input = await parseJsonBody(c, placementSchema);
+
+    const decision = await getServices(c).ingest.move(actor, {
+      shortId: shortId as ShortId,
+      toRoomId: assertRoomInScope(actor, input.toRoomId as RoomId),
+      ...(input.fromRoomId ? { fromRoomId: input.fromRoomId as RoomId } : {}),
+      ...(input.confirmed === undefined ? {} : { confirmed: input.confirmed }),
+      ...(input.motivation ? { motivation: input.motivation } : {}),
+    });
+
+    return serialisePlacement(c, decision);
+  });
+
+  /**
+   * Unresolved disagreements, in the same queue as proposals.
+   *
+   * Both are a person being asked to decide something a model is not allowed to decide,
+   * and a second inbox is a second thing nobody opens.
+   */
+  routes.get('/memory/disputes', async (c) => {
+    const actor = getActor(c);
+    const disputes = await getServices(c).ingest.listDisputes(actor);
+    return c.json({ disputes: disputes.map(serialiseDispute) });
+  });
+
+  /**
+   * Settling one. There is no MCP tool for this and there will not be one: a model
+   * choosing between two people's accounts of the same thing is the failure the whole
+   * mechanism exists to avoid.
+   */
+  routes.post('/memory/disputes/resolve', async (c) => {
+    const actor = getActor(c);
+    const input = await parseJsonBody(c, resolveDisputeSchema);
+
+    const item = await getServices(c).ingest.resolveDispute(actor, {
+      winnerShortId: input.winnerShortId as ShortId,
+      loserShortId: input.loserShortId as ShortId,
+      ...(input.roomId ? { roomId: input.roomId as RoomId } : {}),
+      ...(input.resolution ? { resolution: input.resolution } : {}),
+    });
+
     return c.json({ item: serialiseItem(item) });
   });
 

@@ -19,6 +19,7 @@ import { FakeLlm, FakeNotify } from '@photographic/core/testing';
 
 import { MemoryAudit } from './audit.js';
 import { MemoryBundle } from './bundle.js';
+import { MemoryCalendar } from './calendar.js';
 import { MemoryDocuments } from './documents.js';
 import { MemoryEvents } from './events.js';
 import { MemoryHistory } from './history.js';
@@ -45,6 +46,7 @@ export * from './documents.js';
 export * from './trash.js';
 export * from './history.js';
 export * from './events.js';
+export * from './calendar.js';
 export * from './sessions.js';
 export * from './jobs.js';
 export * from './audit.js';
@@ -91,15 +93,18 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
 
   const identity = new MemoryIdentity(store);
   const projection = new MemoryProjection(store, llm);
-  const rooms = new MemoryRooms(store, projection);
-  const invites = new MemoryInvites(store, notify, options.baseUrl);
+  // Ingest before rooms: leaving a room can take the author's own contributions with it,
+  // and it does that through the ordinary trash rather than a second deletion path.
   const ingest = new MemoryIngest(store, llm, projection, jobs);
+  const rooms = new MemoryRooms(store, projection, ingest);
+  const invites = new MemoryInvites(store, notify, options.baseUrl);
   const bundle = new MemoryBundle(store, projection, rooms);
   const retrieval = new MemoryRetrieval(store, llm);
   const documents = new MemoryDocuments(store, llm, projection, jobs);
   const trash = new MemoryTrash(store, ingest, projection);
   const history = new MemoryHistory(store);
   const events = new MemoryEvents(store);
+  const calendar = new MemoryCalendar(store);
   const sessions = new MemorySessions(store);
 
   // Registered here rather than inside each service, so there is one list of what runs
@@ -126,6 +131,12 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
     await trash.purgeExpired();
   });
 
+  // `expired` was in the enum from the start and nothing ever wrote it, so expiry was a
+  // runtime comparison and `status` did not describe reality.
+  jobs.work('expire_invites', async () => {
+    await invites.expireOverdue();
+  });
+
   const services: Services = {
     identity,
     rooms,
@@ -138,6 +149,7 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
     trash,
     history,
     events,
+    calendar,
     sessions,
     llm,
     notify,

@@ -31,6 +31,7 @@ export function defaultBlobRoot(): string {
 
 import { PgAudit } from './services/audit.js';
 import { PgBundle } from './services/bundle.js';
+import { PgCalendar } from './services/calendar.js';
 import { PgDocuments } from './services/documents.js';
 import { PgEvents } from './services/events.js';
 import { PgHistory } from './services/history.js';
@@ -103,9 +104,11 @@ export async function createPostgresServices(
 
   const identity = new PgIdentity(pool);
   const projection = new PgProjection(pool, llm);
-  const rooms = new PgRooms(pool, projection);
-  const invites = new PgInvites(pool, notify, options.baseUrl);
+  // Ingest before rooms: leaving a room can take the author's own contributions with it,
+  // and it does that through the ordinary trash rather than a second deletion path.
   const ingest = new PgIngest(pool, llm, projection, jobs, clock);
+  const rooms = new PgRooms(pool, projection, ingest);
+  const invites = new PgInvites(pool, notify, options.baseUrl);
   const bundle = new PgBundle(projection, rooms);
   const retrieval = new PgRetrieval(pool, llm);
   const blobs = options.blobs ?? new LocalBlobStore({ root: defaultBlobRoot() });
@@ -114,6 +117,7 @@ export async function createPostgresServices(
   const trash = new PgTrash(pool, ingest, projection);
   const history = new PgHistory(pool);
   const events = new PgEvents(pool);
+  const calendar = new PgCalendar(pool);
   const sessions = new PgSessions(pool);
 
   // Registered here rather than inside each service, exactly as `createMemoryServices`
@@ -137,6 +141,12 @@ export async function createPostgresServices(
     await trash.purgeExpired();
   });
 
+  // `expired` was in the enum from the start and nothing ever wrote it, so expiry was a
+  // runtime comparison and `status` did not describe reality.
+  jobs.work('expire_invites', async () => {
+    await invites.expireOverdue();
+  });
+
   const services: Services = {
     identity,
     rooms,
@@ -149,6 +159,7 @@ export async function createPostgresServices(
     trash,
     history,
     events,
+    calendar,
     sessions,
     llm,
     notify,

@@ -116,6 +116,15 @@ export interface MembershipStore {
 
   listForRoom(roomId: RoomId): Promise<Array<{ person: Person; role: MemberRole }>>;
 
+  /** Every active membership in a room, roles included, for ownership succession. */
+  activeInRoom(roomId: RoomId): Promise<Membership[]>;
+
+  /** Sets `left_at`. The row stays, so the room keeps knowing who wrote what. */
+  end(personId: PersonId, roomId: RoomId, at: Date): Promise<void>;
+
+  /** Changes a role. Used when ownership passes to the longest-serving editor. */
+  setRole(personId: PersonId, roomId: RoomId, role: MemberRole): Promise<void>;
+
   /**
    * Active members per room, for the room list.
    *

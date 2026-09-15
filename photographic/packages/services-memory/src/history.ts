@@ -33,13 +33,17 @@ import { MemoryStore } from './store.js';
  * actually matter. Anything not listed here is invisible, which is the safe direction —
  * a new internal event type cannot leak into the feed by being forgotten about.
  */
-const ACTION_OF: Record<string, HistoryAction> = {
+export const ACTION_OF: Record<string, HistoryAction> = {
   'item.created': 'saved',
   'item.updated': 'updated',
   'item.superseded': 'superseded',
+  'item.shared': 'shared',
+  'item.moved': 'moved',
   'item.deleted': 'deleted',
   'item.restored': 'restored',
   'item.purged': 'purged',
+  'item.disputed': 'disputed',
+  'item.dispute_resolved': 'dispute_resolved',
   'proposal.created': 'proposed',
   'proposal.accepted': 'approved',
   'proposal.rejected': 'rejected',
@@ -90,9 +94,10 @@ export class MemoryHistory implements HistoryPort {
       .sort((a, b) => a.seq - b.seq)
       .map((e) => this.toEntry(e));
 
-    const created = this.store
-      .eventsForItem(item.id)
-      .find((e) => e.eventType === 'item.created');
+    const events = this.store.eventsForItem(item.id);
+    const created = events.find(
+      (e) => e.eventType === 'item.created' || e.eventType === 'item.shared',
+    );
 
     return {
       shortId: item.shortId,
@@ -103,6 +108,13 @@ export class MemoryHistory implements HistoryPort {
       approvedByName: created?.approvedBy
         ? this.store.persons.get(created.approvedBy)?.displayName ?? null
         : null,
+      // The two questions section 4 of the scope asks that the timeline alone cannot
+      // answer: why it was stored where it is, and where the information came from.
+      motivation: created?.motivation ?? null,
+      source: created?.source ?? null,
+      changed: events.some(
+        (e) => e.eventType === 'item.updated' || e.eventType === 'item.superseded',
+      ),
       timeline,
     };
   }

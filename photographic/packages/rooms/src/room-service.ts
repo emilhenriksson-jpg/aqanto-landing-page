@@ -8,6 +8,7 @@ import {
   type Actor,
   type MemberRole,
   type Person,
+  type PersonId,
   type Room,
   type RoomId,
   type RoomPort,
@@ -157,12 +158,136 @@ export class RoomService implements RoomPort {
   }
 
   /**
+   * Leaves a shared room. The membership ends; the contributions stay.
+   *
+   * If forty notes vanished the moment their author left, everyone else's memory would
+   * change behind their backs — decisions citing her material stop making sense. So the
+   * membership row is kept and only `left_at` is set, which is also what lets the room go
+   * on attributing what she wrote.
+   *
+   * `removeContributions` is refused here rather than half-implemented. Deleting memories
+   * goes through the trash, which is the ingest package's write path, and this package
+   * owns no access to items by design — see the note at the top of `deps.ts`. The wired
+   * implementation offers the option; this service is the membership half.
+   */
+  async leave(
+    actor: Actor,
+    roomId: RoomId,
+    input: { removeContributions?: boolean } = {},
+  ): Promise<void> {
+    const { room } = await requireAccess(this.deps.store, actor, roomId);
+    if (room.kind === 'personal') {
+      throw new ValidationError('du kan inte lämna ditt eget rum');
+    }
+    if (input.removeContributions) {
+      throw new ValidationError(
+        'att ta bort egna bidrag går via papperskorgen och hanteras inte här',
+      );
+    }
+
+    await this.endMembership(actor, roomId, actor.personId, null);
+  }
+
+  /** Owner-only. Never touches the removed member's contributions. */
+  async removeMember(actor: Actor, roomId: RoomId, personId: PersonId): Promise<void> {
+    await requireRole(
+      this.deps.store,
+      actor,
+      roomId,
+      'owner',
+      'bara rummets ägare kan ta bort en medlem',
+    );
+    if (personId === actor.personId) {
+      throw new ValidationError('använd "lämna rummet" för att gå ur själv');
+    }
+
+    const membership = await this.deps.store.memberships.find(personId, roomId);
+    if (!membership || membership.leftAt !== null) {
+      throw new NotPermittedError('personen är inte medlem i rummet');
+    }
+
+    await this.endMembership(actor, roomId, personId, actor.personId);
+  }
+
+  /**
    * Read state is not memory: it carries no event. Appending one would make every
    * "what happened since you were here" check itself something that happened.
    */
   async markSeen(actor: Actor, roomId: RoomId): Promise<void> {
     await requireAccess(this.deps.store, actor, roomId);
     await this.deps.store.readState.markSeen(actor.personId, roomId);
+  }
+
+  /**
+   * Ends one membership and records it.
+   *
+   * No token revocation, and none is needed: access is the intersection of the token's
+   * scope with *current* memberships, resolved per request, so it stops at the next call.
+   * Caching that would be the bug.
+   */
+  private async endMembership(
+    actor: Actor,
+    roomId: RoomId,
+    personId: PersonId,
+    removedBy: PersonId | null,
+  ): Promise<void> {
+    await this.deps.store.memberships.end(personId, roomId, this.now());
+
+    await this.deps.store.events.append({
+      roomId,
+      eventType: 'member.left',
+      payload: {
+        person_id: personId,
+        ...(removedBy ? { removed_by: removedBy } : {}),
+        contributions: 'kept',
+      },
+      ...provenanceOf(actor),
+    });
+
+    await this.succeedOwnership(actor, roomId, personId);
+  }
+
+  /**
+   * A room always has an owner, or it has no reason to exist.
+   *
+   * The longest-serving editor inherits, as the person most likely to know what the room
+   * is for. With nobody to inherit it the room is archived, which already removes it from
+   * everyone's accessible rooms rather than leaving content nobody can administer.
+   */
+  private async succeedOwnership(
+    actor: Actor,
+    roomId: RoomId,
+    departed: PersonId,
+  ): Promise<void> {
+    const active = await this.deps.store.memberships.activeInRoom(roomId);
+    if (active.some((m) => m.role === 'owner')) return;
+
+    const heir = active
+      .filter((m) => m.role === 'editor')
+      .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime())[0];
+
+    if (heir) {
+      await this.deps.store.memberships.setRole(heir.personId, roomId, 'owner');
+      await this.deps.store.events.append({
+        roomId,
+        eventType: 'room.owner_changed',
+        payload: { person_id: heir.personId, previous_owner: departed, reason: 'succession' },
+        ...provenanceOf(actor),
+      });
+      return;
+    }
+
+    const room = await this.deps.store.rooms.findById(roomId);
+    if (!room || room.archivedAt !== null) return;
+
+    const now = this.now();
+    await this.deps.store.rooms.archive(roomId, now);
+    await this.deps.store.events.append({
+      roomId,
+      eventType: 'room.archived',
+      payload: { archivedAt: now.toISOString(), reason: 'no_owner_remaining' },
+      ...provenanceOf(actor),
+    });
   }
 
   private now(): Date {
