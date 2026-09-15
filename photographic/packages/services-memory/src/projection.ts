@@ -9,6 +9,8 @@
  * ceiling from cutting a sentence in half.
  */
 
+import { briefEventLine } from '@photographic/projection';
+
 import type {
   ActiveRoomContext,
   Actor,
@@ -403,27 +405,14 @@ function packSince(lines: string[], budgetTokens: number): string[] {
   return out;
 }
 
+// The sentence itself lives in `@photographic/projection`, shared with the Postgres
+// driver. Two copies of it meant one `[object Object]` bug in two places.
 function describeEvent(
   store: MemoryStore,
   eventType: string,
   payload: Record<string, unknown>,
   actorPersonId: PersonId | null,
 ): string | null {
-  const who = actorPersonId ? store.persons.get(actorPersonId)?.displayName ?? 'Någon' : 'Någon';
-  const body = typeof payload['body'] === 'string' ? payload['body'] : null;
-
-  switch (eventType) {
-    case 'item.created':
-      return body ? `- ${who} sparade: ${body}` : null;
-    case 'item.updated':
-      return body ? `- ${who} ändrade: ${body}` : null;
-    case 'item.deleted':
-      return `- ${who} tog bort ett minne`;
-    case 'document.uploaded':
-      return `- ${who} laddade upp ${String(payload['filename'] ?? 'ett dokument')}`;
-    case 'member.joined':
-      return `- ${who} gick med i rummet`;
-    default:
-      return null;
-  }
+  const actorName = actorPersonId ? store.persons.get(actorPersonId)?.displayName ?? null : null;
+  return briefEventLine(eventType, payload, actorName);
 }

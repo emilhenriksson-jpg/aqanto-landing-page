@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import type { MemoryLine, RoomKind } from '../data/demo.js';
 import { MemoryProvenance } from './MemoryProvenance.js';
@@ -15,6 +16,12 @@ import { MemoryProvenance } from './MemoryProvenance.js';
  * Soft delete only, always with undo — DESIGN.md and the product contract require it.
  * `onForget` is optional: in a shared room the row is read-only, and a row nobody may
  * delete still has to be able to answer for itself.
+ *
+ * The deleted state says where the memory went and for how long, and links there. The
+ * thirty-day trash is what makes deleting safe enough to do on one clear request, and the
+ * moment a person presses "Ta bort" is the moment that fact is worth anything — knowing it
+ * exists a week later, from a link at the foot of another screen, is knowing it too late.
+ * `Ångra` stays first: same-turn undo is still the cheapest way back.
  */
 export function MemoryRow({
   item,
@@ -36,7 +43,12 @@ export function MemoryRow({
   if (gone) {
     return (
       <li className="memory memory--gone">
-        <span className="memory__body">Borttaget</span>
+        <div className="memory__gone-text">
+          <span className="memory__body">Borttaget</span>
+          <span className="meta">
+            Ligger i <Link to="/papperskorg">papperskorgen</Link> i 30 dagar.
+          </span>
+        </div>
         <button
           type="button"
           className="btn btn--quiet"

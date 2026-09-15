@@ -395,6 +395,9 @@ importers:
       '@photographic/export':
         specifier: workspace:*
         version: link:../export
+      '@photographic/projection':
+        specifier: workspace:*
+        version: link:../projection
       pg:
         specifier: ^8.13.1
         version: 8.23.0
@@ -620,6 +623,9 @@ importers:
       '@photographic/documents':
         specifier: workspace:*
         version: link:../documents
+      '@photographic/projection':
+        specifier: workspace:*
+        version: link:../projection
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

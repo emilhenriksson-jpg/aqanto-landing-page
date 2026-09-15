@@ -14,7 +14,8 @@
   "dependencies": {
     "@photographic/agent": "workspace:*",
     "@photographic/core": "workspace:*",
-    "@photographic/documents": "workspace:*"
+    "@photographic/documents": "workspace:*",
+    "@photographic/projection": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

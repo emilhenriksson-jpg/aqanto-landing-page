@@ -95,16 +95,6 @@
       "count": 2
     }
   },
-  "apps/web/src/screens/InvitePreview.tsx": {
-    "react-hooks/rules-of-hooks": {
-      "count": 1
-    }
-  },
-  "apps/web/src/screens/SharedRoom.tsx": {
-    "react-hooks/rules-of-hooks": {
-      "count": 1
-    }
-  },
   "apps/web/src/screens/Trash.tsx": {
     "@typescript-eslint/no-floating-promises": {
       "count": 1
@@ -179,9 +169,6 @@
     }
   },
   "packages/db/src/services/projection.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 1
-    },
     "prefer-const": {
       "count": 1
     }
@@ -213,11 +200,6 @@
   },
   "packages/services-memory/src/calendar.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
-  "packages/services-memory/src/projection.ts": {
-    "@typescript-eslint/no-base-to-string": {
       "count": 1
     }
   },

@@ -1686,3 +1686,121 @@ gick att återställa, och asymmetrin syns inte utifrån.
   flaggorna, vägrar ett mål som redan har minnen utan `--into-existing`, vägrar produktion
   utan uttryckligt medgivande, och avslutar med fel om resultatet är tomt eller om liggaren
   påstår migreringar som schemat saknar (verifierat: avslutskod 66, 70 och 71).
+## Export, radering och tre front-end-luckor från granskningarna
+
+- **web** — Export och kontoradering hade **ingen anropare**. Båda var byggda, testade och
+  `firstPartyOnly`-grindade utan att någon skärm kunde trycka på dem, så de två löftena som
+  gör en minnesprodukt värd att lita på — att man kan ta med sig sitt minne och att man kan
+  lämna på riktigt — gällde API:et men inte produkten. De ligger nu bakom en `Konto`-plats i
+  railen:
+
+  - `/konto/export` (`Ta med ditt minne`) säger **vad arkivet innehåller innan man begär
+    det**: hela det privata rummet, personens egna bidrag i delade rum men *inte* de andras
+    anteckningar, rummens metadata, dokumenten i original, plus `README.md` och
+    `manifest.json` med sha256 per fil. Räckvidden är ett beslut (`EXPORT.md` beslut 1), inte
+    en detalj, så den står på skärmen. Jobbet köas, skärmen pollar var femte sekund medan
+    bakgrundssvepet bygger arkivet, och nedladdningslänken mintas när personen ber om den.
+    Inga påhittade nollor medan jobbet inte har körts — "0 händelser" läses som ett tomt
+    minne, vilket är det enda en export aldrig får antyda.
+  - `/konto/radera` (`Radera konto`) **hämtar samtyckestexten från API:et** i stället för att
+    skriva om den, så det en person läser innan hen raderar inte kan glida från det inbjudan
+    lovade. Inget är förvalt, i båda valen. Bekräftelsen säger rakt ut det man annars antar
+    fel: **papperskorgens 30 dagar gäller enskilda minnen, inte ett raderat konto.** Den
+    omedelbara vägen kräver den skrivna frasen som servern validerar
+    (`IMMEDIATE_CONFIRMATION`), och kvittot säger hur många anslutna AI:er som kopplades bort.
+
+- **web** — Papperskorg, Historik och Kompass **var redan nåbara** via fotlänkarna på
+  startskärmen (`App.tsx` beskriver det som ett medvetet val). En tidigare granskning hade
+  fel om det, och ingen andra navigation byggdes. Vad som saknades var skyddsnätet **i det
+  ögonblick det betyder något**: en borttagen rad säger nu "Ligger i papperskorgen i 30
+  dagar" och länkar dit, i stället för att den kunskapen ska hittas en vecka senare.
+
+- **web** — Delade rummens aktivitetsflöde läste `DEMO_ACTIVITY[room.id]` **utan
+  flaggkontroll**. Fixturerna nycklas på slug och ett riktigt `room.id` är en UUID, så
+  uppslaget missade alltid: varje verkligt rum rapporterade "Ingen aktivitet ännu" för alltid.
+  Flödet läser nu rummets egen historik ur event-loggen (`GET /v1/history?room=…&limit=12`),
+  och ett tomt flöde betyder en tom logg. Ett trasigt anrop kostar inte rummet.
+
+- **web/onboarding** — Det fanns **två inbjudningsskärmar**. Alla genererade länkar pekar på
+  `/invite/:token` i auth-appen, som registrerar personen och accepterar inbjudan; kopian på
+  `/i/:token` i produktappen satte bara React-state och gick med i ingenting. Kopian är
+  borttagen (skärm, route, `api/invites.ts`, mappare, fixturer och CSS), `/i/:token` är en
+  302 till den riktiga, och den kvarvarande skärmen bär nu **vem, vad och vad som stannar
+  kvar ovanför knappen**: vem som bjuder in, att rummet är delat, att man får ett eget privat
+  rum, och att det man skriver i rummet stannar där även om man lämnar det. Mätt: allt det
+  plus `Gå med` och hela `SHARED_ROOM_CONSENT` ligger inom första vyn på 320×640 och uppåt.
+
+- **onboarding** — `/start` är en publik sida för apex-värdnamnet, som idag servar
+  ingenting. Plain svenska, en väg in för den som redan har konto (`Logga in`), och
+  ingenting som inte är byggt: ingen röst, inga sammanfattningar, och den säger uttryckligen
+  att nya konton inte är öppna för alla och att svenska mobilnummer är enda vägen in.
+  **Routningen av apex är inte gjord här** — den ägs av deploy-spåret. Det som behövs:
+  `A`/`AAAA` för `photographic.space` mot Fly, plus antingen en redirect till
+  `https://mcp.photographic.space/start` eller en värdbaserad regel som låter apex `/` servera
+  auth-appens shell i stället för produktappens.
+
+- **web** — Layouten är **mätt, inte ögonmätt**, på 320×640, 360×640, 390×664, 414×736 och
+  744×420 (kort landskap), över alla 13 inloggade skärmar plus `/start` och inbjudan: sidled
+  scroll, element utanför skärmen, avkapade tabbaretiketter, innehåll under den fasta
+  tabbaren, träffytor under 40px och sektioner utan luft. Två riktiga fel hittades och är
+  lagade: `.ask-form__input` saknade `min-width: 0`, så `Sök` på `/fraga` låg 53px (320px) och
+  13px (360px) utanför skärmen och gav sidled scroll; och `Dokument` på startskärmen låg
+  tätt intill sista minneskortet eftersom `.sections` är en flex-kolumn med egen gap och
+  syskonreglerna därför inte gällde. Kalenderns mobillayout rördes inte — den är mätt och
+  korrekt sedan tidigare. Efter fixarna: 75 kombinationer, noll problem.
+
+  Verifierat i en riktig webbläsare mot ett riktigt konto (telefonsignup, kod ur loggen,
+  `VITE_USE_DEMO=0`, Postgres): 17 kontroller, inklusive att en export verkligen byggs och
+  laddas ner som en zip med 19 händelser och 7 minnen ur just det kontots logg, att
+  papperskorgen visar det minne kontot självt tog bort, och att aktivitetsflödet visar
+  rummets egna händelser. Ingen radering slutfördes.
+
+  Kvar att veta: en telefonsignup sätter inget `display_name`, så en riktig inbjudan säger
+  "Du är inbjuden till ett delat rum" i stället för "Emil bjuder in dig". Skärmen hanterar
+  båda; att sätta namnet någonstans i flödet är ett produktbeslut, inte en bugg här.
+
+  Raderingsvägen är dessutom körd hela vägen **på ett engångskonto, aldrig Emils**: begäran
+  från skärmen → kvitto → `GET /v1/account/deletion` visar en pågående radering med
+  `executeAfter` 30 dagar fram och `contributions: keep` → `Avbryt raderingen` → `pending`
+  är `null` igen. Skärmbild av det pågående läget finns i `media/`.
+
+  En sak att veta för nästa körning: `pnpm test` med `DATABASE_URL` satt **nollställer den
+  delade lokala databasen** (flera sviter i `packages/db` och `apps/rest` gör det), så ett
+  verifieringskonto överlever inte en full testkörning. Skriptet som återskapar kontot ligger
+  utanför repot; ordningen är signup → minnen → delat rum → godkännanden → en borttagning →
+  inbjudan, och den behövs igen om någon vill upprepa verifieringen.
+
+### Två linterfynd i samma pass
+
+- **`[object Object]` i briefen, i båda implementationerna.** `String(payload['filename'] ??
+  'ett dokument')` gav `[object Object]` för varje `document.uploaded`-payload vars filnamn
+  inte var en sträng, och raden var identisk i `packages/db/src/services/projection.ts` och
+  `packages/services-memory/src/projection.ts`. Samma bugg två gånger är vad två kopior
+  producerar, så meningen bor nu på **ett** ställe: `briefEventLine` i
+  `packages/projection` (som var ett tomt skal med `export {}`), med sex tester varav ett
+  itererar över payloads som inte går att läsa. Ingenting tvingas till sträng längre — det
+  som inte är en sträng blir "ett dokument". Både `packages/db` och
+  `packages/services-memory` beror nu på `@photographic/projection`; det är två paket utanför
+  `apps/web`, och skälet är just att fixen annars hade blivit en tredje kopia.
+
+  Bevisat mot Postgres med **två riktiga medlemmar**: A laddade upp `offert-kok.txt` i ett
+  delat rum, B (registrerad via inbjudningslänken, alltså också ett bevis på att den
+  kvarvarande inbjudningsskärmens väg fungerar) läste `GET /v1/context?room=…` och fick
+  `- Någon laddade upp offert-kok.txt`, utan `[object Object]` någonstans i kontextpaketet.
+  ("Någon" därför att telefonsignup inte sätter `display_name` — samma sak som noteras ovan.)
+
+- **Villkorligt anropad hook.** `SharedRoom` returnerade `<Navigate>` före `useRoomData`, så
+  hooken anropades bara på vissa renders. Det failar inte högt; det failar som state som
+  matchas på anropsordning mot en tidigare render med en hook till. Omdirigeringarna ligger nu
+  i ett yttre skal och laddningen i `SharedRoomLoader`, samma mönster som
+  `DocumentsSection` redan använder. Den andra förekomsten låg i produktappens
+  `InvitePreview`, som är borttagen.
+
+- **Lintern körd mot branchen** i en separat worktree med [#19](https://github.com/emilhenriksson-jpg/aqanto-landing-page/pull/19):s
+  konfiguration ovanpå, i stället för att vänta på CI. Noll fynd i mina filer efter fixarna.
+  Två saker att veta för den som mergar: `no-floating-promises` är konfigurerad så att `void
+  promise` **inte** räcker, så klickhanterarna i de nya skärmarna avslutar med `.catch` som
+  faktiskt visar felet för personen; och min projektionsfix gör två `no-base-to-string`-
+  suppressions i `eslint-suppressions.json` obsoleta, så `pnpm lint:prune` ska köras när #19
+  och den här branchen möts. De två återstående fynden i `apps/rest/src/server.ts` är #19:s
+  egna — dess diff lagar dem, den här rör dem inte.

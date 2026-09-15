@@ -29,6 +29,7 @@ import type {
   RoomId,
 } from '@photographic/core';
 import { NotFoundError, NotPermittedError } from '@photographic/core';
+import { briefEventLine } from '@photographic/projection';
 import {
   BRIEF_TOKEN_BUDGET,
   COMPASS_PRINCIPLES,
@@ -429,7 +430,7 @@ export class PgProjection implements ProjectionPort {
     );
 
     const lines = rows
-      .map((r) => describeEvent(r.event_type, r.payload, r.actor_name))
+      .map((r) => briefEventLine(r.event_type, r.payload, r.actor_name))
       .filter((line): line is string => line !== null);
 
     const sinceLastSeen = packSince(lines, SINCE_LAST_SEEN_TOKEN_BUDGET);
@@ -517,26 +518,7 @@ function packSince(lines: string[], budgetTokens: number): string[] {
   return out;
 }
 
-function describeEvent(
-  eventType: string,
-  payload: Record<string, unknown>,
-  actorName: string | null,
-): string | null {
-  const who = actorName ?? 'Någon';
-  const body = typeof payload['body'] === 'string' ? payload['body'] : null;
-
-  switch (eventType) {
-    case 'item.created':
-      return body ? `- ${who} sparade: ${body}` : null;
-    case 'item.updated':
-      return body ? `- ${who} ändrade: ${body}` : null;
-    case 'item.deleted':
-      return `- ${who} tog bort ett minne`;
-    case 'document.uploaded':
-      return `- ${who} laddade upp ${String(payload['filename'] ?? 'ett dokument')}`;
-    case 'member.joined':
-      return `- ${who} gick med i rummet`;
-    default:
-      return null;
-  }
-}
+// The Swedish sentence per event lives in `@photographic/projection`: this file and
+// `packages/services-memory/src/projection.ts` had identical copies of it, and therefore an
+// identical `[object Object]` for any `document.uploaded` payload whose filename was not a
+// string.
