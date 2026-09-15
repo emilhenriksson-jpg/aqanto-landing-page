@@ -16,6 +16,7 @@
     "test:e2e": "node scripts/run-suites.mjs e2e-postgres",
     "test:e2e:memory": "node scripts/run-suites.mjs e2e-memory",
     "check:test-doubles": "node scripts/check-test-doubles.mjs",
+    "check:job-producers": "node scripts/check-job-producers.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "lint:prune": "eslint . --prune-suppressions",

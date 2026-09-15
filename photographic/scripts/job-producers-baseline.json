@@ -1,0 +1,24 @@
+{
+  "$comment": [
+    "Job handlers registered in a composition root that nothing enqueues, so they have",
+    "never run. Read by scripts/check-job-producers.mjs, which fails on a new one.",
+    "",
+    "A ratchet, not a mute button: an entry whose handler has gained a producer, or been",
+    "deleted, also fails the check with the line to remove. It can only shrink.",
+    "",
+    "Nothing here is endorsed by being here. A row that stays is a feature that reads as",
+    "finished in review -- the handler exists, it is wired, the code inside it is correct",
+    "-- and has never executed. The fix is either the missing producer or deleting the",
+    "registration, and both are application decisions rather than CI ones."
+  ],
+  "known": [
+    {
+      "kind": "expire_invites",
+      "why": "Registered in packages/db/src/postgres-services.ts and packages/services-memory/src/index.ts. No caller anywhere enqueues it, so invites have never been expired by this path. The behaviour is not entirely absent: `peek` and `accept` both refuse an invite whose `expiresAt` has passed by comparing it at read time, which is the actual security boundary. What is missing is only the background write of `status = 'expired'`, which is what makes the owner's invite list honest rather than showing a spent link as still pending."
+    },
+    {
+      "kind": "purge_trash",
+      "why": "Registered in both composition roots with no producer. Trash purging does happen, through a `setInterval` in apps/rest/src/server.ts calling `trash.purgeExpired()` directly, which is why nobody noticed: the feature works and the job does not. That timer is also the one that once took the process down for want of a `.catch` (fixed since, but still a second mechanism for one behaviour)."
+    }
+  ]
+}
