@@ -3,7 +3,7 @@
  *
  * Screens keep using the demo types in `demo.ts`; this file is the only place that
  * knows about wire DTOs. Shared-room memories come from `GET /v1/rooms/:id/items`
- * (room GET is brief + members only).
+ * (room GET is brief + members only). Documents come from `GET /v1/rooms/:id/documents`.
  */
 
 import { PROFILE_TOKEN_BUDGET } from '@photographic/core';
@@ -15,6 +15,7 @@ import {
   getRoom,
   listClients,
   listProposals,
+  listRoomDocuments,
   listRoomItems,
   listRooms,
   listTrash,
@@ -23,6 +24,7 @@ import type {
   ClientHealthDto,
   ProfileSectionsDto,
   ProposalDto,
+  RoomDocumentDto,
   RoomItemDto,
   RoomMemberDto,
   RoomSummaryDto,
@@ -31,6 +33,7 @@ import type {
 import type {
   ApprovalItem,
   DemoClient,
+  DocumentLine,
   InvitePreviewData,
   MemoryLine,
   RoomCard,
@@ -217,6 +220,25 @@ export function mapProposal(dto: ProposalDto): ApprovalItem {
 export async function loadApprovalsFromApi(): Promise<ApprovalItem[]> {
   const { proposals } = await listProposals();
   return proposals.map(mapProposal);
+}
+
+export function mapRoomDocument(dto: RoomDocumentDto): DocumentLine {
+  return {
+    id: dto.id,
+    title: dto.filename,
+    meta: extensionMeta(dto.filename),
+  };
+}
+
+export async function loadDocumentsFromApi(roomId: string): Promise<DocumentLine[]> {
+  const { documents } = await listRoomDocuments(roomId);
+  return documents.map(mapRoomDocument);
+}
+
+function extensionMeta(filename: string): string {
+  const match = /\.([A-Za-z0-9]+)$/.exec(filename.trim());
+  if (!match?.[1]) return '';
+  return match[1].toUpperCase();
 }
 
 export function mapTrashEntry(dto: TrashEntryDto): TrashLine {

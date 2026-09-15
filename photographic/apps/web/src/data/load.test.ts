@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  loadDocumentsFromApi,
   loadSharedRoomFromApi,
   mapClientHealth,
   mapInvitePreview,
   mapProposal,
+  mapRoomDocument,
   mapRoomSummary,
   mapTrashEntry,
 } from './load.js';
@@ -105,6 +107,45 @@ describe('API → UI mapping', () => {
       kind: 'instruction',
       body: 'utmana alltid mina idéer',
     });
+  });
+
+  it('maps room documents onto DocumentLine with extension meta', () => {
+    const line = mapRoomDocument({
+      id: 'doc-1',
+      filename: 'Vaccinationskort Vera.pdf',
+    });
+    expect(line).toEqual({
+      id: 'doc-1',
+      title: 'Vaccinationskort Vera.pdf',
+      meta: 'PDF',
+    });
+  });
+});
+
+describe('loadDocumentsFromApi', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('loads documents from GET /v1/rooms/:id/documents', async () => {
+    const roomId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith(`/v1/rooms/${roomId}/documents`)) {
+        return Response.json({
+          documents: [{ id: 'doc-1', filename: 'Offert Peab kök.pdf' }],
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const documents = await loadDocumentsFromApi(roomId);
+
+    expect(documents).toEqual([
+      { id: 'doc-1', title: 'Offert Peab kök.pdf', meta: 'PDF' },
+    ]);
   });
 });
 

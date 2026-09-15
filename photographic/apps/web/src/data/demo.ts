@@ -341,7 +341,7 @@ export const DEMO_ACTIVITY: Record<string, ActivityLine[]> = {
 
 /**
  * Sparse room documents — calm titles, not a file manager.
- * Demo only until a live documents list exists.
+ * Live path: `loadDocumentsFromApi` maps GET /v1/rooms/:id/documents onto this shape.
  */
 export interface DocumentLine {
   id: string;

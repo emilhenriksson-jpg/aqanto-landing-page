@@ -42,6 +42,12 @@ export interface RoomItemDto {
   body: string;
 }
 
+/** GET /v1/rooms/:id/documents — Dokument shelf rows. */
+export interface RoomDocumentDto {
+  id: string;
+  filename: string;
+}
+
 export interface RenderedItemDto {
   shortId: string;
   body: string;

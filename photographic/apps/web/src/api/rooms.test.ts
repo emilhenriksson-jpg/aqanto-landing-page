@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getRoom, listRoomItems } from './rooms.js';
+import { getRoom, listRoomDocuments, listRoomItems } from './rooms.js';
 
 describe('rooms API client', () => {
   afterEach(() => {
@@ -24,6 +24,23 @@ describe('rooms API client', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(String(fetchMock.mock.calls[0]![0])).toBe(
       'http://127.0.0.1:8787/v1/rooms/room-shared-1/items',
+    );
+  });
+
+  it('lists room documents via GET /v1/rooms/:id/documents', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({
+        documents: [{ id: 'doc-1', filename: 'Offert Peab kök.pdf' }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await listRoomDocuments('room-shared-1');
+
+    expect(result.documents).toEqual([{ id: 'doc-1', filename: 'Offert Peab kök.pdf' }]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]![0])).toBe(
+      'http://127.0.0.1:8787/v1/rooms/room-shared-1/documents',
     );
   });
 
