@@ -28,11 +28,14 @@
  */
 
 import { spawn } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const EXPECTATIONS_FILE = path.join(ROOT, 'scripts', 'suite-expectations.json');
+const REPORT_DIR = path.join(ROOT, '.ci-reports');
 
 const DEFAULT_DATABASE_URL = 'postgres://photographic:photographic@127.0.0.1:5432/photographic';
 const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
@@ -123,19 +126,127 @@ function databaseReachable(url, timeoutMs = 2000) {
   });
 }
 
-function run(argv, env = {}) {
+function run(argv, env = {}, { capture = false } = {}) {
   return new Promise((resolve) => {
     const child = spawn('pnpm', argv, {
       cwd: ROOT,
-      stdio: 'inherit',
+      stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
       env: { ...process.env, DATABASE_URL: databaseUrl, ...env },
     });
+
+    let output = '';
+    if (capture) {
+      // Still streamed to the console: a run you cannot watch is a run people stop
+      // watching. The copy is only there to count what happened.
+      for (const stream of [child.stdout, child.stderr]) {
+        stream.setEncoding('utf8');
+        stream.on('data', (chunk) => {
+          output += chunk;
+          process.stdout.write(chunk);
+        });
+      }
+    }
+
     child.once('error', (error) => {
       console.error(`Kunde inte starta pnpm: ${error.message}`);
-      resolve(1);
+      resolve({ code: 1, output });
     });
-    child.once('close', (code) => resolve(code ?? 1));
+    child.once('close', (code) => resolve({ code: code ?? 1, output }));
   });
+}
+
+const ANSI = /\u001B\[[0-9;]*m/g;
+
+/**
+ * Reads the test counts back out of the run.
+ *
+ * Counting matters as much as the exit code, and `journey.test.ts` is why. When its
+ * `beforeAll` cannot reach a database, vitest reports `3 failed` files and
+ * `62 skipped` tests — so a suite that stopped running and a suite that ran are one
+ * word apart in the summary a person actually reads. The exit code separates them
+ * today, but only because the hook throws; one `try`/`catch` in the wrong place and
+ * there is nothing left but the numbers. So the numbers are checked.
+ *
+ * Parsed from stdout rather than `--reporter=json`, because the `unit` group is a
+ * recursive run over 19 packages and vitest resolves `--outputFile` per package: every
+ * one of them would write the same path. A format change breaks this parser, which is
+ * why zero parsed suites is a hard failure below rather than a zero.
+ */
+function countsFrom(output) {
+  const clean = output.replace(ANSI, '');
+  const totals = { suites: 0, passed: 0, failed: 0, skipped: 0, files: 0 };
+
+  // vitest: `Tests  104 passed | 2 skipped (106)` / `Tests  96 passed (96)`. A recursive
+  // run prefixes every line with the package (`packages/core test: Tests  96 passed`),
+  // so the prefix comes off first — without that the `unit` group counts zero, which is
+  // how I found out this parser needed a test of its own.
+  for (const raw of clean.split('\n')) {
+    const line = raw.replace(/^\S+\s+\w+:\s*/, '');
+    const tests = /^\s*Tests\s+(.+?)\s*$/.exec(line);
+    if (tests) {
+      totals.suites += 1;
+      for (const [, n, kind] of tests[1].matchAll(/(\d+)\s+(passed|failed|skipped|todo)/g)) {
+        if (kind in totals) totals[kind] += Number(n);
+      }
+      continue;
+    }
+    const files = /^\s*Test Files\s+(.+?)\s*$/.exec(line);
+    if (files) {
+      for (const [, n] of files[1].matchAll(/(\d+)\s+(?:passed|failed|skipped)/g)) {
+        totals.files += Number(n);
+      }
+      continue;
+    }
+    // node:test TAP, which `packages/design-tokens` uses instead of vitest.
+    const tap = /^#\s+(pass|fail|skipped)\s+(\d+)\s*$/.exec(line);
+    if (tap) {
+      const kind = tap[1] === 'pass' ? 'passed' : tap[1] === 'fail' ? 'failed' : 'skipped';
+      totals[kind] += Number(tap[2]);
+      if (kind === 'passed') totals.suites += 1;
+    }
+  }
+
+  return totals;
+}
+
+const expectations = JSON.parse(readFileSync(EXPECTATIONS_FILE, 'utf8'));
+
+/**
+ * The ratchet, same shape as `test-doubles-baseline.json`: adding tests raises the
+ * actual above the floor and passes; a suite that quietly stops running drops below it
+ * and fails. Lowering a floor is then a deliberate line in a diff.
+ */
+function checkCounts(group, counts) {
+  const expected = expectations.groups[group.name];
+  const problems = [];
+
+  if (!expected) {
+    problems.push(`${group.name} saknas i ${path.relative(ROOT, EXPECTATIONS_FILE)}.`);
+    return problems;
+  }
+  if (counts.suites === 0) {
+    problems.push(
+      `Kunde inte läsa några testantal ur utdatan för ${group.name}. Antingen körde inget, ` +
+        `eller så har vitests sammanfattningsformat ändrats och countsFrom() i ` +
+        `scripts/run-suites.mjs måste uppdateras. Det här är medvetet ett fel och inte en nolla.`,
+    );
+  }
+  if (counts.passed < expected.minPassed) {
+    problems.push(
+      `${group.name}: ${counts.passed} godkända tester, golvet är ${expected.minPassed}. ` +
+        `En svit har slutat köras. Sänk golvet i ${path.relative(ROOT, EXPECTATIONS_FILE)} ` +
+        `bara om du menar att testerna skulle bort.`,
+    );
+  }
+  if (counts.skipped > expected.maxSkipped) {
+    problems.push(
+      `${group.name}: ${counts.skipped} överhoppade tester, taket är ${expected.maxSkipped}` +
+        `${expected.whySkipped ? ` (${expected.whySkipped})` : ''}. ` +
+        `Ett överhoppat test är ett test ingen kör.`,
+    );
+  }
+
+  return problems;
 }
 
 function missingDatabaseHelp() {
@@ -193,7 +304,7 @@ for (const group of selected) {
 
   if (group.migrateFirst && !migrated) {
     console.log(`\n--- db:migrate (${databaseUrl.replace(/:[^:@/]*@/, ':***@')})\n`);
-    const code = await run(['run', 'db:migrate']);
+    const { code } = await run(['run', 'db:migrate']);
     if (code !== 0) {
       results.push({ group, status: 'failed' });
       continue;
@@ -202,18 +313,45 @@ for (const group of selected) {
   }
 
   console.log(`\n--- ${group.name}: ${group.what}\n`);
-  const code = await run(group.argv, group.env);
-  results.push({ group, status: code === 0 ? 'passed' : 'failed' });
+  const { code, output } = await run(group.argv, group.env, { capture: true });
+  const counts = countsFrom(output);
+  const problems = checkCounts(group, counts);
+
+  results.push({
+    group,
+    counts,
+    problems,
+    status: code === 0 && problems.length === 0 ? 'passed' : 'failed',
+  });
 }
 
-const label = { passed: 'OK     ', failed: 'MISSLYCKADES', skipped: 'HOPPADES ÖVER' };
+// Written for the CI gate job to collect, so one place can show what every job counted.
+// A missing file there means a job did not get as far as counting.
+if (results.some((r) => r.counts)) {
+  mkdirSync(REPORT_DIR, { recursive: true });
+  for (const { group, counts, status, problems } of results) {
+    if (!counts) continue;
+    writeFileSync(
+      path.join(REPORT_DIR, `${group.name}.json`),
+      `${JSON.stringify({ group: group.name, status, ...counts, problems }, null, 2)}\n`,
+    );
+  }
+}
+
+const label = { passed: 'OK', failed: 'MISSLYCKADES', skipped: 'HOPPADES ÖVER' };
 console.log('\n=== Sammanfattning ===');
-for (const { group, status } of results) {
-  console.log(`${label[status].padEnd(14)} ${group.name.padEnd(13)} ${group.what}`);
+console.log(`${''.padEnd(14)} ${'grupp'.padEnd(13)} ${'godkända'.padEnd(9)} överhoppade`);
+for (const { group, status, counts } of results) {
+  const numbers = counts ? `${String(counts.passed).padEnd(9)} ${counts.skipped}` : '-';
+  console.log(`${label[status].padEnd(14)} ${group.name.padEnd(13)} ${numbers}`);
 }
 
 const failed = results.filter((r) => r.status === 'failed');
 const skipped = results.filter((r) => r.status === 'skipped');
+
+for (const { problems } of results) {
+  for (const problem of problems ?? []) console.error(`\n${problem}`);
+}
 
 if (skipped.length > 0) console.log(missingDatabaseHelp());
 
