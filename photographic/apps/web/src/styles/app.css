@@ -141,14 +141,35 @@
   position: relative;
   margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-16);
   padding: var(--space-12) var(--space-6) var(--space-12);
+  /* Standing inside the room: a soft violet wash that fades into the canvas, not a
+     dashboard banner. Brand stays atmospheric — the wordmark disc carries the accent. */
   background:
-    radial-gradient(120% 80% at 12% 0%, var(--brand-soft) 0%, transparent 55%),
-    linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 55%, var(--canvas)) 0%, var(--canvas) 100%);
+    radial-gradient(90% 70% at 8% -10%, color-mix(in srgb, var(--brand-soft) 90%, white) 0%, transparent 60%),
+    radial-gradient(70% 50% at 92% 10%, color-mix(in srgb, var(--brand-soft) 45%, transparent) 0%, transparent 55%),
+    linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 40%, var(--canvas)) 0%, var(--canvas) 72%);
   border-bottom: 1px solid var(--hairline);
-  min-height: min(72dvh, 560px);
+  min-height: min(78dvh, 620px);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  animation: room-enter var(--dur-slow) var(--ease-spring) both;
+}
+
+@keyframes room-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero--personal {
+    animation: none;
+  }
 }
 
 .hero__crumb {
@@ -165,6 +186,8 @@
   font: var(--type-display);
   letter-spacing: var(--track-display);
   margin: 0 0 var(--space-3);
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  font-weight: 600;
 }
 
 .hero__lede {
@@ -325,8 +348,12 @@
 .token-meter__fill {
   height: 100%;
   border-radius: var(--radius-pill);
-  background: var(--brand);
-  box-shadow: var(--brand-shadow);
+  /* Meter reassurance without shouting brand: soft fill, brand only at the tip. */
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--brand) 55%, var(--brand-soft)) 0%,
+    var(--brand) 100%
+  );
   transition: width var(--dur-base) var(--ease-spring);
 }
 

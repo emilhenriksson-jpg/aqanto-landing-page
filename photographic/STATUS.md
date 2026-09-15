@@ -171,3 +171,8 @@ _Agents append here. Do not edit another package to unblock yourself._
 - **orchestrator** — `PHOTOGRAPHIC_LLM=openai` + `OPENAI_API_KEY` selects `OpenAiLlm`
   via `createLlmFromEnv` in the rest composition root; default remains FakeLlm so the
   suite stays deterministic. Deploy docs and WAKEUP.md cover Fly+Postgres and the flag.
+
+- **orchestrator** — design pass on `apps/web` personal room: fuller violet wash hero that
+  fills the first viewport (standing *inside* the room), softer token-meter gradient so
+  brand is atmospheric rather than a solid bar, entry motion with reduced-motion respect.
+  Round 1 of ≥3 against DESIGN.md; Alla/shared-room screenshots still pending.
