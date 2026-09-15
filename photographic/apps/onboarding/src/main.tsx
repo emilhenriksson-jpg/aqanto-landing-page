@@ -6,10 +6,21 @@ import type { Step } from './App.js';
 import { httpApi } from './api.js';
 import './styles/app.css';
 
-/** `/invite/<token>` is the only deep entry point; everything else starts at sign-up. */
+/**
+ * Two deep entry points; everything else starts at sign-up.
+ *
+ * `/invite/<token>` is someone being shown a room before they have an account.
+ * `/login?auth_request=<id>` is an AI client's authorization request, parked by the
+ * authorization server and waiting on the person to answer it.
+ */
 function initialStep(): Step | undefined {
-  const match = /^\/invite\/([^/]+)/.exec(window.location.pathname);
-  return match?.[1] ? { name: 'invite', token: decodeURIComponent(match[1]) } : undefined;
+  const invite = /^\/invite\/([^/]+)/.exec(window.location.pathname);
+  if (invite?.[1]) return { name: 'invite', token: decodeURIComponent(invite[1]) };
+
+  const authRequest = new URLSearchParams(window.location.search).get('auth_request');
+  if (authRequest) return { name: 'approve', requestId: authRequest };
+
+  return undefined;
 }
 
 const root = document.querySelector('#root');

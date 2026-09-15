@@ -271,6 +271,37 @@ h3 {
   background: var(--warn);
 }
 
+/* ---------------------------------------------------------- consent */
+
+/* Each capability on its own line, at body size rather than fine print. A person is
+   deciding whether to hand over their memory, and a list they skim is a list they did
+   not consent to. */
+.grants {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.grant {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.9375rem;
+}
+
+.grant::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--ok);
+}
+
 .code-line {
   display: flex;
   align-items: center;

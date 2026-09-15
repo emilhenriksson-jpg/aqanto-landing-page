@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { ClientDescriptor } from '@photographic/connect';
 
 import type { Api, VerifyCodeResponse } from './api.js';
+import { Approve } from './screens/Approve.js';
 import { Connect } from './screens/Connect.js';
 import { Health } from './screens/Health.js';
 import { InviteLanding } from './screens/InviteLanding.js';
@@ -13,9 +14,20 @@ export type Step =
   | { name: 'invite'; token: string }
   | { name: 'signup'; inviteToken?: string }
   | { name: 'connect' }
-  | { name: 'verify'; client: ClientDescriptor };
+  | { name: 'verify'; client: ClientDescriptor }
+  /** Arrived by redirect from an AI client's authorization request. */
+  | { name: 'approve'; requestId: string };
 
-export function App({ api, initial }: { api: Api; initial?: Step }) {
+export function App({
+  api,
+  initial,
+  navigate,
+}: {
+  api: Api;
+  initial?: Step;
+  /** Passed through to the consent screen, which is the only place that leaves the app. */
+  navigate?: (url: string) => void;
+}) {
   const [step, setStep] = useState<Step>(initial ?? { name: 'signup' });
   const [joined, setJoined] = useState<VerifyCodeResponse['joinedRoom']>(null);
 
@@ -39,12 +51,17 @@ export function App({ api, initial }: { api: Api; initial?: Step }) {
           api={api}
           {...(step.inviteToken ? { inviteToken: step.inviteToken } : {})}
           onDone={(result) => {
+            api.setSession(result.session.token);
             setJoined(result.joinedRoom);
             // `next` is always `connect`: creating an account and connecting an AI are
             // one flow, so there is no dashboard in between.
             setStep({ name: 'connect' });
           }}
         />
+      )}
+
+      {step.name === 'approve' && (
+        <Approve api={api} requestId={step.requestId} {...(navigate ? { navigate } : {})} />
       )}
 
       {step.name === 'connect' && (

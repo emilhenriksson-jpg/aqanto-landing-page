@@ -71,10 +71,11 @@ export const DEFAULT_CONFIG: RestConfig = {
   host: '0.0.0.0',
   port: 8787,
   publicUrl: 'http://localhost:8787',
-  webUrl: 'http://localhost:5173',
+  // The onboarding app's dev port, which is where the login page lives today.
+  webUrl: 'http://localhost:5174',
   environment: 'development',
   logLevel: 'info',
-  corsOrigins: ['http://localhost:3000', 'http://localhost:5173'],
+  corsOrigins: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174'],
   maxUploadBytes: 25 * 1024 * 1024,
   notFoundFloorMs: 25,
   shutdownGraceMs: 10_000,

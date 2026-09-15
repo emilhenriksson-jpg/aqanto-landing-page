@@ -45,6 +45,18 @@ export interface ClientHealthEntry {
   degraded: boolean;
 }
 
+/** What an AI client is asking for, as the person needs to see it. */
+export interface AuthorizationRequest {
+  requestId: string;
+  /**
+   * The name the client registered under. Registration is open, so anyone can call
+   * themselves anything: this is text to display, never a claim to trust.
+   */
+  clientName: string;
+  scopes: string[];
+  expiresAt: string;
+}
+
 export interface Api {
   requestCode(input: { email?: string; phone?: string; inviteToken?: string }): Promise<RequestCodeResponse>;
   verifyCode(input: { requestId: string; code: string }): Promise<VerifyCodeResponse>;
@@ -54,6 +66,17 @@ export interface Api {
   verificationStatus(handle: VerificationHandle): Promise<VerificationState>;
   health(): Promise<ClientHealthEntry[]>;
   renderedProfile(): Promise<string>;
+
+  /** What a parked authorization request is for, so the person can decide. */
+  describeAuthorization(requestId: string): Promise<AuthorizationRequest>;
+  /** Answers it. Returns where to send the browser, back to the client that asked. */
+  answerAuthorization(input: {
+    requestId: string;
+    approved: boolean;
+  }): Promise<{ redirectUrl: string; approved: boolean }>;
+
+  /** Remembers who is signed in, for the calls that need it. */
+  setSession(token: string | null): void;
 }
 
 export class ApiError extends Error {
@@ -62,21 +85,45 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The session token, in memory only.
+ *
+ * Not `localStorage`: it is a bearer credential for someone's entire memory, and anything
+ * that can run script on the page can read it there. Keeping it in a closure means a
+ * reload signs the person in again, which is a second of friction against a class of
+ * theft that survives closing the tab.
+ */
+let sessionToken: string | null = null;
+
 async function send<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
-    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
-    credentials: 'include',
+    headers: {
+      'content-type': 'application/json',
+      ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
 
-  const body = (await response.json().catch(() => null)) as { message?: string } | null;
+  const body = (await response.json().catch(() => null)) as
+    | { message?: string; error_description?: string; error?: { message?: string } }
+    | null;
+
   if (!response.ok) {
-    throw new ApiError(body?.message ?? 'Något gick fel.', response.status);
+    // The API answers with `error.message`; the OAuth endpoints answer with
+    // `error_description`, because that is what the RFC says. Both end up in front of a
+    // person, so both are read here rather than in each caller.
+    const message =
+      body?.error?.message ?? body?.error_description ?? body?.message ?? 'Något gick fel.';
+    throw new ApiError(message, response.status);
   }
   return body as T;
 }
 
 export const httpApi: Api = {
+  setSession: (token) => {
+    sessionToken = token;
+  },
   requestCode: (input) => send('/v1/signup/request', { method: 'POST', body: JSON.stringify(input) }),
   verifyCode: (input) => send('/v1/signup/verify', { method: 'POST', body: JSON.stringify(input) }),
   connect: () => send('/v1/connect'),
@@ -90,4 +137,8 @@ export const httpApi: Api = {
     const body = await send<{ rendered: string }>('/v1/context/rendered');
     return body.rendered;
   },
+  describeAuthorization: (requestId) =>
+    send(`/oauth/authorize/request?auth_request=${encodeURIComponent(requestId)}`),
+  answerAuthorization: (input) =>
+    send('/oauth/authorize/approve', { method: 'POST', body: JSON.stringify(input) }),
 };

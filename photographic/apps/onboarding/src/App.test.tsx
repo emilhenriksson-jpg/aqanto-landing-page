@@ -6,7 +6,7 @@ import { buildClients, findClient } from '@photographic/connect';
 import type { VerificationState } from '@photographic/connect';
 
 import { App } from './App.js';
-import { FakeApi, MCP_URL } from './test/fake-api.js';
+import { CALLBACK_URL, FakeApi, MCP_URL } from './test/fake-api.js';
 
 const CLIENTS = buildClients({ mcpUrl: MCP_URL, connectPageUrl: 'https://photographic.me/connect' });
 
@@ -268,5 +268,102 @@ describe('client health', () => {
     expect(await screen.findByText(/Läste din profil/)).toBeInTheDocument();
     expect(screen.getByText(/bara när modellen själv frågade/)).toBeInTheDocument();
     expect(screen.getByText('Har aldrig fått din profil.')).toBeInTheDocument();
+  });
+});
+
+describe('approving an AI', () => {
+  const pending = {
+    requestId: 'ar-1',
+    clientName: 'Claude Desktop',
+    scopes: ['memory.read', 'memory.write', 'offline_access'],
+    expiresAt: new Date(Date.now() + 900_000).toISOString(),
+  };
+
+  const arrive = (api: FakeApi, navigate: (url: string) => void = () => {}) =>
+    render(
+      <App api={api} initial={{ name: 'approve', requestId: 'ar-1' }} navigate={navigate} />,
+    );
+
+  /** Signs in, which is what the consent screen waits for before showing anything. */
+  const signIn = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.type(await screen.findByLabelText('E-post eller mobilnummer'), 'emil@example.com');
+    await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
+    await user.type(await screen.findByLabelText('Kod'), '424242');
+    await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
+  };
+
+  it('asks the person to log in before showing what is being requested', async () => {
+    arrive(new FakeApi({ authorization: pending }));
+
+    // Naming the client first, because a person who arrived by redirect needs to know
+    // who sent them before they are asked to type an address.
+    expect(await screen.findByText(/Claude Desktop/)).toBeInTheDocument();
+    expect(screen.getByLabelText('E-post eller mobilnummer')).toBeInTheDocument();
+  });
+
+  it('spells out each capability in words a person can refuse', async () => {
+    const user = userEvent.setup();
+    arrive(new FakeApi({ authorization: pending }));
+
+    await signIn(user);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Ge Claude Desktop åtkomst?' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Läsa det du sparat')).toBeInTheDocument();
+    expect(screen.getByText('Spara nytt åt dig')).toBeInTheDocument();
+    // Nothing is shown as a raw scope string, which is what a person cannot consent to.
+    expect(screen.queryByText('memory.read')).toBeNull();
+    // Declining has to be a real option, not a link in the corner.
+    expect(screen.getByRole('button', { name: 'Neka' })).toBeInTheDocument();
+  });
+
+  it('says the client name is unverified, because registration is open', async () => {
+    const user = userEvent.setup();
+    arrive(new FakeApi({ authorization: { ...pending, clientName: 'Photographic Official' } }));
+
+    await signIn(user);
+
+    expect(await screen.findByText(/appen själv uppgav/)).toBeInTheDocument();
+  });
+
+  it('hands the browser back to the client, at the URL the server chose', async () => {
+    const user = userEvent.setup();
+    const api = new FakeApi({ authorization: pending });
+    const went: string[] = [];
+    arrive(api, (url) => went.push(url));
+
+    await signIn(user);
+    await user.click(await screen.findByRole('button', { name: /Ge Claude Desktop åtkomst/ }));
+
+    // The fake refuses an unauthenticated approval, so getting an answer through at all
+    // is half the assertion: the session token was attached.
+    await waitFor(() => expect(api.answered).toEqual([{ requestId: 'ar-1', approved: true }]));
+    expect(went).toEqual([CALLBACK_URL]);
+  });
+
+  it('sends a refusal back too, so the client stops waiting', async () => {
+    const user = userEvent.setup();
+    const api = new FakeApi({ authorization: pending });
+    const went: string[] = [];
+    arrive(api, (url) => went.push(url));
+
+    await signIn(user);
+    await user.click(await screen.findByRole('button', { name: 'Neka' }));
+
+    await waitFor(() => expect(api.answered).toEqual([{ requestId: 'ar-1', approved: false }]));
+    // A person who says no still gets returned. Leaving them on a dead page means the
+    // client sits there until it times out, and they try again and hit the same screen.
+    expect(went).toEqual([CALLBACK_URL]);
+  });
+
+  it('explains an expired request instead of showing an empty consent screen', async () => {
+    arrive(new FakeApi());
+
+    expect(
+      await screen.findByRole('heading', { name: 'Förfrågan gäller inte längre' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Ingen åtkomst gavs/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('E-post eller mobilnummer')).toBeNull();
   });
 });
