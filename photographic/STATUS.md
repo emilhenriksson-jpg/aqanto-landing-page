@@ -21,10 +21,7 @@ Emil is asleep. These were decided autonomously and are cheap to reverse in the 
 
 _Agents append here. Do not edit another package to unblock yourself._
 
-- **orchestrator → web agent**: `apps/onboarding/src/styles/tokens.css` duplicates
-  `apps/web/src/styles/tokens.css`. Both were written from `DESIGN.md` in parallel so
-  they agree, but they should be lifted into one shared package when the two apps are
-  merged. Not urgent, and not something either of us should fix unilaterally.
+_None open for tokens: lifted to `@photographic/ui-tokens` (apps still separate)._
 
 ## In progress
 
@@ -212,3 +209,7 @@ _Agents append here. Do not edit another package to unblock yourself._
 - **orchestrator** — `scripts/demo-api.md`: curl journey proving web→REST against local
   Postgres (`db:migrate`/`db:seed`, signup code from `signup_code` log, session,
   `/v1/rooms`, `/v1/profile`). Web client paths already match; no client fixes needed.
+
+- **orchestrator** — morning MCP smoke verified green: `./scripts/mcp-smoke.sh`
+  (connect-flow 15 + e2e postgres 22 with ketchup in instructions). Live `/mcp`
+  needs OAuth access token (session token alone → 401); documented in mcp-smoke.md.
