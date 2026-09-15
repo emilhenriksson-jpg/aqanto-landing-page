@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dev-session</title>
+  </head>
+  <body>
+    <p>Sätter sessionen…</p>
+    <script>
+      const token = new URLSearchParams(location.search).get('token');
+      if (token) localStorage.setItem('photographic_session', token);
+      location.replace('/');
+    </script>
+  </body>
+</html>

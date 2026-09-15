@@ -41,15 +41,20 @@ export function approvalLead(item: ApprovalItem): string {
 /**
  * Who would be able to read it. Null when the answer is "only you", which needs no line.
  *
- * Everyone in the room is listed, the person included, because the app cannot tell which
+ * Everyone in the room is named, the person included, because the app cannot tell which
  * name is theirs and a list quietly missing one member would be worse than a longer one.
+ * Where the members have no names — nothing in sign-up asks for one — it falls back to
+ * how many they are, which is less useful and still true.
  */
 export function approvalAudience(item: ApprovalItem): string | null {
   if (item.roomKind !== 'shared') return null;
-  if (item.audience.length === 0) {
-    return item.roomTitle ? `Alla i ${item.roomTitle} kan läsa det.` : 'Andra kan läsa det.';
+  if (item.audience.length > 0) return `Kan läsas av ${swedishList(item.audience)}.`;
+
+  const room = item.roomTitle ?? 'rummet';
+  if (item.audienceCount > 1) {
+    return `Kan läsas av alla ${item.audienceCount} i ${room}.`;
   }
-  return `Kan läsas av ${swedishList(item.audience)}.`;
+  return `Kan läsas av alla i ${room}.`;
 }
 
 /** "3 beslut väntar på dig" — the heading of the notice and nothing else. */

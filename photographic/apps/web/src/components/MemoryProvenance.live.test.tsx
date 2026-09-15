@@ -80,11 +80,83 @@ describe('Hur vet du det? against the API', () => {
     expect(screen.getByText('ChatGPT')).toBeInTheDocument();
     expect(screen.getByText('Buyersclub Ledning (delat rum)')).toBeInTheDocument();
     expect(screen.getByText('Ja, du sa ja till det')).toBeInTheDocument();
-    expect(screen.getByText('Ja, det har korrigerats')).toBeInTheDocument();
+    expect(screen.getByText('Ja, det har sagt något annat tidigare')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Öppna originalkällan' })).toHaveAttribute(
       'href',
       '/kalender/handelse/44',
     );
+  });
+
+  /*
+   * `embedding` arrives with `0016_embedding_provenance`. It is the part of "hur vet du
+   * det om mig?" a person cannot find out any other way, and the part the answer is
+   * least entitled to guess at.
+   */
+  it('reads out which model has seen the text, when the server recorded it', async () => {
+    getProvenance.mockResolvedValue({
+      shortId: 'p-h58j',
+      body: 'Allergisk mot ketchup',
+      roomTitle: 'Mitt rum',
+      savedAt: '2026-09-02T09:14:00.000Z',
+      savedByClient: 'claude-desktop',
+      approvedByName: null,
+      motivation: 'Sparat privat eftersom det handlar om dig.',
+      source: { kind: 'conversation', label: 'Samtal med Claude', ref: 'sess-1', uri: null },
+      changed: false,
+      embedding: {
+        provider: 'openai',
+        model: 'text-embedding-3-small',
+        external: true,
+        at: '2026-09-02T09:14:02.000Z',
+      },
+      timeline: [],
+    });
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ul>
+          <MemoryRow item={{ shortId: 'p-h58j', body: 'Allergisk mot ketchup' }} roomId="room-1" />
+        </ul>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Hur vet du det?' }));
+    expect(
+      await screen.findByText(
+        'Ja — skickad till OpenAI (text-embedding-3-small) 2 september 2026, för att kunna hittas på betydelse. Modellen tränas inte på den.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('answers no only when the server actually said the vector was computed here', async () => {
+    getProvenance.mockResolvedValue({
+      shortId: 'p-h58j',
+      body: 'Allergisk mot ketchup',
+      roomTitle: 'Mitt rum',
+      savedAt: '2026-09-02T09:14:00.000Z',
+      savedByClient: 'claude-desktop',
+      approvedByName: null,
+      motivation: null,
+      source: null,
+      changed: false,
+      embedding: { provider: 'local', model: 'bag-of-words', external: false, at: '2026-09-02T09:14:02.000Z' },
+      timeline: [],
+    });
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ul>
+          <MemoryRow item={{ shortId: 'p-h58j', body: 'Allergisk mot ketchup' }} roomId="room-1" />
+        </ul>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Hur vet du det?' }));
+    expect(
+      await screen.findByText('Nej — sökindexet räknades ut här (bag-of-words).'),
+    ).toBeInTheDocument();
   });
 
   it('stays calm when the answer cannot be fetched', async () => {

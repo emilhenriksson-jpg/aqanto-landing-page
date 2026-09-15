@@ -40,6 +40,50 @@ describe('Hur vet du det? on a memory row', () => {
     expect(screen.getByText('Nej, det sparades automatiskt')).toBeInTheDocument();
   });
 
+  // Where it came from and why it was kept, in that order and in one glance. Either one
+  // alone is a system reporting on itself.
+  it('puts why it was saved next to where it came from', async () => {
+    const user = userEvent.setup();
+    renderRow('p-h58j');
+    await user.click(screen.getByRole('button', { name: 'Hur vet du det?' }));
+
+    const terms = screen.getAllByRole('term').map((node) => node.textContent);
+    expect(terms.slice(0, 2)).toEqual(['Varifrån', 'Varför det sparades']);
+  });
+
+  it('says whether the text was sent to a model, when that was recorded', async () => {
+    const user = userEvent.setup();
+    renderRow('p-h58j');
+    await user.click(screen.getByRole('button', { name: 'Hur vet du det?' }));
+
+    expect(screen.getByText('Har texten skickats någonstans')).toBeInTheDocument();
+    expect(screen.getByText(/Ja — skickad till OpenAI \(text-embedding-3-small\)/)).toBeInTheDocument();
+  });
+
+  /*
+   * A server that predates `0016_embedding_provenance` serves no field at all, and a
+   * memory with no vector serves null. Neither is a "nej", and printing one would be the
+   * single lie this panel cannot afford.
+   */
+  it('says nothing about models rather than answering no when nothing was recorded', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ul>
+          <MemoryRow
+            item={{ shortId: 'r-8k2m', body: 'Vi beslutade att skjuta förvärvet till Q3' }}
+            roomId="ledning"
+            roomKind="shared"
+          />
+        </ul>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Hur vet du det?' }));
+    expect(screen.getByText('styrelseunderlag-q3.pdf')).toBeInTheDocument();
+    expect(screen.queryByText('Har texten skickats någonstans')).not.toBeInTheDocument();
+  });
+
   it('offers the zoom down to the original source', async () => {
     const user = userEvent.setup();
     renderRow('p-h58j');

@@ -183,6 +183,20 @@
   animation: room-enter var(--dur-slow) var(--ease-spring) both;
 }
 
+/*
+ * The hero gives up some of its height when a decision is waiting.
+ *
+ * At its designed 78dvh the notice below it is entirely off the first viewport, and
+ * "impossible to miss" then rests on the rail badge alone. This is the one condition
+ * under which the room is not the most important thing on the screen, and it lasts
+ * exactly as long as the queue does.
+ */
+.hero--personal:has(+ .waiting) {
+  min-height: min(54dvh, 440px);
+  margin-bottom: var(--space-10);
+  gap: var(--space-8);
+}
+
 /* Brand sits high; identity rests at the floor — one composition, no secondary chrome. */
 .hero__identity {
   display: flex;
@@ -571,6 +585,13 @@
 .waiting__why,
 .waiting__rest {
   margin: 0;
+}
+
+.waiting__audience {
+  font: var(--type-label);
+  letter-spacing: var(--track-body);
+  margin: 0;
+  color: var(--ink);
 }
 
 /* The sentence the product was missing: what the silence has been costing. */

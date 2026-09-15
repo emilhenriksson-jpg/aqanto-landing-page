@@ -45,10 +45,10 @@ export function PendingApprovals({ roomId }: { roomId?: string } = {}) {
       <p className="waiting__lead">
         {approvalLead(first)} <em className="waiting__quote">{first.body}</em>
       </p>
-      <p className="waiting__why meta">
-        {first.reason}
-        {audience ? ` ${audience}` : ''}
-      </p>
+      <p className="waiting__why meta">{first.reason}</p>
+      {/* Its own line. Run together with the reason it reads as one long sentence, and
+          who can read it is the fact a person actually answers the question with. */}
+      {audience ? <p className="waiting__audience">{audience}</p> : null}
 
       <p className="waiting__cost">{waitingConsequence(items.length)}</p>
       {rest ? <p className="waiting__rest meta">{rest}</p> : null}

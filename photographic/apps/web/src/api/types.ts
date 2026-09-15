@@ -161,6 +161,21 @@ export interface ProposalDto {
 }
 
 /**
+ * Which model has seen this memory's own words.
+ *
+ * `external` is the one a person cares about: true means the text was sent to a third
+ * party to make it searchable by meaning. Null on the response means no vector was ever
+ * computed, and absent means this server predates the field — two different things, and
+ * neither of them is "no".
+ */
+export interface EmbeddingProvenanceDto {
+  provider: string;
+  model: string;
+  external: boolean;
+  at: string;
+}
+
+/**
  * GET /v1/memory/:shortId/provenance — the answer to "hur vet du det om mig?" for one
  * memory, rather than for one day in the calendar.
  */
@@ -177,6 +192,8 @@ export interface ProvenanceDto {
   source: MemorySourceDto | null;
   /** True once it has been corrected at least once. */
   changed: boolean;
+  /** Optional: served once `0016_embedding_provenance` is deployed, null before a vector. */
+  embedding?: EmbeddingProvenanceDto | null;
   /** Everything that has happened to this one memory, oldest first. */
   timeline: HistoryEntryDto[];
 }

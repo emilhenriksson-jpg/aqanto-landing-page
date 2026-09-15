@@ -246,8 +246,15 @@ export interface ApprovalItem {
   roomId: string | null;
   roomTitle: string | null;
   roomKind: RoomKind | null;
-  /** Everyone who would be able to read it, the person themselves excluded. */
+  /**
+   * Who would be able to read it.
+   *
+   * Names when the room's members have them and a count when they do not — nothing in
+   * sign-up asks a person their name today, so a shared room can genuinely be three
+   * people with no names, and "kan läsas av" has to stay true in that case too.
+   */
   audience: string[];
+  audienceCount: number;
   createdAt: string | null;
 }
 
@@ -263,6 +270,7 @@ export const DEMO_APPROVALS: ApprovalItem[] = [
     roomTitle: 'Ditt rum',
     roomKind: 'personal',
     audience: [],
+    audienceCount: 1,
     createdAt: '2026-09-15T08:12:00.000Z',
   },
   {
@@ -276,6 +284,7 @@ export const DEMO_APPROVALS: ApprovalItem[] = [
     roomTitle: 'Buyersclub Ledning',
     roomKind: 'shared',
     audience: ['Anna', 'Jacob'],
+    audienceCount: 3,
     createdAt: '2026-09-15T07:40:00.000Z',
   },
   {
@@ -289,6 +298,7 @@ export const DEMO_APPROVALS: ApprovalItem[] = [
     roomTitle: 'Ditt rum',
     roomKind: 'personal',
     audience: [],
+    audienceCount: 1,
     createdAt: '2026-09-14T19:05:00.000Z',
   },
 ];
@@ -314,6 +324,13 @@ export interface ProvenanceAnswer {
   motivation: string | null;
   approvedByName: string | null;
   changed: boolean;
+  /**
+   * Whether this memory's own words were sent to a model to make it searchable.
+   *
+   * Null is "we have not recorded that", which is not the same as "no" and must never
+   * be rendered as one — an older server does not serve the field at all.
+   */
+  modelReach: string | null;
   /** The calendar event that created it, so the answer can be zoomed into. */
   seq: number | null;
 }
@@ -336,6 +353,8 @@ export const DEMO_PROVENANCE: Record<string, ProvenanceAnswer> = {
     motivation: 'Handlar om vem du är, så det hör hemma i ditt privata minne.',
     approvedByName: null,
     changed: false,
+    modelReach:
+      'Ja — skickad till OpenAI (text-embedding-3-small) 2 september 2026, för att kunna hittas på betydelse. Modellen tränas inte på den.',
     seq: 41,
   },
   'p-zsyt': {
@@ -348,6 +367,7 @@ export const DEMO_PROVENANCE: Record<string, ProvenanceAnswer> = {
     motivation: 'En instruktion om hur modeller ska bete sig mot dig.',
     approvedByName: 'Emil',
     changed: true,
+    modelReach: 'Nej — sökindexet räknades ut här (bag-of-words).',
     seq: 58,
   },
   'r-8k2m': {
@@ -360,6 +380,7 @@ export const DEMO_PROVENANCE: Record<string, ProvenanceAnswer> = {
     motivation: 'Hör till Buyersclub Ledning eftersom det nämner förvärvet.',
     approvedByName: 'Emil',
     changed: false,
+    modelReach: null,
     seq: 44,
   },
 };

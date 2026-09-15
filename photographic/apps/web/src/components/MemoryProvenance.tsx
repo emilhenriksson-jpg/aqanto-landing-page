@@ -77,25 +77,47 @@ export function MemoryProvenance({
 
   return (
     <div className="memory__proof" id={id}>
+      {/*
+        Order is the argument. Where it came from and why it was kept sit next to each
+        other on purpose: either one alone is a system reporting on itself, and the two
+        together are the difference between automatic memory that reads as considered and
+        automatic memory that reads as presumptuous.
+      */}
       <dl className="provenance">
-        <Fact term="När" value={answer.when} />
         <Fact term="Varifrån" value={answer.sourceLabel ?? 'Källan är inte känd'} />
+        <Fact term="Varför det sparades" value={answer.motivation ?? 'Ingen motivering angavs'} />
+        <Fact term="När" value={answer.when} />
         <Fact term="Vem skrev in det" value={answer.who} />
         <Fact
           term="Var det ligger"
           value={`${answer.roomTitle}${answer.roomKind === 'personal' ? ' (privat)' : ' (delat rum)'}`}
         />
-        <Fact term="Varför där" value={answer.motivation ?? 'Ingen motivering angavs'} />
         <Fact
           term="Godkänt av dig"
           value={answer.approvedByName ? 'Ja, du sa ja till det' : 'Nej, det sparades automatiskt'}
         />
-        {answer.changed ? <Fact term="Ändrat sedan dess" value="Ja, det har korrigerats" /> : null}
+        {answer.changed ? (
+          <Fact term="Ändrat sedan dess" value="Ja, det har sagt något annat tidigare" />
+        ) : null}
+        {/*
+          Only when the server recorded it. "Vi har inte noterat det" and "nej" are
+          different answers, and printing the second for the first would be the one lie
+          this panel cannot afford.
+        */}
+        {answer.modelReach ? <Fact term="Har texten skickats någonstans" value={answer.modelReach} /> : null}
       </dl>
 
       {answer.seq !== null && (
         <p className="memory__proof-more">
-          <Link className="day__zoom" to={`/kalender/handelse/${answer.seq}`}>
+          <Link
+            className="day__zoom"
+            to={`/kalender/handelse/${answer.seq}`}
+            // The app keeps its scroll position across routes, so following this from a
+            // row far down a long profile lands you in the middle of the event page with
+            // its heading off screen. Scoped here rather than fixed in the router,
+            // which belongs to whoever owns navigation.
+            onClick={() => window.scrollTo({ top: 0 })}
+          >
             Öppna originalkällan
           </Link>
         </p>

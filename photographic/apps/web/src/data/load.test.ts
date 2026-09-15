@@ -133,7 +133,10 @@ describe('API → UI mapping', () => {
         createdAt: '2026-09-15T12:00:00.000Z',
       },
       new Map([
-        ['room-ledning', { title: 'Buyersclub Ledning', kind: 'shared' as const, audience: ['Anna', 'Jacob'] }],
+        [
+          'room-ledning',
+          { title: 'Buyersclub Ledning', kind: 'shared' as const, audience: ['Anna', 'Jacob'], audienceCount: 3 },
+        ],
       ]),
     );
 
