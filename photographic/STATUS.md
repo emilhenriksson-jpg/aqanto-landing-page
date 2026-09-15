@@ -239,3 +239,6 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
 - **orchestrator** — Papperskorg screen (footer link from personal room, not a 5th
   rail icon) with demo + live `GET /v1/trash` / restore. Invite first-viewport CTA
   polish. `GET /v1/rooms/:id/documents` on REST for Dokument shelf (web live wiring next).
+
+- **orchestrator** — Historik screen (footer link) with demo + live history loader;
+  live Dokument shelf via room documents endpoint; web suite 37 green.
