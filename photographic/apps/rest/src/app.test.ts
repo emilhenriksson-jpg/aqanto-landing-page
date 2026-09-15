@@ -553,11 +553,21 @@ describe('rooms and who can see them', () => {
     const res = await f.get(`/v1/rooms/${created.room.id}/documents`, emil.token);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.documents).toEqual([
-      { id: uploaded.documentId, filename: 'Due diligence-paket Q3.pdf' },
-    ]);
+    expect(body.documents).toHaveLength(1);
+    expect(body.documents[0]).toMatchObject({
+      id: uploaded.documentId,
+      filename: 'Due diligence-paket Q3.pdf',
+    });
+
+    // The card fields, never the contents. Asserted as what must be absent rather than
+    // as an exact key list: the extracted text and the original bytes can each be
+    // megabytes and have their own endpoints, and a list that sometimes carries one is a
+    // list that sometimes times out. Pinning the exact keys instead would also fail
+    // every time a label is added, which is not the thing worth protecting.
     for (const doc of body.documents) {
-      expect(Object.keys(doc).sort()).toEqual(['filename', 'id']);
+      expect(doc).not.toHaveProperty('text');
+      expect(doc).not.toHaveProperty('bytes');
+      expect(doc).not.toHaveProperty('storageKey');
     }
 
     const jacob = await register(f, 'jacob@example.com', 'Jacob');

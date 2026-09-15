@@ -50,9 +50,18 @@ import {
   PgPendingAuthorizationStore,
   PgTokenStore,
 } from '@photographic/db';
+import type { BlobStore } from '@photographic/documents';
+import { createS3BlobStore } from '@photographic/documents';
 import { createLlmFromEnv } from '@photographic/llm';
 import { createMcpApp, defaultConfig } from '@photographic/mcp';
 import { createMemoryServices } from '@photographic/services-memory';
+import {
+  describeSupabase,
+  looksLikeSupabase,
+  supabaseConfigFromEnv,
+  supabasePoolConfig,
+  SupabaseStorageBlobStore,
+} from '@photographic/supabase';
 import type { Hono } from 'hono';
 
 import { createApp } from './app.js';
@@ -109,6 +118,8 @@ interface WiredServices {
   close(): Promise<void>;
   llmKind: 'fake' | 'openai';
   persistence: 'postgres' | 'memory';
+  /** Which `BlobStore` document originals land in. See `resolveBlobStore`. */
+  storageKind: string;
 }
 
 /**
@@ -128,9 +139,29 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
   // say which brain is answering without re-reading the environment.
   void llmKind;
 
+  const { blobs, storageKind } = resolveBlobStore();
+
   if (databaseUrl) {
-    const pool = createPool({ connectionString: databaseUrl });
-    const wired = await createPostgresServices({ pool, baseUrl: config.publicUrl, llm });
+    // Supabase Postgres is Postgres, so this is a re-point rather than a rewrite: the
+    // same migrations, the same seeds, the same suites. What differs is TLS and the
+    // transaction pooler, and both fail in ways that look like something else — see
+    // `supabasePoolConfig`.
+    const pool = createPool(
+      looksLikeSupabase(databaseUrl)
+        ? supabasePoolConfig({
+            connectionString: databaseUrl,
+            ...(process.env.SUPABASE_CA_CERT ? { caCertificate: process.env.SUPABASE_CA_CERT } : {}),
+            allowUnverifiedTls: process.env.SUPABASE_ALLOW_UNVERIFIED_TLS === '1',
+          }).config
+        : { connectionString: databaseUrl },
+    );
+
+    const wired = await createPostgresServices({
+      pool,
+      baseUrl: config.publicUrl,
+      llm,
+      ...(blobs ? { blobs } : {}),
+    });
     return {
       services: wired.services,
       authStores: {
@@ -145,6 +176,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
       close: () => wired.close(),
       llmKind,
       persistence: 'postgres',
+      storageKind,
     };
   }
 
@@ -165,7 +197,53 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     },
     llmKind,
     persistence: 'memory',
+    storageKind,
   };
+}
+
+/**
+ * Where document originals go, decided in one place.
+ *
+ * The order is deliberate. An explicit S3 configuration wins, because someone who set
+ * one meant it; then Supabase, because that is the platform default; then local disk,
+ * which is right for a laptop and wrong for a container, where a restart loses the
+ * files while the rows still reference them.
+ *
+ * Every branch returns a `BlobStore` and nothing below this line knows which. That is
+ * the promise from the build plan made concrete: replacing Supabase Storage with R2 is
+ * this function and nothing else.
+ */
+function resolveBlobStore(): { blobs: BlobStore | null; storageKind: string } {
+  const s3BaseUrl = process.env.BLOB_S3_BASE_URL;
+  if (s3BaseUrl && process.env.BLOB_S3_ACCESS_KEY_ID && process.env.BLOB_S3_SECRET_ACCESS_KEY) {
+    return {
+      blobs: createS3BlobStore({
+        baseUrl: s3BaseUrl,
+        accessKeyId: process.env.BLOB_S3_ACCESS_KEY_ID,
+        secretAccessKey: process.env.BLOB_S3_SECRET_ACCESS_KEY,
+        ...(process.env.BLOB_S3_REGION ? { region: process.env.BLOB_S3_REGION } : {}),
+        ...(process.env.BLOB_S3_PREFIX ? { prefix: process.env.BLOB_S3_PREFIX } : {}),
+      }),
+      storageKind: 's3',
+    };
+  }
+
+  const supabase = supabaseConfigFromEnv();
+  if (supabase?.serviceRoleKey) {
+    return {
+      blobs: new SupabaseStorageBlobStore({
+        url: supabase.url,
+        serviceRoleKey: supabase.serviceRoleKey,
+        bucket: supabase.storageBucket,
+      }),
+      storageKind: 'supabase',
+    };
+  }
+
+  // Null hands the choice back to `createPostgresServices`, which defaults to
+  // `LocalBlobStore`. Said here rather than constructed here so there is one default
+  // rather than two that can disagree.
+  return { blobs: null, storageKind: 'local' };
 }
 
 export async function createWiring(input: { config: RestConfig; logger: Logger }): Promise<Wiring> {
@@ -175,6 +253,17 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
   // Worth a line at boot: "tokens survive a restart" and "they do not" are the same
   // process with one environment variable different, and nothing else says which.
   logger.info('oauth_persistence', { kind: wired.persistence });
+  logger.info('blob_storage', { kind: wired.storageKind });
+
+  // Said at boot rather than discovered later. A Supabase project that is configured for
+  // Postgres but not for Storage is a normal state and not an error — but it is one an
+  // operator should know about before someone uploads a file.
+  const supabase = supabaseConfigFromEnv();
+  if (supabase) {
+    const readiness = describeSupabase(supabase);
+    logger.info('supabase', { storage: readiness.storage, auth: readiness.auth });
+    for (const note of readiness.missing) logger.warn('supabase_incomplete', { note });
+  }
 
   /**
    * Turns the browser session token from the sign-up flow into a person.
