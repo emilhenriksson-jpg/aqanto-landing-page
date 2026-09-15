@@ -84,19 +84,21 @@ Skriv `exit` för att lämna serverterminalen. Länken behövs inte längre.
 - **Hela länken måste med, inklusive allt efter `#`.** Det är själva nödkoden. Den
   delen skickas aldrig till servern och hamnar därför aldrig i någon logg; det är
   därför den ligger just där. Klipps den bort säger sidan att koden saknas.
-- **Det lämnar spår.** Varje nödinloggning skrivs som två rader i händelseloggen, den
-  som inte går att ändra i efterhand: `session.break_glass_minted` när länken skapas och
-  `session.break_glass_used` när den används, båda i ditt eget rum och med samma `jti`.
-  Serverloggen får en rad till, `break_glass_signin`, som säger vem och när men aldrig
-  vad:
+- **Det lämnar spår, och du ser dem själv.** Varje nödinloggning blir två rader i
+  händelseloggen, den som inte går att ändra i efterhand — en när länken skapas och en
+  när den används, båda i ditt eget rum. De syns på **Historik** i produkten, med samma
+  ord som här:
+
+  > Nödinloggning skapad på servern
+  > Nödinloggning använd för att logga in
+
+  Ser du en sådan rad som du inte känner igen, har någon annan varit inne på maskinen —
+  det är hela poängen med att de står där. Serverloggen får dessutom en rad,
+  `break_glass_signin`, som säger vem och när men aldrig vad:
 
   ```bash
   fly logs -a photographic | grep break_glass_signin
   ```
-
-  Notera: skärmen **Historik** visar de här raderna ännu inte — den filtrerar på en
-  bestämd lista händelsetyper, och att lägga till de två kräver en ändring i
-  `packages/core`. Raderna finns i loggen; de syns bara inte i gränssnittet än.
 
 ### Om något går fel
 

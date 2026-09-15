@@ -126,11 +126,10 @@ export function publicConnectRoutes(deps: ConnectRouteDeps): Hono<AppEnv> {
     // without a line in the log is the thing this must never be, so the append is the
     // step that can refuse — not an afterthought that can be lost.
     //
-    // In the person's own room, paired with the `session.break_glass_minted` the script
-    // wrote, by `jti`. The `Historik` screen does not show either yet: `ACTION_OF` in
-    // `PgHistory` is an allowlist and a new entry needs `HistoryAction` in
-    // `@photographic/core`, which is frozen. The rows are in the append-only log
-    // regardless, which is what makes them worth writing now rather than later.
+    // In the person's own room, paired by `jti` with the `session.break_glass_minted` the
+    // script wrote, and visible on `Historik` as "Nödinloggning använd för att logga in" —
+    // both allowlists and the Swedish label came with this. A record only the operators can
+    // read would let us say the account is audited while the person sees nothing.
     const personalRoom = await services.identity.personalRoomOf(personId);
     await services.events.append({
       roomId: personalRoom.id,

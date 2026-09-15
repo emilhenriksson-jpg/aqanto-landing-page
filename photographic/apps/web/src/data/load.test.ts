@@ -6,6 +6,7 @@ import {
   loadSharedRoomFromApi,
   mapClientHealth,
   mapCompassEntry,
+  mapHistoryEntry,
   mapProposal,
   mapProvenance,
   mapRoomDocument,
@@ -76,6 +77,58 @@ describe('API → UI mapping', () => {
       daysLabel: '28 dagar kvar',
       deleteReason: 'Flyttade till Stockholm',
     });
+  });
+
+  it('says an emergency sign-in happened in words that need no explaining', () => {
+    const now = new Date('2026-09-15T12:30:00.000Z');
+    const entry = (action: string) =>
+      mapHistoryEntry(
+        {
+          seq: 41,
+          action,
+          occurredAt: '2026-09-15T12:00:00.000Z',
+          roomId: 'room-1',
+          roomTitle: 'Mitt rum',
+          shortId: null,
+          body: null,
+          // What the script and the exchange actually record. Neither is a person or a
+          // model, which is why these two lines carry no "who".
+          agentClient: action === 'break_glass_minted' ? 'api' : 'web',
+          actorName: null,
+          wasApproved: false,
+          redacted: false,
+        },
+        now,
+      );
+
+    expect(entry('break_glass_minted').body).toBe('Nödinloggning skapad på servern');
+    expect(entry('break_glass_used').body).toBe('Nödinloggning använd för att logga in');
+    // Never "api nödinloggning skapad", and never the enum name.
+    expect(entry('break_glass_minted').body).not.toContain('api');
+    expect(entry('break_glass_used').body).not.toContain('break_glass');
+  });
+
+  it('still names who did it for everything that is about a memory', () => {
+    // The guard on the branch above: adding a standalone action must not stop the ordinary
+    // line reading "<vem> <gjorde> <vad>".
+    const line = mapHistoryEntry(
+      {
+        seq: 42,
+        action: 'saved',
+        occurredAt: '2026-09-15T12:00:00.000Z',
+        roomId: 'room-1',
+        roomTitle: 'Mitt rum',
+        shortId: 'p-7k2m',
+        body: 'Allergisk mot jordnötter',
+        agentClient: 'claude-desktop',
+        actorName: null,
+        wasApproved: false,
+        redacted: false,
+      },
+      new Date('2026-09-15T12:30:00.000Z'),
+    );
+
+    expect(line.body).toBe('Claude sparade Allergisk mot jordnötter');
   });
 
   it('maps proposals onto approval cards with a Swedish client label', () => {
