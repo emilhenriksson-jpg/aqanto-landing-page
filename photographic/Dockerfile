@@ -52,6 +52,17 @@ RUN pnpm install --frozen-lockfile --offline
 # Declaration emit for rest and its workspace deps. We still execute TypeScript
 # with tsx at runtime — no separate JS bundle step yet.
 RUN pnpm --filter @photographic/rest... run build
+# The consent screen, built into the image rather than assumed to be hosted somewhere.
+#
+# `apps/onboarding` serves `/login`, which is where `/oauth/authorize` redirects a
+# person's browser to approve a client. It is not a dependency of `@photographic/rest`,
+# so the filter above does not reach it, and without its `dist` present
+# `resolveWebDist` finds nothing and `webUrl` falls back to `http://localhost:5174` —
+# the dev server's port. The deploy then looks entirely healthy and MCP answers, while
+# `/oauth/authorize` 302s a remote user to localhost and no client can ever finish
+# connecting. Building it here is also what makes `webUrl` equal `PUBLIC_URL`, because
+# the login page is then on this origin.
+RUN pnpm --filter @photographic/onboarding... run build
 
 # Fail the build rather than the first boot if a workspace package cannot resolve its
 # own dependencies. This is the exact failure the manifest list caused, and it cost a
