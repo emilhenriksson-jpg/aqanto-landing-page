@@ -58,6 +58,8 @@ interface Opened {
   names(): Promise<string[]>;
   /** One entry's content, read through Python's `zipfile`. */
   read(name: string): Promise<string>;
+  /** Names of the entries a reader sees as zip64, by the local header's extra field. */
+  zip64Entries(): Promise<string[]>;
 }
 
 async function writeAndUnzip(build: (zip: ZipWriter) => Promise<void>): Promise<Opened> {
@@ -98,6 +100,23 @@ async function writeAndUnzip(build: (zip: ZipWriter) => Promise<void>): Promise<
         'import sys,zipfile\n' +
           `sys.stdout.write(zipfile.ZipFile(sys.argv[1]).read(${JSON.stringify(name)}).decode("utf-8"))`,
       ),
+    zip64Entries: async () =>
+      (
+        await python(
+          'import struct,sys,zipfile\n' +
+            'z = zipfile.ZipFile(sys.argv[1])\n' +
+            'f = open(sys.argv[1], "rb")\n' +
+            'for i in z.infolist():\n' +
+            '    f.seek(i.header_offset)\n' +
+            '    h = f.read(30)\n' +
+            '    n, e = struct.unpack("<HH", h[26:30])\n' +
+            '    extra = f.read(n + e)[n:]\n' +
+            '    if extra[:2] == b"\\x01\\x00":\n' +
+            '        print(i.filename)\n',
+        )
+      )
+        .split('\n')
+        .filter(Boolean),
   };
 }
 
@@ -232,14 +251,98 @@ describe('ZipWriter refuses to produce something broken', () => {
     await expect(zip.finish()).rejects.toThrow(/already finished/);
   });
 
-  it('refuses an archive past what zip32 can address, rather than writing a corrupt one', async () => {
-    // Not reachable with real data in a test, so the limit is asserted through a sink
-    // that lies about how much has been written. The alternative is an archive that
-    // looks fine until someone opens it, which is the failure worth preventing.
-    const zip = new ZipWriter(new BufferSink());
-    Object.defineProperty(zip, 'offset', { value: 0x100000000, writable: true });
+  it('stops at the archive bound rather than writing without end', async () => {
+    // Sixteen gibibytes is not reachable in a test, so the bound is set low here. What
+    // is being asserted is that there is one at all: past the product's ten gigabytes
+    // something upstream is wrong, and finding that out after a terabyte has gone into
+    // object storage is an expensive way to find out.
+    const zip = new ZipWriter(new BufferSink(), { maxBytes: 256 });
 
-    await expect(zip.addBytes('big.bin', utf8('x'))).rejects.toThrow(ZipTooLargeError);
-    await expect(zip.addBytes('big.bin', utf8('x'))).rejects.toThrow(/4 GB/);
+    await expect(
+      zip.add('stor.bin', [new Uint8Array(128), new Uint8Array(128), new Uint8Array(128)]),
+    ).rejects.toThrow(ZipTooLargeError);
+  });
+
+  it('stops mid-entry rather than after it', async () => {
+    // The case the bound exists for is one runaway member. Waiting for the entry to
+    // close would mean the bytes are already spent.
+    const sink = new BufferSink();
+    const zip = new ZipWriter(sink, { maxBytes: 1024 });
+    let produced = 0;
+
+    await expect(
+      zip.add(
+        'rinner.bin',
+        (async function* () {
+          for (let i = 0; i < 100; i += 1) {
+            produced += 1;
+            yield new Uint8Array(256);
+          }
+        })(),
+      ),
+    ).rejects.toThrow(ZipTooLargeError);
+
+    expect(produced).toBeLessThan(10);
+  });
+
+  it('refuses an entry that produced a different number of bytes than it promised', async () => {
+    // A declared size is what selects the smaller zip32 header, so a caller getting it
+    // wrong would write an entry whose header and descriptor disagree.
+    const zip = new ZipWriter(new BufferSink());
+
+    await expect(zip.add('a.txt', [utf8('ab')], { size: 5 })).rejects.toThrow(
+      /declared as 5 bytes and produced 2/,
+    );
+  });
+});
+
+describe('zip64', () => {
+  it('writes a streamed entry in zip64 form, and readers accept it', async () => {
+    // A streamed entry's length is not known when its header is written, so it gets a
+    // 64-bit data descriptor whatever its eventual size. This is the ordinary case for
+    // `events.ndjson` and for every document, and it has to stay readable by tools that
+    // are not ours.
+    const archive = await writeAndUnzip(async (zip) => {
+      await zip.add('events.ndjson', (async function* () {
+        yield utf8('{"seq":1}\n');
+        yield utf8('{"seq":2}\n');
+      })());
+    });
+
+    expect(archive.list).toContain('No errors detected');
+    expect(await archive.read('events.ndjson')).toBe('{"seq":1}\n{"seq":2}\n');
+    // The flag a reader uses to decide the descriptor is eight-byte rather than four.
+    expect(await archive.zip64Entries()).toEqual(['events.ndjson']);
+  });
+
+  it('leaves a small entry of known length in plain zip32', async () => {
+    // The manifest and the README are written from bytes already in hand. Nothing is
+    // gained by describing them in a format some old tool might not read.
+    const archive = await writeAndUnzip(async (zip) => {
+      await zip.addBytes('manifest.json', utf8('{"formatVersion":1}'));
+    });
+
+    expect(await archive.zip64Entries()).toEqual([]);
+    expect(await archive.read('manifest.json')).toBe('{"formatVersion":1}');
+  });
+
+  it('describes an entry past the four-gigabyte mark with a 64-bit offset', async () => {
+    // The directory entry, not the member: a small file sitting beyond 4 GB needs a
+    // 64-bit local header offset even though its own size fits in 32 bits. Asserted by
+    // reading the bytes the writer produced rather than by writing 4 GB, which the
+    // near-limit test does for real.
+    const sink = new BufferSink();
+    const zip = new ZipWriter(sink);
+    await zip.addBytes('a.txt', utf8('a'));
+    Object.defineProperty(zip, 'offset', { value: 0x100000000 + 64, writable: true });
+    await zip.addBytes('b.txt', utf8('b'));
+    await zip.finish();
+
+    const bytes = sink.bytes();
+    // The zip64 end record and its locator, which a reader looks for after seeing the
+    // sentinel in the ordinary end record.
+    expect(bytes.includes(Buffer.from([0x50, 0x4b, 0x06, 0x06]))).toBe(true);
+    expect(bytes.includes(Buffer.from([0x50, 0x4b, 0x06, 0x07]))).toBe(true);
+    expect(bytes.readUInt32LE(bytes.length - 6)).toBe(0xffffffff);
   });
 });

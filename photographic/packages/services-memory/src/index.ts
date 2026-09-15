@@ -138,6 +138,10 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
     await invites.expireOverdue();
   });
 
+  jobs.work('purge_documents', async () => {
+    await documents.purgeExpired();
+  });
+
   const services: Services = {
     identity,
     rooms,

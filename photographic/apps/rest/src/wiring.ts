@@ -81,6 +81,7 @@ import type { RestConfig } from './config.js';
 import type { AppEnv } from './context.js';
 import type { Logger } from './logger.js';
 import { createOAuthProvider } from './oauth.js';
+import type { QueueSource } from './routes/ops.js';
 import { FIRST_PARTY_CLIENT_ID } from './oauth-contract.js';
 import type { OAuthProvider, TokenClaims } from './oauth-contract.js';
 
@@ -104,6 +105,14 @@ export interface Wiring {
   /** Background work, run by whoever owns the schedule. */
   runJobs(): Promise<unknown>;
   purgeTrash(): Promise<number>;
+  /**
+   * Queue depth, stuck claims and failures. Null without a database.
+   *
+   * Exposed on the wiring rather than only through the route so `server.ts` can log it on
+   * a cadence: an endpoint answers when someone asks, and the failure this exists for is
+   * precisely the one nobody thinks to ask about.
+   */
+  queue: QueueSource | null;
   /**
    * The account lifecycle sweep: build queued exports, expire old archives, carry out
    * deletions whose freeze has run out.
@@ -137,6 +146,8 @@ interface AuthStores {
 interface WiredServices {
   services: Services;
   authStores: AuthStores;
+  /** Queue observability, when there is a real queue to observe. */
+  queue: QueueSource | null;
   /**
    * Export and account deletion. Null without a database: an export that cannot be
    * produced and a deletion that cannot be carried out are worse offered than withheld.
@@ -226,6 +237,10 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
       llm,
       blobs: effectiveBlobs,
     });
+    // One instance, shared between the routes and the sweep. Two would mean two worker
+    // ids, and an export claimed under one and heartbeated under the other would look
+    // abandoned to whichever reaper ran next.
+    const exportsService = new PgExports(pool, effectiveBlobs);
     return {
       services: wired.services,
       authStores: {
@@ -238,8 +253,13 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
       // Both take the storage port directly: an export writes its archive through it
       // and a deletion removes files through it, and neither is a read or write of
       // memory, so neither belongs on `Services`.
-      exports: new PgExports(pool, effectiveBlobs),
+      exports: exportsService,
       accounts: new PgAccounts(pool, effectiveBlobs),
+      queue: {
+        jobStats: () => wired.jobs.stats(),
+        failedKinds: () => wired.jobs.failedKinds(),
+        exportStats: () => exportsService.stats(),
+      },
       runJobs: () => wired.runJobsToCompletion(),
       purgeTrash: () => wired.services.trash.purgeExpired(),
       close: () => wired.close(),
@@ -264,6 +284,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     },
     exports: null,
     accounts: null,
+    queue: null,
     runJobs: () => wired.jobs.runOnce(),
     purgeTrash: () => wired.services.trash.purgeExpired(),
     close: async () => {
@@ -599,6 +620,7 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     clientGrants: grants,
     exports: wired.exports,
     accounts: wired.accounts,
+    queue: wired.queue,
     health: {
       persistence: wired.persistence,
       ...(wired.checkDatabase ? { checkDatabase: wired.checkDatabase } : {}),
@@ -621,6 +643,7 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     clientGrants: wired.authStores.grants,
     exports: wired.exports,
     accounts: wired.accounts,
+    queue: wired.queue,
     runJobs: () => wired.runJobs(),
     purgeTrash: () => wired.purgeTrash(),
     runAccountJobs: () => runAccountJobs(wired, logger),
@@ -645,8 +668,19 @@ async function runAccountJobs(
   const idle = { exportsBuilt: 0, archivesExpired: 0, accountsDeleted: 0 };
   if (!wired.exports || !wired.accounts) return idle;
 
+  // First: exports whose worker died. A restart used to leave one at `running` for ever —
+  // a person had asked to take their memory with them and got a spinner that never
+  // resolved, which is the worst available way to break that particular promise.
+  const reaped = await wired.exports.reapStuck().catch(() => ({ requeued: 0, failed: 0 }));
+  if (reaped.requeued > 0 || reaped.failed > 0) {
+    logger.warn('exports_reclaimed', { requeued: reaped.requeued, failed: reaped.failed });
+  }
+
+  // One at a time. A build holds a multipart part and a database connection, and the
+  // request path shares both — two at once on a two-gigabyte machine is how an export
+  // takes down the product it is an escape hatch from.
   let exportsBuilt = 0;
-  for (const job of await wired.exports.pending(2)) {
+  for (const job of await wired.exports.pending(1)) {
     try {
       const finished = await wired.exports.run(job.id);
       if (finished?.status === 'ready') exportsBuilt += 1;
