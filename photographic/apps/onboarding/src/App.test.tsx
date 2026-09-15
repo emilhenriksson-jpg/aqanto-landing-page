@@ -262,6 +262,20 @@ describe('the invite landing', () => {
     render(<App api={new FakeApi({ invite })} initial={{ name: 'invite', token: 'tok' }} />);
     expect(await screen.findByText(/eget personligt rum/)).toBeInTheDocument();
   });
+
+  it('falls back to "Någon" for an inviter with no name, not a nameless sentence', async () => {
+    render(
+      <App
+        api={new FakeApi({ invite: { ...invite, invitedByName: null } })}
+        initial={{ name: 'invite', token: 'tok' }}
+      />,
+    );
+
+    // Same fallback word every other unknown-person surface uses, not a different
+    // sentence shape ("Du är inbjuden till") that only this screen used to have.
+    expect(await screen.findByText('Någon bjöd in dig till')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/undefined|null/i);
+  });
 });
 
 describe('the connect screen', () => {

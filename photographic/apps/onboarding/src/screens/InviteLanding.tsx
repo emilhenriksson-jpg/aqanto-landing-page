@@ -53,9 +53,13 @@ export function InviteLanding({
 
   return (
     <div className="narrow">
-      <p className="meta">
-        {preview.invitedByName ? `${preview.invitedByName} bjöd in dig till` : 'Du är inbjuden till'}
-      </p>
+      {/*
+        "Någon" rather than a nameless "Du är inbjuden till" — the same fallback word
+        every other unknown-person surface in the product uses (history, disputes, the
+        web app's own invite screen), so a person who has not set a name yet reads the
+        same way wherever an invite mentions them.
+      */}
+      <p className="meta">{preview.invitedByName?.trim() || 'Någon'} bjöd in dig till</p>
       <h1>{preview.room.title}</h1>
       {preview.room.description && <p className="lede">{preview.room.description}</p>}
 
