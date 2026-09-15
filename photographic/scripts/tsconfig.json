@@ -1,0 +1,17 @@
+{
+  // `scripts/*.ts` belonged to no tsconfig, so `pnpm typecheck` — which is
+  // `pnpm -r run typecheck`, per package — never reached them, and type-aware linting
+  // could not resolve a single import in them.
+  //
+  // That was tolerable while the directory held shell scripts and `.mjs`. It stopped
+  // being tolerable when `break-glass-signin.ts` arrived: it mints a sign-in link for a
+  // real account on the production machine, and it was the one TypeScript file in the
+  // repository that nothing typechecked. It compiles clean under the same strict options
+  // as everything else, so this costs nothing but the file it is written in.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}
