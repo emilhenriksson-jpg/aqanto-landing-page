@@ -78,6 +78,12 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm test:unit
       - run: pnpm test:e2e:memory
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: suite-report-unit
+          path: photographic/.ci-reports/*.json
+          if-no-files-found: error
 
   # The suites that only mean something against real SQL.
   #
@@ -144,25 +150,187 @@ jobs:
 
       - run: pnpm test:${{ matrix.suite }}
 
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: suite-report-postgres-${{ matrix.suite }}
+          path: photographic/.ci-reports/*.json
+          if-no-files-found: error
+
+  # Builds the image the deploy actually runs, and boots it against the same Postgres.
+  #
+  # Two failures this repository has already had are only visible here. The `deps` stage
+  # once listed workspace manifests by hand and fell four packages behind, and pnpm does
+  # not fail on a missing workspace manifest — it creates the symlink and skips that
+  # package's dependencies, so the image built cleanly and died at startup with `Cannot
+  # find package '@photographic/core'`. And corepack resolves pnpm from the nearest
+  # `packageManager` field, so a stage that copies only the lockfile installs the newest
+  # pnpm instead of the declared one. Both are build-time, and nothing built.
+  #
+  # Not on every pull request: the build runs `pnpm fetch`, an install and three tsc/vite
+  # builds, which is minutes rather than the seconds the rest of this file costs. On
+  # `main` always, and on a pull request when it touches something the image is made of.
+  image:
+    name: image (build and boot)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [changes]
+    if: needs.changes.outputs.image == 'true'
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: photographic
+          POSTGRES_PASSWORD: photographic
+          POSTGRES_DB: photographic
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U photographic -d photographic"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build the image
+        uses: docker/build-push-action@v7
+        with:
+          context: photographic
+          file: photographic/Dockerfile
+          load: true
+          tags: photographic:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The trap named in the Dockerfile, asserted rather than commented. A stage that
+      # installs the wrong pnpm produces a working-looking image, so the version has to
+      # be read out of the thing that was built.
+      - name: The image has the declared pnpm
+        run: |
+          declared=$(node -e "process.stdout.write(require('./package.json').packageManager.split('@')[1])")
+          actual=$(docker run --rm photographic:ci pnpm --version)
+          echo "declared $declared / image $actual"
+          if [ "$declared" != "$actual" ]; then
+            echo "::error::Avbildningen har pnpm $actual, package.json deklarerar $declared." \
+                 "Ett steg i Dockerfile installerar fel version."
+            exit 1
+          fi
+
+      # `--network host` so the container reaches the service container through the
+      # port the runner mapped; inside its own network namespace 127.0.0.1 would be
+      # itself. This is the first thing in this repository's history that runs the
+      # image's CMD, migrations and all, rather than assuming it works.
+      - name: Boot it against Postgres and serve /health
+        run: |
+          docker run -d --name photographic-ci --network host \
+            -e PORT=8080 \
+            -e DATABASE_URL=postgres://photographic:photographic@127.0.0.1:5432/photographic \
+            photographic:ci
+
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8080/health > /tmp/health.json 2>/dev/null; then
+              echo "svarade efter ${i}s: $(cat /tmp/health.json)"
+              grep -q '"ok":true' /tmp/health.json || {
+                echo "::error::/health svarade men inte med ok:true."; exit 1; }
+              docker logs photographic-ci 2>&1 | tail -30
+              exit 0
+            fi
+            if [ -z "$(docker ps -q -f name=photographic-ci)" ]; then
+              echo "::error::Containern dog innan den svarade. Loggen:"
+              docker logs photographic-ci 2>&1 | tail -60
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo "::error::/health svarade inte inom 45s."
+          docker logs photographic-ci 2>&1 | tail -60
+          exit 1
+
+      - name: Stop it
+        if: always()
+        run: docker rm -f photographic-ci || true
+
+  # Which jobs the changed files justify. `git diff` against the merge base rather than a
+  # `paths:` filter on the workflow, because a `paths:`-filtered job reports as *skipped*
+  # and a skipped required check is indistinguishable from a passing one.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image: ${{ steps.decide.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: decide
+        working-directory: .
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "image=true" >> "$GITHUB_OUTPUT"
+            echo "not a pull request: building the image"
+            exit 0
+          fi
+          base="${{ github.event.pull_request.base.sha }}"
+          changed=$(git diff --name-only "$base"...HEAD -- \
+            photographic/Dockerfile \
+            photographic/.dockerignore \
+            photographic/pnpm-lock.yaml \
+            photographic/package.json \
+            .github/workflows/ci.yml \
+            .github/actions/setup/action.yml)
+          echo "$changed"
+          if [ -n "$changed" ]; then
+            echo "image=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "image=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # One check to require on the branch, so adding a job below does not mean editing a
   # branch-protection rule — and so a job that was skipped or cancelled cannot be
   # mistaken for a job that passed.
+  #
+  # It also collects what every suite counted. A green exit code is not enough on its
+  # own: when `journey.test.ts` cannot build its harness, vitest reports `3 failed` files
+  # and `62 skipped` tests, so the number a person reads is one word away from the number
+  # a healthy run prints. `ci-suite-summary.mjs` fails on a missing report, a group whose
+  # passing count fell through its floor, or a new skip.
   ci:
     name: ci
     runs-on: ubuntu-latest
-    needs: [guards, typecheck, unit, postgres]
+    needs: [guards, typecheck, unit, postgres, changes, image]
     if: always()
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: suite-report-*
+          merge-multiple: true
+          path: photographic/.ci-reports
+
+      - name: Test counts per group
+        run: node scripts/ci-suite-summary.mjs .ci-reports
+
       - name: Check the other jobs
-        # This job does not check the repository out, so the workflow-wide
-        # `working-directory: photographic` does not exist here.
+        if: always()
         working-directory: .
         run: |
           echo "guards    ${{ needs.guards.result }}"
           echo "typecheck ${{ needs.typecheck.result }}"
           echo "unit      ${{ needs.unit.result }}"
           echo "postgres  ${{ needs.postgres.result }}"
+          echo "changes   ${{ needs.changes.result }}"
+          echo "image     ${{ needs.image.result }} (skipped is allowed: it is conditional)"
           test "${{ needs.guards.result }}" = success \
             && test "${{ needs.typecheck.result }}" = success \
             && test "${{ needs.unit.result }}" = success \
-            && test "${{ needs.postgres.result }}" = success
+            && test "${{ needs.postgres.result }}" = success \
+            && test "${{ needs.changes.result }}" = success \
+            && { test "${{ needs.image.result }}" = success \
+                 || test "${{ needs.image.result }}" = skipped; }
