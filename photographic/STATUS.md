@@ -167,3 +167,7 @@ _Agents append here. Do not edit another package to unblock yourself._
   Postgres (default when `databaseUrl` / `DATABASE_URL` is present; resets schema per
   run). Smoke tests in `@photographic/db` cover register → remember → profile and
   invite isolation. All green: db 3, e2e 22×2, rest 53, monorepo typecheck clean.
+
+- **orchestrator** — `PHOTOGRAPHIC_LLM=openai` + `OPENAI_API_KEY` selects `OpenAiLlm`
+  via `createLlmFromEnv` in the rest composition root; default remains FakeLlm so the
+  suite stays deterministic. Deploy docs and WAKEUP.md cover Fly+Postgres and the flag.
