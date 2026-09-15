@@ -207,7 +207,7 @@ export class MemoryIngest implements IngestPort {
     const before = item.body;
     item.body = next;
     item.tokenEstimate = estimateTokens(next);
-    this.store.embeddings.set(item.id, (await this.llm.embed([next]))[0]!);
+    await this.embed(item.id, next);
 
     // The short id survives an edit on purpose: a person who said "change p-7k2m" is
     // still talking about p-7k2m afterwards.
@@ -368,6 +368,24 @@ export class MemoryIngest implements IngestPort {
   // Internals
   // -------------------------------------------------------------------------
 
+  /**
+   * The item is already in the store by the time this runs (`store.put` happens
+   * first in `write`; `item.body` is already reassigned in `update`), so a failed or
+   * unavailable embedder must never make the write itself fail. `FakeLlm` never
+   * throws, but this package's `llm` is an injected `LlmPort` and nothing prevents a
+   * caller from wiring a real one in here too -- degrading to lexical-only ranking on
+   * failure is the same guarantee `PgRetrieval`/`PgIngest` make for the same reason.
+   */
+  private async embed(itemId: ItemId, body: string): Promise<void> {
+    try {
+      const [vector] = await this.llm.embed([body]);
+      if (vector) this.store.embeddings.set(itemId, vector);
+    } catch {
+      // No embedding this time; the semantic ranking arm just has nothing for this
+      // item until the next successful write touches it.
+    }
+  }
+
   private async write(
     actor: Actor,
     input: {
@@ -405,7 +423,7 @@ export class MemoryIngest implements IngestPort {
     };
 
     this.store.put(item);
-    this.store.embeddings.set(item.id, (await this.llm.embed([input.body]))[0]!);
+    await this.embed(item.id, input.body);
 
     if (input.supersedes) {
       const old = this.store.items.get(input.supersedes);
