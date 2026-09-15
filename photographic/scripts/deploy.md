@@ -49,3 +49,12 @@ OAuth. Add from web or desktop first; then it works on mobile too.
 
 Web + developer mode only. Mobile MCP does not exist; voice mode reportedly cannot
 call connectors. Fallback: copy `/v1/context/rendered` into Custom Instructions.
+
+## Verified locally
+
+Docker was not available in this environment (`docker: command not found`), so the
+image was not built. The Dockerfile build-stage compile step succeeded:
+
+```bash
+pnpm --filter @photographic/rest... run build
+```
