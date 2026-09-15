@@ -21,6 +21,7 @@
 import type {
   Actor,
   AgentClient,
+  ItemKind,
   Person,
   PersonId,
   Room,
@@ -76,7 +77,13 @@ export interface Harness {
   connectMcpClient(token: string, agentClient?: AgentClient): Promise<{ instructions: string }>;
 
   tokenFromUrl(url: string): string;
-  lastInvite(): { url: string };
+  /** The invite sent to one address. Invites are single-use, so which one matters. */
+  inviteFor(destination: string): { url: string };
+  /** Saves into a shared room the only way there is: through the approval queue. */
+  saveIntoRoom(
+    actor: Actor,
+    input: { roomId: RoomId; body: string; kind?: ItemKind },
+  ): Promise<void>;
 
   runJobsToCompletion(): Promise<number>;
   expireTrash(shortId: ShortId): Promise<void>;
@@ -165,8 +172,53 @@ async function createMemoryBackend(baseUrl: string): Promise<Backend> {
   };
 }
 
+/**
+ * A database of this suite's own, created on demand.
+ *
+ * The harness drops and re-migrates the schema on every run, which is what stops a
+ * leftover row from making a test pass for the wrong reason. Doing that to the database
+ * the other packages read — and the one `pnpm db:seed` fills for the morning demo — means
+ * a smoke test three packages away fails with `relation "app.person" does not exist` and
+ * the seeded demo data disappears without anyone touching it.
+ *
+ * Falls back to the URL it was given when the database cannot be created, because
+ * "cannot CREATE DATABASE here" should not turn into "the suite does not run".
+ */
+async function isolatedDatabaseUrl(databaseUrl: string): Promise<string> {
+  let url: URL;
+  try {
+    url = new URL(databaseUrl);
+  } catch {
+    return databaseUrl;
+  }
+
+  const name = url.pathname.replace(/^\//, '');
+  if (!name || name.endsWith('_e2e')) return databaseUrl;
+
+  const target = `${name}_e2e`;
+  const admin = new URL(databaseUrl);
+  admin.pathname = `/${name}`;
+
+  const pool = createPool({ connectionString: admin.toString(), max: 1 });
+  try {
+    const exists = await pool.query('SELECT 1 FROM pg_database WHERE datname = $1', [target]);
+    if (exists.rowCount === 0) {
+      // Not parameterisable: CREATE DATABASE takes an identifier, not a value. The name
+      // is derived from our own connection string, never from input.
+      await pool.query(`CREATE DATABASE "${target}"`);
+    }
+  } catch {
+    return databaseUrl;
+  } finally {
+    await pool.end();
+  }
+
+  url.pathname = `/${target}`;
+  return url.toString();
+}
+
 async function createPostgresBackend(baseUrl: string, databaseUrl: string): Promise<Backend> {
-  const pool: Pool = createPool({ connectionString: databaseUrl });
+  const pool: Pool = createPool({ connectionString: await isolatedDatabaseUrl(databaseUrl) });
   // Wipe and re-migrate so a leftover row from a previous run cannot make a test pass
   // for the wrong reason — or fail because an email is already taken.
   await reset(pool);
@@ -279,11 +331,11 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
    * ever exist in the sent link. This is that link, kept exactly as long as the test
    * that sent it needs it.
    */
-  let lastInviteUrl: string | null = null;
+  const inviteUrls = new Map<string, string>();
   const originalCreateInvite = services.invites.create.bind(services.invites);
   services.invites.create = async (actor, input) => {
     const result = await originalCreateInvite(actor, input);
-    lastInviteUrl = result.url;
+    inviteUrls.set(input.destination.trim().toLowerCase(), result.url);
     return result;
   };
 
@@ -394,9 +446,37 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       return token;
     },
 
-    lastInvite: () => {
-      if (!lastInviteUrl) throw new Error('Ingen inbjudan har skapats.');
-      return { url: lastInviteUrl };
+    /**
+     * Looked up by recipient rather than "the most recent one".
+     *
+     * An invite is single-use and bound to whoever redeems it, so a test that reaches for
+     * whichever invite happened to be created last is a test that passes by reusing a
+     * spent link — which is the thing that must no longer work.
+     */
+    inviteFor: (destination) => {
+      const url = inviteUrls.get(destination.trim().toLowerCase());
+      if (!url) throw new Error(`Ingen inbjudan skickad till ${destination}.`);
+      return { url };
+    },
+
+    /**
+     * Saves into a shared room, which means going through the approval queue.
+     *
+     * Every write to a shared room does, including one the person asked for out loud:
+     * `explicit` is a flag a model sets from what it read, and a document can say
+     * anything. See `requiresApproval`.
+     */
+    saveIntoRoom: async (actor, input) => {
+      const decision = await services.ingest.remember(actor, {
+        roomId: input.roomId,
+        body: input.body,
+        ...(input.kind ? { kind: input.kind } : {}),
+        explicit: true,
+      });
+      if (decision.outcome !== 'needs_approval') {
+        throw new Error('Ett delat rum ska aldrig skrivas utan godkännande.');
+      }
+      await services.ingest.resolveProposal(actor, decision.proposal.id, true);
     },
 
     runJobsToCompletion: backend.runJobsToCompletion,

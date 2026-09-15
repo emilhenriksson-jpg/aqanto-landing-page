@@ -3,24 +3,36 @@ import { defineConfig, mergeConfig } from 'vitest/config';
 import shared from '../vitest.shared.js';
 
 /**
- * The journey and the live smoke cannot share a run.
+ * Two rules, both about the same hazard: this suite wipes a database.
  *
- * `journey.test.ts` calls `reset(pool)` on the local Postgres so a leftover row cannot
- * make a test pass for the wrong reason. `live-mcp.smoke.test.ts` drives a REST process
- * that is already serving that same database. Vitest runs test files in parallel, so
- * together they mean the journey drops the schema out from under a live signup, and the
- * live smoke fails with `relation "app.person" does not exist` — a collision that looks
- * exactly like a broken product.
+ * The Postgres harness calls `reset(pool)` before every run, so a leftover row cannot
+ * make a test pass for the wrong reason. That is destructive, and it collides with
+ * anything else reading the same schema — the failure surfaces as
+ * `relation "app.person" does not exist` somewhere unrelated, which looks exactly like a
+ * broken product rather than two test files fighting.
  *
- * So the smoke is excluded from the default run and has its own script (`test:live`).
- * It is still skipped without `LIVE_MCP=1`; this is what makes setting that variable
- * safe rather than a way to break the suite.
+ * **One file at a time.** `journey.test.ts` and `calendar.test.ts` each build a harness,
+ * so each resets. Run in parallel, they delete each other's fixtures halfway through.
+ *
+ * **The live smoke is excluded from the default run**, and has its own script
+ * (`test:live`) and config. It drives a REST process that is already listening against a
+ * real database, which is not something to start concurrently with a suite that resets
+ * one. It is still skipped without `LIVE_MCP=1`, which is what makes setting that
+ * variable safe rather than a way to break the suite.
+ *
+ * Worth knowing when reading the older reasoning: the harness now resets a database of
+ * its own (`..._e2e`, see `harness.ts`) rather than the one `pnpm db:seed` fills and the
+ * live process serves. That removed the specific collision between the journey and a live
+ * signup. Both rules stay anyway — they are cheap, and the isolation is a property of the
+ * harness that a future change could reasonably drop.
  */
 export default mergeConfig(
   shared,
   defineConfig({
     test: {
+      // Replaces the default exclude, hence node_modules being named explicitly.
       exclude: ['**/node_modules/**', 'src/**/*.smoke.test.ts'],
+      fileParallelism: false,
     },
   }),
 );

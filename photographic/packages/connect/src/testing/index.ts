@@ -168,6 +168,14 @@ export class MemoryInvites implements InvitePort {
   async revoke(): Promise<void> {
     // no-op
   }
+
+  async listForRoom(): Promise<never[]> {
+    return [];
+  }
+
+  async expireOverdue(): Promise<number> {
+    return 0;
+  }
 }
 
 export class MemorySessions implements SessionPort {

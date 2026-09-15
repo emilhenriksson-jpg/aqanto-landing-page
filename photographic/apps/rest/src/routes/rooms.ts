@@ -6,11 +6,17 @@
  * before seeing anything mostly closes the tab.
  */
 
-import type { InviteId, RoomId } from '@photographic/core';
+import type { InviteId, PersonId, RoomId } from '@photographic/core';
 import { Hono } from 'hono';
 
 import type { AppEnv } from '../context.js';
-import { createRoomSchema, describeRoomSchema, inviteSchema, roomIdParam } from '../schemas.js';
+import {
+  createRoomSchema,
+  describeRoomSchema,
+  inviteSchema,
+  leaveRoomSchema,
+  roomIdParam,
+} from '../schemas.js';
 import {
   serialiseBrief,
   serialiseInvite,
@@ -146,10 +152,60 @@ export function roomRoutes(): Hono<AppEnv> {
     return c.json({ invite: serialiseInvite(invite), url }, 201);
   });
 
+  /**
+   * Open invites for a room. Owner-only, because the list is the room's future audience.
+   *
+   * Revoking something you cannot see is not a feature.
+   */
+  routes.get('/rooms/:roomId/invites', async (c) => {
+    const actor = getActor(c);
+    const { roomId } = parseParams(c, roomIdParam);
+
+    const invites = await getServices(c).invites.listForRoom(actor, roomId as RoomId);
+    return c.json({ invites: invites.map(serialiseInvite) });
+  });
+
   routes.delete('/invites/:inviteId', async (c) => {
     const actor = getActor(c);
     const inviteId = c.req.param('inviteId') as InviteId;
     await getServices(c).invites.revoke(actor, inviteId);
+    return c.body(null, 204);
+  });
+
+  /**
+   * Leaving a room. The membership ends; the contributions stay.
+   *
+   * `removeContributions` is the person's own choice and is never defaulted: it takes her
+   * memories to the ordinary trash first, visibly, where an owner can undo it for thirty
+   * days. Defaulting it either way would be a decision we took on her behalf about other
+   * people's memory.
+   */
+  routes.post('/rooms/:roomId/leave', async (c) => {
+    const actor = getActor(c);
+    const { roomId } = parseParams(c, roomIdParam);
+    const input = await parseJsonBody(c, leaveRoomSchema);
+
+    await getServices(c).rooms.leave(actor, roomId as RoomId, {
+      ...(input.removeContributions === undefined
+        ? {}
+        : { removeContributions: input.removeContributions }),
+    });
+    return c.body(null, 204);
+  });
+
+  /**
+   * Removing someone else. Owner-only, and never touches their contributions.
+   *
+   * Distinct from revoking an invite on purpose: revoking stops a link nobody has used
+   * yet, and this ends a membership. Conflating them is the common and dangerous mistake
+   * — believing you have shut someone out while they go on reading everything.
+   */
+  routes.delete('/rooms/:roomId/members/:personId', async (c) => {
+    const actor = getActor(c);
+    const { roomId } = parseParams(c, roomIdParam);
+    const personId = c.req.param('personId') as PersonId;
+
+    await getServices(c).rooms.removeMember(actor, roomId as RoomId, personId);
     return c.body(null, 204);
   });
 

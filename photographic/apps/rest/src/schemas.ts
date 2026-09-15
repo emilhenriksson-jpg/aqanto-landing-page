@@ -8,7 +8,7 @@
  * making it name a room for that would be friction paid on every single write.
  */
 
-import { ROOM_HEADLINE_TOKEN_BUDGET } from '@photographic/core';
+import { ROOM_HEADLINE_TOKEN_BUDGET, isCalendarDate } from '@photographic/core';
 import { z } from 'zod';
 
 const ITEM_KINDS = [
@@ -29,6 +29,15 @@ export const shortId = z
   .regex(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4}$/, 'måste vara ett id som p-7k2m');
 
 export const memoryBody = z.string().trim().min(1).max(2000);
+
+/**
+ * A motivation is a sentence, not an essay.
+ *
+ * Capped short because it is read in a list of a day's events, next to seven others. A
+ * paragraph here would not be shown in full, and a field that accepts text it will never
+ * display is a field that lies to whoever fills it in.
+ */
+export const motivationText = z.string().trim().min(1).max(200).optional();
 
 /**
  * Accepts either a room id or a room name.
@@ -59,6 +68,14 @@ export const rememberSchema = roomRef.and(
      * write go through. The tool description says exactly that.
      */
     explicit: z.boolean().optional(),
+    /**
+     * Why this, and why here, in one human sentence.
+     *
+     * Optional because a caller that says nothing still produces a complete provenance
+     * record — the client, the session and the room are already known and the motivation
+     * is derived. This is how a model says something better than the default.
+     */
+    motivation: motivationText,
   }),
 );
 
@@ -71,7 +88,51 @@ export const proposeSchema = roomRef.and(
   }),
 );
 
-export const updateSchema = roomRef.and(z.object({ body: memoryBody }));
+export const updateSchema = roomRef.and(
+  z.object({ body: memoryBody, motivation: motivationText }),
+);
+
+/**
+ * Sharing or moving a memory into another room.
+ *
+ * `confirmed` is the person saying yes, in the app. It is the only thing that turns a
+ * share into a write rather than a proposal, which is why it is a separate field from
+ * `explicit` on a save: one is a claim about what somebody said, and this is a claim that
+ * somebody pressed something.
+ */
+export const placementSchema = z.object({
+  toRoomId: uuid,
+  fromRoomId: uuid.optional(),
+  confirmed: z.boolean().optional(),
+  motivation: motivationText,
+});
+
+export const resolveDisputeSchema = z.object({
+  winnerShortId: shortId,
+  loserShortId: shortId,
+  roomId: uuid.optional(),
+  resolution: z.string().trim().max(200).optional(),
+});
+
+export const leaveRoomSchema = z.object({
+  /**
+   * Takes the person's own memories to the trash before the membership ends.
+   *
+   * Never defaulted either way: a default here would be a decision we took on someone's
+   * behalf about other people's memory.
+   */
+  removeContributions: z.boolean().optional(),
+});
+
+export const calendarDaySchema = z.object({
+  date: z.string().refine(isCalendarDate, 'måste vara ett datum som 2026-09-15'),
+  tz: z.string().trim().min(1).max(60).optional(),
+  room: uuid.optional(),
+});
+
+export const seqParam = z.object({
+  seq: z.coerce.number().int().positive(),
+});
 
 export const searchSchema = z.object({
   q: z.string().trim().min(1).max(500),

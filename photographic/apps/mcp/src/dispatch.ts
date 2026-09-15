@@ -27,7 +27,7 @@ import {
   renderRestored,
   renderSearch,
   renderTrash,
-  renderUpdated,
+  renderUpdate,
   renderWrite,
   roomTitleIndex,
 } from './render.js';
@@ -217,8 +217,8 @@ async function run<N extends ToolName>(
     case 'update_memory': {
       const input = args as ArgsOf<'update_memory'>;
       const roomId = await resolveRoomRef(services, actor, { room: input.room });
-      const item = await services.ingest.update(actor, input.id as ShortId, roomId, input.text);
-      return renderUpdated(item);
+      const decision = await services.ingest.update(actor, input.id as ShortId, roomId, input.text);
+      return renderUpdate(decision);
     }
 
     case 'forget_memory': {

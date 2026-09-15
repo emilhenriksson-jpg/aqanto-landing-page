@@ -14,10 +14,14 @@
 
 import type {
   Brief,
+  CalendarDay,
+  CalendarEntry,
   ContextBundle,
+  Dispute,
   HistoryEntry,
   Invite,
   Item,
+  MemoryEventDetail,
   Person,
   Profile,
   Proposal,
@@ -75,6 +79,9 @@ export function serialiseProposal(proposal: Proposal) {
   return {
     id: proposal.id,
     roomId: proposal.roomId,
+    // What accepting it will do. A queue that renders "spara" over a request to share
+    // something with four people is a queue that gets cleared without being read.
+    intent: proposal.intent,
     kind: proposal.kind,
     body: proposal.body,
     // The reason is the whole point of showing a proposal rather than just asking. A
@@ -82,6 +89,109 @@ export function serialiseProposal(proposal: Proposal) {
     reason: proposal.reason,
     proposedByClient: proposal.proposedByClient,
     createdAt: proposal.createdAt.toISOString(),
+  };
+}
+
+export function serialiseDispute(dispute: Dispute) {
+  return {
+    roomId: dispute.roomId,
+    roomTitle: dispute.roomTitle,
+    reason: dispute.reason,
+    raisedAt: dispute.raisedAt.toISOString(),
+    // Both sides, in the order they were written, and neither marked as the default
+    // winner. Whoever wrote last is not whoever is right.
+    sides: dispute.sides.map((side) => ({
+      shortId: side.shortId,
+      body: side.body,
+      authorName: side.authorName,
+      writtenAt: side.writtenAt.toISOString(),
+    })),
+  };
+}
+
+/**
+ * One memory event, as a day shows it.
+ *
+ * `previousBody` travels with the entry rather than being looked up, because the whole
+ * point of the log is that a correction does not erase the original: 15 oktober is still
+ * in the day it was written after it became 1 november.
+ */
+export function serialiseCalendarEntry(entry: CalendarEntry) {
+  return {
+    seq: entry.seq,
+    kind: entry.kind,
+    occurredAt: entry.occurredAt.toISOString(),
+    body: entry.body,
+    previousBody: entry.previousBody,
+    shortId: entry.shortId,
+    itemKind: entry.itemKind,
+    fromRoomTitle: entry.fromRoomTitle,
+    toRoomTitle: entry.toRoomTitle,
+    sharedWith: entry.sharedWith?.map((who) => ({ name: who.name, role: who.role })) ?? null,
+    disputes: entry.disputes,
+    byOtherMember: entry.byOtherMember,
+    redacted: entry.redacted,
+    provenance: {
+      learnedAt: entry.provenance.learnedAt.toISOString(),
+      agentClient: entry.provenance.agentClient,
+      actorName: entry.provenance.actorName,
+      source: entry.provenance.source,
+      roomId: entry.provenance.roomId,
+      roomTitle: entry.provenance.roomTitle,
+      roomKind: entry.provenance.roomKind,
+      motivation: entry.provenance.motivation,
+      explicit: entry.provenance.explicit,
+      wasApproved: entry.provenance.wasApproved,
+      changed: entry.provenance.changed,
+    },
+  };
+}
+
+export function serialiseCalendarDay(day: CalendarDay) {
+  return {
+    date: day.date,
+    timeZone: day.timeZone,
+    roomId: day.roomId,
+    roomTitle: day.roomTitle,
+    entries: day.entries.map(serialiseCalendarEntry),
+    counts: day.counts,
+    byOthersCount: day.byOthersCount,
+    previousDate: day.previousDate,
+    nextDate: day.nextDate,
+  };
+}
+
+export function serialiseMemoryEventDetail(detail: MemoryEventDetail) {
+  return {
+    entry: serialiseCalendarEntry(detail.entry),
+    timeline: detail.timeline.map(serialiseCalendarEntry),
+    revisions: detail.revisions.map((revision) => ({
+      seq: revision.seq,
+      at: revision.at.toISOString(),
+      body: revision.body,
+      previousBody: revision.previousBody,
+      agentClient: revision.agentClient,
+      motivation: revision.motivation,
+    })),
+    source: detail.source
+      ? {
+          kind: detail.source.kind,
+          label: detail.source.label,
+          ref: detail.source.ref,
+          uri: detail.source.uri,
+          at: iso(detail.source.at),
+          agentClient: detail.source.agentClient,
+          transport: detail.source.transport,
+          alsoFromHere: detail.source.alsoFromHere,
+        }
+      : null,
+    currentBody: detail.currentBody,
+    trash: detail.trash
+      ? {
+          purgeAfter: detail.trash.purgeAfter.toISOString(),
+          daysRemaining: detail.trash.daysRemaining,
+        }
+      : null,
   };
 }
 
@@ -129,6 +239,9 @@ export function serialiseSearchHit(hit: SearchHit) {
     text: hit.text,
     score: Number(hit.score.toFixed(6)),
     documentId: hit.documentId,
+    // A model handed one of two contradictory statements answers confidently and wrongly.
+    // Both always come back; this is what says which ones to present as a disagreement.
+    disputed: hit.disputed,
   };
 }
 

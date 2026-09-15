@@ -166,16 +166,16 @@ not as a note about them. "Allergisk mot ketchup", not "Användaren har uppgett 
         explicit: {
           type: 'boolean',
           description:
-            'Set true only when the person directly asked you to save this ("spara det ' +
-            'i Buyersclub Ledning"). It relaxes some checks, so a wrong true here is how ' +
-            'unwanted memories get in. When in doubt leave it out.',
+            'Set true only when the person directly asked you to save this. It allows a ' +
+            'longer passage through without asking. It cannot skip approval for ' +
+            'instructions, contradictions, sensitive memories or shared rooms.',
           default: false,
         },
         sensitive: {
           type: 'boolean',
           description:
-            'Set true for health, finances or relationships. Sensitive memories are kept ' +
-            'out of shared contexts and always require approval.',
+            'Set true for health, finances or relationships. Sensitive memories always ' +
+            'require the person to approve them first.',
           default: false,
         },
       },

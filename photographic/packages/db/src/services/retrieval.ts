@@ -36,6 +36,8 @@ interface Candidate {
   shortId: ShortId | null;
   text: string;
   documentId: string | null;
+  /** Other items this one contradicts, unresolved. Empty for chunks. */
+  disputedBy: string[];
 }
 
 export class PgRetrieval implements RetrievalPort {
@@ -67,7 +69,7 @@ export class PgRetrieval implements RetrievalPort {
 
     const ranked = rankLexically(query, candidates);
 
-    return ranked.slice(0, input.limit ?? DEFAULT_SEARCH_LIMIT).map((candidate, index) => ({
+    const hits = ranked.slice(0, input.limit ?? DEFAULT_SEARCH_LIMIT).map((candidate, index) => ({
       kind: candidate.kind,
       id: candidate.id,
       roomId: candidate.roomId,
@@ -75,7 +77,50 @@ export class PgRetrieval implements RetrievalPort {
       text: candidate.text,
       score: 1 / (60 + index + 1),
       documentId: candidate.documentId as never,
+      disputed: candidate.disputedBy.length > 0,
     }));
+
+    return this.withDisputedPartners(hits, candidates);
+  }
+
+  /**
+   * A disputed statement never travels alone.
+   *
+   * If one side of a disagreement matches the query, the other side comes with it even
+   * when it ranks below the cut. A model handed one of two contradictory statements
+   * answers confidently and wrongly; a model handed both says there are two different
+   * answers, which is true and is also what gets a person to settle it. Appended past
+   * the limit rather than displacing a better hit, because this is about completeness
+   * rather than relevance.
+   */
+  private withDisputedPartners(hits: SearchHit[], candidates: Candidate[]): SearchHit[] {
+    const present = new Set(hits.map((hit) => hit.id));
+    const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+    const extra: SearchHit[] = [];
+
+    for (const hit of hits) {
+      if (!hit.disputed) continue;
+
+      for (const partnerId of byId.get(hit.id)?.disputedBy ?? []) {
+        if (present.has(partnerId)) continue;
+        const partner = byId.get(partnerId);
+        if (!partner) continue;
+
+        present.add(partnerId);
+        extra.push({
+          kind: partner.kind,
+          id: partner.id,
+          roomId: partner.roomId,
+          shortId: partner.shortId,
+          text: partner.text,
+          score: hit.score,
+          documentId: partner.documentId as never,
+          disputed: true,
+        });
+      }
+    }
+
+    return [...hits, ...extra];
   }
 
   async listForRoom(
@@ -100,9 +145,15 @@ export class PgRetrieval implements RetrievalPort {
   }
 
   private async candidatesIn(scope: RoomId[]): Promise<Candidate[]> {
-    const items = await queryRows<{ id: string; room_id: string; short_id: string; body: string }>(
+    const items = await queryRows<{
+      id: string;
+      room_id: string;
+      short_id: string;
+      body: string;
+      disputed_by: string[] | null;
+    }>(
       this.pool,
-      `SELECT id, room_id, short_id, body FROM app.item
+      `SELECT id, room_id, short_id, body, disputed_by FROM app.item
        WHERE room_id = ANY($1::uuid[]) AND status = 'active' AND sensitivity <> 'local_only'`,
       [scope],
     );
@@ -120,12 +171,14 @@ export class PgRetrieval implements RetrievalPort {
         shortId: r.short_id as ShortId,
         text: r.body,
         documentId: null,
+        disputedBy: r.disputed_by ?? [],
       })),
       ...chunks.map((r) => ({
         kind: 'chunk' as const,
         id: r.id,
         roomId: r.room_id as RoomId,
         shortId: null,
+        disputedBy: [],
         text: r.text,
         documentId: r.document_id,
       })),
