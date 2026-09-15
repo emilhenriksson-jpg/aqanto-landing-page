@@ -151,6 +151,7 @@ export class MemoryRetrieval implements RetrievalPort {
           score: hit.score,
           documentId: null,
           disputed: true,
+          createdAt: partner.createdAt,
         });
       }
     }
