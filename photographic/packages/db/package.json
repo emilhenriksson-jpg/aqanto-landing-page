@@ -23,6 +23,7 @@
     "@photographic/export": "workspace:*"
   },
   "devDependencies": {
+    "@photographic/llm": "workspace:*",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.23.1",
     "tsx": "^4.19.2",

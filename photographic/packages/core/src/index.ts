@@ -10,3 +10,4 @@ export * from './room-name.js';
 export * from './errors.js';
 export * from './recent.js';
 export * from './ask.js';
+export * from './swedish.js';
