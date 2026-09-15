@@ -25,7 +25,7 @@
   ],
   "groups": {
     "unit": {
-      "minPassed": 662,
+      "minPassed": 676,
       "maxSkipped": 0
     },
     "e2e-memory": {
@@ -33,9 +33,9 @@
       "maxSkipped": 0
     },
     "db": {
-      "minPassed": 215,
+      "minPassed": 263,
       "maxSkipped": 3,
-      "whySkipped": "packages/db: two tls.test.ts tests behind LIVE_SUPABASE=1, and one retrieval test behind OPENAI_API_KEY. All three need a credential CI cannot have. The third one runs on any machine that does have a key, which is why the floor is CI's number and not that machine's."
+      "whySkipped": "packages/db: two tls.test.ts tests behind LIVE_SUPABASE=1, and one retrieval test behind OPENAI_API_KEY. All three need a credential CI cannot have. The third runs on any machine that does have a key -- 264 passed there against 263 in CI -- which is why the floor is CI's number."
     },
     "e2e-postgres": {
       "minPassed": 62,
