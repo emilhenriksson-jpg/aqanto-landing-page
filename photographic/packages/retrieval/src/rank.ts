@@ -180,5 +180,6 @@ export function toSearchHit(hit: RankedHit): SearchHit {
     text: hit.text,
     score: hit.score,
     documentId: hit.documentId,
+    createdAt: hit.createdAt,
   };
 }

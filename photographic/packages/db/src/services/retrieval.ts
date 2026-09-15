@@ -36,6 +36,8 @@ interface Candidate {
   shortId: ShortId | null;
   text: string;
   documentId: string | null;
+  /** When an item was saved. `null` for a chunk — see `SearchHit.createdAt`. */
+  createdAt: Date | null;
 }
 
 export class PgRetrieval implements RetrievalPort {
@@ -75,6 +77,7 @@ export class PgRetrieval implements RetrievalPort {
       text: candidate.text,
       score: 1 / (60 + index + 1),
       documentId: candidate.documentId as never,
+      createdAt: candidate.createdAt,
     }));
   }
 
@@ -100,9 +103,9 @@ export class PgRetrieval implements RetrievalPort {
   }
 
   private async candidatesIn(scope: RoomId[]): Promise<Candidate[]> {
-    const items = await queryRows<{ id: string; room_id: string; short_id: string; body: string }>(
+    const items = await queryRows<{ id: string; room_id: string; short_id: string; body: string; created_at: Date }>(
       this.pool,
-      `SELECT id, room_id, short_id, body FROM app.item
+      `SELECT id, room_id, short_id, body, created_at FROM app.item
        WHERE room_id = ANY($1::uuid[]) AND status = 'active' AND sensitivity <> 'local_only'`,
       [scope],
     );
@@ -120,6 +123,7 @@ export class PgRetrieval implements RetrievalPort {
         shortId: r.short_id as ShortId,
         text: r.body,
         documentId: null,
+        createdAt: r.created_at,
       })),
       ...chunks.map((r) => ({
         kind: 'chunk' as const,
@@ -128,6 +132,10 @@ export class PgRetrieval implements RetrievalPort {
         shortId: null,
         text: r.text,
         documentId: r.document_id,
+        // Document ingestion does not expose a "when" through search yet — see
+        // `SearchHit.createdAt`. Not this package's concern to add: chunking and its
+        // schema belong to the platform track.
+        createdAt: null,
       })),
     ];
   }
