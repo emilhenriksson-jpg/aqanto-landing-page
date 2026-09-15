@@ -23,22 +23,22 @@ importers:
 
   apps/mcp:
     dependencies:
-      '@hono/node-server':
-        specifier: ^1.13.7
-        version: 1.19.17(hono@4.13.7)
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.0
         version: 1.30.0(zod@3.25.76)
+      '@photographic/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@photographic/core':
         specifier: workspace:*
         version: link:../../packages/core
-      hono:
-        specifier: ^4.6.14
-        version: 4.13.7
       zod:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      '@photographic/services-memory':
+        specifier: workspace:*
+        version: link:../../packages/services-memory
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.2
@@ -115,6 +115,9 @@ importers:
       '@photographic/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@photographic/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@photographic/services-memory':
         specifier: workspace:*
         version: link:../../packages/services-memory
