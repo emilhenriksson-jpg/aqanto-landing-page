@@ -153,6 +153,64 @@ export interface TokenStore {
   touch(id: string, at: Date): Promise<void>;
 }
 
+/**
+ * An authorization request parked while the person signs in.
+ *
+ * This exists because of a decision made elsewhere: Photographic has no passwords and no
+ * session cookie. A person proves who they are with a code sent to their email, and the
+ * sign-up flow hands the browser a session token. So `/oauth/authorize` cannot read an
+ * identity off the request — it validates everything it can, parks the result under an
+ * opaque id, and sends the browser to the login page with that id.
+ *
+ * Parking the *validated* request is the security-relevant part. The redirect URI and the
+ * PKCE challenge are fixed before the person ever sees a login screen, so nothing the
+ * login page or the person does afterwards can change where the code is sent.
+ */
+export interface PendingAuthorizationRecord {
+  id: string;
+  clientId: string;
+  clientName: string;
+  redirectUri: string;
+  codeChallenge: string;
+  scope: string;
+  state: string | null;
+  resource: string | null;
+  expiresAt: Date;
+  consumedAt: Date | null;
+  createdAt: Date;
+}
+
+export interface NewPendingAuthorization {
+  id: string;
+  clientId: string;
+  clientName: string;
+  redirectUri: string;
+  codeChallenge: string;
+  scope: string;
+  state: string | null;
+  resource: string | null;
+  expiresAt: Date;
+}
+
+export interface PendingAuthorizationStore {
+  create(input: NewPendingAuthorization): Promise<PendingAuthorizationRecord>;
+  find(id: string): Promise<PendingAuthorizationRecord | null>;
+  /** Single statement, like `AuthCodeStore.consume`: approving twice is one code, not two. */
+  consume(id: string, at: Date): Promise<boolean>;
+}
+
+/**
+ * Turns the browser session token from the sign-up flow into a person.
+ *
+ * Injected rather than implemented here because sessions are `@photographic/connect`'s
+ * business, and because this is the one place where two authentication systems meet: a
+ * bug that made this return the wrong person would hand one person's memory to another
+ * person's AI.
+ */
+export interface SessionTokenVerifier {
+  verify(token: string): Promise<PersonId | null>;
+}
+
 export interface PersonLookup {
   exists(personId: PersonId): Promise<boolean>;
   /**
