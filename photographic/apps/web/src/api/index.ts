@@ -1,4 +1,4 @@
-export { ApiError, apiFetch } from './client.js';
+export { ApiError, apiFetch, apiUpload } from './client.js';
 export { listClients } from './clients.js';
 export {
   DEFAULT_API_BASE,
@@ -12,7 +12,14 @@ export { listHistory } from './history.js';
 export { forgetMemory, undoMemory } from './memory.js';
 export { getProfile } from './profile.js';
 export { listProposals, resolveProposal } from './proposals.js';
-export { getRoom, listRoomDocuments, listRoomItems, listRooms } from './rooms.js';
+export {
+  getRoom,
+  getStorage,
+  listRoomDocuments,
+  listRoomItems,
+  listRooms,
+  uploadRoomDocument,
+} from './rooms.js';
 export { listTrash, restoreTrash } from './trash.js';
 export type {
   BriefDto,
@@ -30,5 +37,6 @@ export type {
   RoomItemDto,
   RoomMemberDto,
   RoomSummaryDto,
+  StorageDto,
   TrashEntryDto,
 } from './types.js';

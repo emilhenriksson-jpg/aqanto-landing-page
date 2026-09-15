@@ -5,6 +5,7 @@ import { forgetMemory, isDemoMode, undoMemory } from '../api/index.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
 import { DocumentsSection } from '../components/DocumentsSection.js';
 import { MemoryRow } from '../components/MemoryRow.js';
+import { StorageMeter } from '../components/StorageMeter.js';
 import { TokenMeter } from '../components/TokenMeter.js';
 import { Wordmark } from '../components/Wordmark.js';
 import {
@@ -115,6 +116,13 @@ function PersonalRoomReady({
             kort id så du kan peka på den.
           </p>
           <TokenMeter used={tokenCount} ceiling={room.tokenCeiling} />
+          {/*
+            Two different things, deliberately next to each other. The token meter is
+            about what every model reads on every session and has a hard ceiling; this
+            is about how much a person stores and is a product limit with years of room
+            in it. `StorageMeter` hides itself below a fifth of the limit.
+          */}
+          <StorageMeter />
         </div>
       </header>
 

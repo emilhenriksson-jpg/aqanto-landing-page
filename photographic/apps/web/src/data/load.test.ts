@@ -1,3 +1,4 @@
+import type { RoomDocumentDto } from '../api/index.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -110,17 +111,59 @@ describe('API → UI mapping', () => {
   });
 
   it('maps room documents onto DocumentLine with calm Swedish meta', () => {
-    const line = mapRoomDocument({
-      id: 'doc-1',
-      filename: 'Vaccinationskort Vera.pdf',
-    });
+    const line = mapRoomDocument(
+      documentDto({ pageCount: 3, byteSizeLabel: '1,2 MB' }),
+    );
+
     expect(line).toEqual({
       id: 'doc-1',
       title: 'Vaccinationskort Vera.pdf',
-      meta: 'Dokument',
+      meta: '3 sidor · 1,2 MB',
+      searchable: true,
     });
   });
+
+  it('says on the shelf when a document could not be read as text', () => {
+    // Otherwise a scanned PDF sits there looking like every other row, and a person has
+    // no way to know their AI cannot read it.
+    const line = mapRoomDocument(
+      documentDto({
+        filename: 'Inskannat avtal.pdf',
+        searchable: false,
+        chunkCount: 0,
+        extraction: 'empty',
+        extractionError: 'Vi hittade ingen text i "Inskannat avtal.pdf".',
+      }),
+    );
+
+    expect(line.meta).toContain('kan inte läsas som text');
+    expect(line.searchable).toBe(false);
+  });
+
+  it('leaves out the page count for a single-page document', () => {
+    const line = mapRoomDocument(documentDto({ pageCount: 1, byteSizeLabel: '816 B' }));
+    expect(line.meta).toBe('816 B');
+  });
 });
+
+function documentDto(overrides: Partial<RoomDocumentDto> = {}): RoomDocumentDto {
+  return {
+    id: 'doc-1',
+    filename: 'Vaccinationskort Vera.pdf',
+    mimeType: 'application/pdf',
+    byteSize: 1_258_291,
+    byteSizeLabel: '1,2 MB',
+    createdAt: '2026-09-14T10:00:00.000Z',
+    extraction: 'extracted',
+    extractionError: null,
+    warnings: [],
+    pageCount: 3,
+    chunkCount: 4,
+    searchable: true,
+    summary: null,
+    ...overrides,
+  };
+}
 
 describe('loadDocumentsFromApi', () => {
   afterEach(() => {
@@ -134,7 +177,7 @@ describe('loadDocumentsFromApi', () => {
       const url = String(input);
       if (url.endsWith(`/v1/rooms/${roomId}/documents`)) {
         return Response.json({
-          documents: [{ id: 'doc-1', filename: 'Offert Peab kök.pdf' }],
+          documents: [documentDto({ id: 'doc-1', filename: 'Offert Peab kök.pdf' })],
         });
       }
       return new Response('not found', { status: 404 });
@@ -144,7 +187,7 @@ describe('loadDocumentsFromApi', () => {
     const documents = await loadDocumentsFromApi(roomId);
 
     expect(documents).toEqual([
-      { id: 'doc-1', title: 'Offert Peab kök.pdf', meta: 'Dokument' },
+      { id: 'doc-1', title: 'Offert Peab kök.pdf', meta: '3 sidor · 1,2 MB', searchable: true },
     ]);
   });
 });

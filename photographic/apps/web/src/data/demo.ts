@@ -347,8 +347,10 @@ export const DEMO_ACTIVITY: Record<string, ActivityLine[]> = {
 export interface DocumentLine {
   id: string;
   title: string;
-  /** Quiet meta, e.g. "PDF · igår". */
+  /** Quiet meta, e.g. "3 sidor · 1,2 MB" or why the file is not searchable. */
   meta: string;
+  /** False when extraction found no text, so the shelf can say so. */
+  searchable?: boolean;
 }
 
 export const DEMO_DOCUMENTS: Record<string, DocumentLine[]> = {
