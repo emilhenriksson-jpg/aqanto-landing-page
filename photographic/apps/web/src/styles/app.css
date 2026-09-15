@@ -43,9 +43,8 @@
   place-items: center;
   color: var(--ink-muted);
   transition:
-    color var(--dur-fast) var(--ease-spring),
-    background var(--dur-fast) var(--ease-spring),
-    transform var(--dur-fast) var(--ease-spring);
+    color var(--dur-base) var(--ease-spring),
+    background var(--dur-base) var(--ease-spring);
 }
 
 .rail__link:hover {
@@ -53,8 +52,9 @@
   background: var(--surface);
 }
 
+/* Brand-soft fill, ink glyph — calm wayfinding, not a loud accent. */
 .rail__link--active {
-  color: var(--brand);
+  color: var(--ink);
   background: var(--brand-soft);
 }
 
@@ -83,9 +83,12 @@
   color: var(--ink);
 }
 
+/* Hero-level brand: disc + name must read before the room title. */
 .wordmark--large {
-  font: 500 1.125rem/1 var(--font-sans);
-  margin-bottom: var(--space-6);
+  font: 500 clamp(1.375rem, 3.2vw, 1.75rem) / 1 var(--font-sans);
+  letter-spacing: var(--track-display);
+  margin-bottom: 0;
+  gap: 12px;
 }
 
 .wordmark__dot {
@@ -98,8 +101,8 @@
 }
 
 .wordmark--large .wordmark__dot {
-  width: 26px;
-  height: 26px;
+  width: clamp(28px, 4vw, 34px);
+  height: clamp(28px, 4vw, 34px);
 }
 
 .wordmark__name {
@@ -140,19 +143,32 @@
 .hero--personal {
   position: relative;
   margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-16);
-  padding: var(--space-12) var(--space-6) var(--space-12);
+  padding: var(--space-10) var(--space-6) var(--space-12);
   /* Standing inside the room: a soft violet wash that fades into the canvas, not a
      dashboard banner. Brand stays atmospheric — the wordmark disc carries the accent. */
   background:
     radial-gradient(90% 70% at 8% -10%, color-mix(in srgb, var(--brand-soft) 90%, white) 0%, transparent 60%),
     radial-gradient(70% 50% at 92% 10%, color-mix(in srgb, var(--brand-soft) 45%, transparent) 0%, transparent 55%),
     linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 40%, var(--canvas)) 0%, var(--canvas) 72%);
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 55%, transparent);
   min-height: min(78dvh, 620px);
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: var(--space-12);
   animation: room-enter var(--dur-slow) var(--ease-spring) both;
+}
+
+/* Brand sits high; identity rests at the floor — one composition, no secondary chrome. */
+.hero__identity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 36rem;
+}
+
+.hero--personal .hero__lede {
+  margin-bottom: var(--space-6);
 }
 
 @keyframes room-enter {
@@ -242,6 +258,23 @@
   font: var(--type-heading);
   letter-spacing: var(--track-heading);
   margin: 0 0 var(--space-4);
+}
+
+/* Soften personal-room sections: less “settings panel”, more quiet shelves. */
+.page--personal .section-block__title {
+  color: color-mix(in srgb, var(--ink) 78%, var(--ink-muted));
+  font-weight: 500;
+  margin-bottom: var(--space-3);
+}
+
+.page--personal .card--group {
+  border-radius: var(--radius-xxl);
+  box-shadow: 0 1px 2px -1px rgba(0, 0, 0, 0.04), 0 6px 20px -10px rgba(0, 0, 0, 0.08);
+}
+
+.page--personal .memory {
+  padding: var(--space-6);
+  border-bottom-color: color-mix(in srgb, var(--hairline) 70%, transparent);
 }
 
 .section-block__empty {
@@ -543,19 +576,21 @@
 
 .room-card:hover {
   box-shadow: var(--shadow-lift);
-  transform: translateY(-2px);
+  transform: translateY(-3px);
 }
 
 .room-card--personal {
   background: var(--brand-soft);
   box-shadow: none;
   grid-column: 1 / -1;
-  min-height: 200px;
-  padding: var(--space-8);
+  min-height: 228px;
+  padding: var(--space-10) var(--space-8);
+  gap: var(--space-5);
 }
 
 .room-card--personal:hover {
-  box-shadow: var(--brand-shadow);
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-3px);
 }
 
 .room-card__top {
@@ -579,11 +614,13 @@
 .room-card__brief {
   color: var(--ink-muted);
   margin: 0;
+  max-width: 36rem;
 }
 
-.room-card__hint {
-  color: var(--ink-muted);
-  margin: 0;
+.room-card--personal .room-card__brief {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  max-width: 40rem;
 }
 
 .pill {
@@ -711,8 +748,9 @@
 
   .hero--personal {
     margin: calc(var(--space-6) * -1) calc(var(--space-4) * -1) var(--space-12);
-    padding: var(--space-10) var(--space-4) var(--space-8);
-    min-height: min(70dvh, 480px);
+    padding: var(--space-8) var(--space-4) var(--space-8);
+    min-height: min(72dvh, 520px);
+    gap: var(--space-10);
   }
 
   .hero--shared {
@@ -723,6 +761,8 @@
 
   .room-card--personal {
     grid-column: auto;
+    min-height: 200px;
+    padding: var(--space-8) var(--space-6);
   }
 
   .health {
@@ -736,7 +776,9 @@
   }
 
   .room-card:hover,
-  .health-card:hover {
+  .room-card--personal:hover,
+  .health-card:hover,
+  .btn--brand:hover {
     transform: none;
   }
 }
@@ -769,10 +811,10 @@
   width: 100%;
   max-width: 40rem;
   margin: 0 auto;
-  padding: var(--space-12) var(--space-6) calc(var(--space-20) + 4.5rem);
+  padding: var(--space-12) var(--space-6) calc(var(--space-20) + 5rem);
   display: flex;
   flex-direction: column;
-  gap: var(--space-12);
+  gap: var(--space-16);
   animation: rise var(--dur-slow) var(--ease-spring) both;
 }
 
@@ -788,11 +830,11 @@
 }
 
 .invite__hero .wordmark {
-  margin-bottom: var(--space-10);
+  margin-bottom: var(--space-12);
 }
 
 .invite__from {
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--space-4);
 }
 
 .invite__title {
@@ -809,6 +851,7 @@
   margin: 0;
   font: var(--type-body);
   letter-spacing: var(--track-body);
+  line-height: 1.55;
 }
 
 .invite__content {
@@ -824,14 +867,14 @@
   flex-direction: column;
   gap: 0;
   background: var(--surface);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-xxl);
   box-shadow: var(--shadow-card);
   overflow: hidden;
 }
 
 .invite__line {
-  padding: var(--space-5) var(--space-6);
-  border-bottom: 1px solid var(--hairline);
+  padding: var(--space-6);
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
 }
 
 .invite__line:last-child {
@@ -901,11 +944,11 @@
 
 @media (max-width: 720px) {
   .invite__page {
-    padding: var(--space-8) var(--space-4) calc(var(--space-16) + 4.5rem);
-    gap: var(--space-10);
+    padding: var(--space-8) var(--space-4) calc(var(--space-16) + 5rem);
+    gap: var(--space-12);
   }
 
   .invite__hero .wordmark {
-    margin-bottom: var(--space-8);
+    margin-bottom: var(--space-10);
   }
 }

@@ -17,8 +17,8 @@ import { useRoomData } from '../hooks/useRoomData.js';
 
 /**
  * The most important screen: standing inside the personal room.
- * First viewport is one composition — brand, title, lede, token meter —
- * then profile sections as card groups below.
+ * First viewport is one composition — hero-level brand above, identity + meter
+ * at the floor — then profile sections as quiet card groups below.
  */
 export function PersonalRoom() {
   const state = useRoomData(
@@ -80,12 +80,14 @@ function PersonalRoomReady({ room }: { room: RoomDetail }) {
     <article className="page page--personal">
       <header className="hero hero--personal">
         <Wordmark large />
-        <h1 className="hero__title">{room.title}</h1>
-        <p className="hero__lede">
-          Det här är ditt minne, läst av vilken modell du än pratar med. Varje rad har ett
-          kort id så du kan peka på den.
-        </p>
-        <TokenMeter used={tokenCount} ceiling={room.tokenCeiling} />
+        <div className="hero__identity">
+          <h1 className="hero__title">{room.title}</h1>
+          <p className="hero__lede">
+            Det här är ditt minne, läst av vilken modell du än pratar med. Varje rad har ett
+            kort id så du kan peka på den.
+          </p>
+          <TokenMeter used={tokenCount} ceiling={room.tokenCeiling} />
+        </div>
       </header>
 
       <div className="sections">

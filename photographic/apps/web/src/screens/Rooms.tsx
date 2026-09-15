@@ -56,7 +56,6 @@ export function Rooms() {
 
 function RoomTile({ room, featured = false }: { room: RoomCard; featured?: boolean }) {
   const href = room.kind === 'personal' ? '/' : `/rum/${room.id}`;
-  const others = Math.max(0, room.memberCount - 1);
   const label =
     room.kind === 'personal'
       ? 'Öppna ditt rum'
@@ -76,17 +75,9 @@ function RoomTile({ room, featured = false }: { room: RoomCard; featured?: boole
           </span>
         ) : null}
       </div>
+      {/* One subtitle only — shared membership is the avatar row, not a second line. */}
       <p className="room-card__brief">{room.headline}</p>
       {room.kind === 'shared' ? <Avatars names={room.memberNames} /> : null}
-      <p className="room-card__hint">
-        {room.kind === 'personal'
-          ? 'Ditt personliga minne'
-          : others === 0
-            ? 'Bara du'
-            : others === 1
-              ? 'Delad med 1 person'
-              : `Delad med ${others} personer`}
-      </p>
     </Link>
   );
 }
