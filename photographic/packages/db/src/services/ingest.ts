@@ -342,7 +342,14 @@ export class PgIngest implements IngestPort {
       kind: item.kind,
       body: next,
       contradicts: false,
-      explicit: true,
+      // Never claimed. `updateSchema` has no `explicit` field — there is nothing for a
+      // caller to set — so this used to be a literal `true`, which switched off the
+      // "too long to save automatically" gate that a fresh `remember` cannot skip: an
+      // edit could silently grow a memory to `MAX_BODY_CHARS` with no approval. `false`
+      // is the conservative reading, since nothing in the product currently lets a
+      // person say "yes, save this long edit without asking" the way `remember`'s
+      // `explicit` flag is meant to represent.
+      explicit: false,
       roomIsShared: room.kind === 'shared',
       sensitivity: item.sensitivity,
     });

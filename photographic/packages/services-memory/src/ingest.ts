@@ -363,7 +363,10 @@ export class MemoryIngest implements IngestPort {
       // An edit names one memory by id, so there is nothing ambiguous about what it
       // replaces. The contradiction gate is about a *new* claim landing beside an old one.
       contradicts: false,
-      explicit: true,
+      // Never claimed — mirrors `PgIngest.update`. There is no `explicit` field on the
+      // update request for a caller to set, so a literal `true` here switched off the
+      // "too long to save automatically" gate that a fresh `remember` cannot skip.
+      explicit: false,
       roomIsShared: room.kind === 'shared',
       sensitivity: item.sensitivity,
     });
