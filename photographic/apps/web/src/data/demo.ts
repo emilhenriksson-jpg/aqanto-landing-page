@@ -230,39 +230,139 @@ export function clientHealthTone(client: DemoClient): ClientHealthTone {
  * Pending proposals waiting for a tap. Designed as a calm feed to clear, not an inbox.
  * Live path: `loadApprovalsFromApi` maps GET /v1/memory/proposals onto this shape.
  */
+/** What accepting will do. Mirrors `ProposalIntent` in `@photographic/core`. */
+export type ApprovalIntent = 'remember' | 'share' | 'update';
+
 export interface ApprovalItem {
   id: string;
   /** Display name of the client that proposed it, e.g. "Claude". */
   clientLabel: string;
+  intent: ApprovalIntent;
   kind: MemoryLine['kind'];
   body: string;
   /** Human-readable explanation of why this could not be written automatically. */
   reason: string;
+  /** Which room it lands in. Null when the room is one this person cannot name. */
+  roomId: string | null;
+  roomTitle: string | null;
+  roomKind: RoomKind | null;
+  /** Everyone who would be able to read it, the person themselves excluded. */
+  audience: string[];
+  createdAt: string | null;
 }
 
 export const DEMO_APPROVALS: ApprovalItem[] = [
   {
     id: 'a-1k9q',
     clientLabel: 'Claude',
+    intent: 'remember',
     kind: 'instruction',
     body: 'utmana alltid mina idéer',
     reason: 'Instruktioner ändrar hur varje modell beter sig — de kräver alltid ditt godkännande.',
+    roomId: 'personal',
+    roomTitle: 'Ditt rum',
+    roomKind: 'personal',
+    audience: [],
+    createdAt: '2026-09-15T08:12:00.000Z',
   },
   {
     id: 'a-3m2p',
     clientLabel: 'ChatGPT',
-    kind: 'fact',
-    body: 'Bor i Göteborg',
-    reason: 'Strider mot det som redan finns: Emil, 34, bor i Stockholm.',
+    intent: 'share',
+    kind: 'note',
+    body: 'Peab har offererat 340 000 kr för köket',
+    reason: 'Allt som skrivs till ett delat rum avgörs av dig, aldrig automatiskt.',
+    roomId: 'ledning',
+    roomTitle: 'Buyersclub Ledning',
+    roomKind: 'shared',
+    audience: ['Anna', 'Jacob'],
+    createdAt: '2026-09-15T07:40:00.000Z',
   },
   {
     id: 'a-7w4c',
     clientLabel: 'Cursor',
-    kind: 'preference',
-    body: 'Svara alltid på engelska i kodreview',
-    reason: 'Preferenser som styr hur modeller svarar granskas innan de sparas.',
+    intent: 'update',
+    kind: 'fact',
+    body: 'Bor i Göteborg',
+    reason: 'Strider mot det som redan finns: Emil, 34, bor i Stockholm.',
+    roomId: 'personal',
+    roomTitle: 'Ditt rum',
+    roomKind: 'personal',
+    audience: [],
+    createdAt: '2026-09-14T19:05:00.000Z',
   },
 ];
+
+/**
+ * "Hur vet du det om mig?", answered about one memory.
+ *
+ * The screens render this shape; `load.ts` maps the provenance endpoint onto it. Every
+ * field is already formatted for reading, because the point of the answer is that a
+ * person understands it, not that it is complete.
+ */
+export interface ProvenanceAnswer {
+  shortId: string;
+  /** "2 september 2026 kl 09:14". */
+  when: string;
+  /** "Claude", "ChatGPT", "Du" — never "AI", never an enum value. */
+  who: string;
+  /** "Samtal med Claude", "avtal.pdf". Null when the log predates provenance. */
+  sourceLabel: string | null;
+  roomTitle: string;
+  roomKind: RoomKind;
+  /** Why it was stored there, in the router's own sentence. */
+  motivation: string | null;
+  approvedByName: string | null;
+  changed: boolean;
+  /** The calendar event that created it, so the answer can be zoomed into. */
+  seq: number | null;
+}
+
+/**
+ * Demo answers, so the designed screen can be seen without an account.
+ *
+ * Deliberately not exhaustive: rows with no entry here render the same "vi vet inte"
+ * state a memory written before the log carried provenance would, which is a state that
+ * has to be designed rather than discovered in production.
+ */
+export const DEMO_PROVENANCE: Record<string, ProvenanceAnswer> = {
+  'p-h58j': {
+    shortId: 'p-h58j',
+    when: '2 september 2026 kl 09:14',
+    who: 'Claude',
+    sourceLabel: 'Samtal med Claude, 2 september',
+    roomTitle: 'Ditt rum',
+    roomKind: 'personal',
+    motivation: 'Handlar om vem du är, så det hör hemma i ditt privata minne.',
+    approvedByName: null,
+    changed: false,
+    seq: 41,
+  },
+  'p-zsyt': {
+    shortId: 'p-zsyt',
+    when: '11 september 2026 kl 17:02',
+    who: 'ChatGPT',
+    sourceLabel: 'Samtal med ChatGPT, 11 september',
+    roomTitle: 'Ditt rum',
+    roomKind: 'personal',
+    motivation: 'En instruktion om hur modeller ska bete sig mot dig.',
+    approvedByName: 'Emil',
+    changed: true,
+    seq: 58,
+  },
+  'r-8k2m': {
+    shortId: 'r-8k2m',
+    when: '4 september 2026 kl 14:20',
+    who: 'Claude',
+    sourceLabel: 'styrelseunderlag-q3.pdf',
+    roomTitle: 'Buyersclub Ledning',
+    roomKind: 'shared',
+    motivation: 'Hör till Buyersclub Ledning eftersom det nämner förvärvet.',
+    approvedByName: 'Emil',
+    changed: false,
+    seq: 44,
+  },
+};
 
 /**
  * What a recipient sees before they have an account: the room itself, readable,

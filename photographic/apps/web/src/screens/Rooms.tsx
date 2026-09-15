@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 
 import { Avatars } from '../components/Avatars.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
+import { PendingApprovals } from '../components/PendingApprovals.js';
 import { Wordmark } from '../components/Wordmark.js';
 import { DEMO_ROOMS, type RoomCard } from '../data/demo.js';
 import { loadRoomsFromApi } from '../data/load.js';
@@ -43,6 +44,8 @@ export function Rooms() {
         <h1 className="page-head__title">Rum</h1>
         <p className="page-head__lede">Välj vart du går. Ditt rum ligger alltid först.</p>
       </header>
+
+      <PendingApprovals />
 
       <div className="room-grid">
         {personal ? <RoomTile room={personal} featured /> : null}

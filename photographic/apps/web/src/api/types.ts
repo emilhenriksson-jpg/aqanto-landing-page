@@ -139,15 +139,46 @@ export interface ClientHealthDto {
   degraded: boolean;
 }
 
+/**
+ * What accepting a proposal will actually do.
+ *
+ * Kept on the card rather than collapsed into "spara", because a request to share
+ * something with four people and a request to write one line into your own private
+ * memory are not the same decision and must not read the same.
+ */
+export type ProposalIntentDto = 'remember' | 'share' | 'update';
+
 /** GET /v1/memory/proposals — pending approval cards. */
 export interface ProposalDto {
   id: string;
   roomId: string;
+  intent: ProposalIntentDto;
   kind: string;
   body: string;
   reason: string;
   proposedByClient: string | null;
   createdAt: string;
+}
+
+/**
+ * GET /v1/memory/:shortId/provenance — the answer to "hur vet du det om mig?" for one
+ * memory, rather than for one day in the calendar.
+ */
+export interface ProvenanceDto {
+  shortId: string;
+  body: string | null;
+  roomTitle: string;
+  savedAt: string;
+  savedByClient: string | null;
+  approvedByName: string | null;
+  /** Why it was stored where it was stored, in one sentence the router wrote. */
+  motivation: string | null;
+  /** Where the information came from before it was a memory. */
+  source: MemorySourceDto | null;
+  /** True once it has been corrected at least once. */
+  changed: boolean;
+  /** Everything that has happened to this one memory, oldest first. */
+  timeline: HistoryEntryDto[];
 }
 
 /** GET /v1/trash — soft-deleted memories still recoverable. */

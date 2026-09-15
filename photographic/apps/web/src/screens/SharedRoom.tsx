@@ -3,6 +3,8 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 import { Avatars } from '../components/Avatars.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
 import { DocumentsSection } from '../components/DocumentsSection.js';
+import { MemoryRow } from '../components/MemoryRow.js';
+import { PendingApprovals } from '../components/PendingApprovals.js';
 import { Wordmark } from '../components/Wordmark.js';
 import {
   DEMO_ACTIVITY,
@@ -75,6 +77,12 @@ function SharedRoomReady({
         <p className="meta">{memberLine}</p>
       </header>
 
+      {/*
+        Room-scoped, because every write into a shared room goes to the queue by design.
+        Without this, a room the person has been writing to all week simply looks empty.
+      */}
+      <PendingApprovals roomId={room.id} />
+
       {grouped.length === 0 ? (
         <p className="section-block__empty">Inget sparat i det här rummet ännu.</p>
       ) : (
@@ -85,12 +93,9 @@ function SharedRoomReady({
             </h2>
             <ul className="card card--group">
               {items.map((item) => (
-                <li key={item.shortId} className="memory">
-                  <p className="memory__body">{item.body}</p>
-                  <div className="memory__meta">
-                    <span className="mono chip">{item.shortId}</span>
-                  </div>
-                </li>
+                // No delete here — only the author may remove a shared memory, and the
+                // row is still owed an answer to "hur vet du det?" either way.
+                <MemoryRow key={item.shortId} item={item} roomId={room.id} roomKind="shared" />
               ))}
             </ul>
           </section>

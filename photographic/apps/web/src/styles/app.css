@@ -37,6 +37,7 @@
 }
 
 .rail__link {
+  position: relative;
   width: 44px;
   height: 44px;
   border-radius: var(--radius-pill);
@@ -46,6 +47,28 @@
   transition:
     color var(--dur-base) var(--ease-spring),
     background var(--dur-base) var(--ease-spring);
+}
+
+/*
+ * The one count in the rail, and the only violet on it.
+ *
+ * Small on purpose. The rail already tells you where Godkänn is; the badge only has to
+ * say that the product is waiting for you, and a number that shouts would turn the
+ * calmest screen in the app into an inbox.
+ */
+.rail__badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  color: #fff;
+  font: 500 0.6875rem/18px var(--font-sans);
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--canvas);
 }
 
 .rail__link:hover {
@@ -360,6 +383,32 @@
   margin-left: auto;
 }
 
+/*
+ * "Hur vet du det?" — quiet until asked.
+ *
+ * Same weight as Ta bort, because neither is the point of the row: the memory is. What
+ * matters is that the question can be asked here, where a person is already looking at
+ * the thing they are wondering about.
+ */
+.memory__why {
+  text-align: left;
+}
+
+.memory__proof {
+  padding: var(--space-4) 0 var(--space-1);
+  border-top: 1px solid var(--hairline);
+  animation: rise var(--dur-fast) var(--ease-spring) both;
+}
+
+.memory__proof .provenance__row {
+  grid-template-columns: 9.5rem 1fr;
+  gap: var(--space-3);
+}
+
+.memory__proof-more {
+  margin: var(--space-3) 0 0;
+}
+
 .chip {
   font: var(--type-meta);
   font-family: var(--font-mono);
@@ -450,10 +499,91 @@
   margin: 0;
 }
 
+.approval-card__audience {
+  font: var(--type-label);
+  letter-spacing: var(--track-body);
+  margin: 0;
+  color: var(--ink);
+}
+
+/* An answer that did not land has to look different from one that did. */
+.approval-card__failed {
+  font: var(--type-meta);
+  margin: 0;
+  color: var(--bad);
+}
+
 .approval-card__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+}
+
+/* ------------------------------------------------- a decision that is waiting */
+
+/*
+ * The notice that carries the queue onto the screens a person already visits.
+ *
+ * Brand-tinted rather than brand-filled: it is the product waiting for you, not an
+ * alarm. It appears only when something is actually pending and it has no dismiss —
+ * dismissing it would recreate the exact invisible queue it exists to end.
+ */
+.waiting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+  max-width: 36rem;
+  margin: 0 0 var(--space-12);
+  padding: var(--space-6);
+  background: var(--brand-soft);
+  box-shadow: none;
+  animation: rise var(--dur-base) var(--ease-spring) both;
+}
+
+.waiting__eyebrow {
+  margin: 0;
+  color: var(--brand);
+  text-transform: none;
+}
+
+.waiting__title {
+  font: var(--type-heading);
+  letter-spacing: var(--track-heading);
+  margin: 0;
+}
+
+.waiting__lead {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  margin: 0;
+}
+
+.waiting__quote {
+  font-style: italic;
+  font-weight: 500;
+}
+
+.waiting__why,
+.waiting__rest {
+  margin: 0;
+}
+
+/* The sentence the product was missing: what the silence has been costing. */
+.waiting__cost {
+  font: var(--type-label);
+  letter-spacing: var(--track-body);
+  margin: 0;
+  color: var(--ink);
+}
+
+.waiting__action {
+  margin-top: var(--space-2);
+  text-decoration: none;
 }
 
 /* --------------------------------------------------------- client health */
@@ -1270,7 +1400,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .page,
-  .approval-card {
+  .approval-card,
+  .waiting,
+  .memory__proof {
     animation: none;
   }
 
