@@ -1,0 +1,39 @@
+{
+  "$comment": [
+    "Floors on what each suite group must run, and ceilings on what it may skip.",
+    "Read by scripts/run-suites.mjs; surfaced per job by the ci gate in the workflow.",
+    "",
+    "Why a count and not just an exit code: when journey.test.ts cannot reach a database",
+    "its beforeAll throws, and vitest reports '3 failed' files but '62 skipped' tests. A",
+    "suite that stopped running therefore looks one word away from a suite that ran, in",
+    "the line a person actually reads. The exit code separates them only because the hook",
+    "throws -- one try/catch in the wrong place and the numbers are all that is left.",
+    "",
+    "minPassed is a ratchet: adding tests raises the actual above the floor and passes,",
+    "while a suite that quietly stops running drops below it and fails. Raising a floor",
+    "is optional. Lowering one has to be a deliberate line in a diff.",
+    "",
+    "maxSkipped is set to exactly what is skipped today, so a new skip fails the build. A",
+    "skipped test is a test nobody runs, and the only two in this repository are skipped",
+    "because they need a credential CI cannot have."
+  ],
+  "groups": {
+    "unit": {
+      "minPassed": 648,
+      "maxSkipped": 0
+    },
+    "e2e-memory": {
+      "minPassed": 62,
+      "maxSkipped": 0
+    },
+    "db": {
+      "minPassed": 214,
+      "maxSkipped": 2,
+      "whySkipped": "packages/db: two tls.test.ts tests behind LIVE_SUPABASE=1 and one retrieval test behind OPENAI_API_KEY -- credentials CI cannot have"
+    },
+    "e2e-postgres": {
+      "minPassed": 62,
+      "maxSkipped": 0
+    }
+  }
+}
