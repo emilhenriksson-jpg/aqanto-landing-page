@@ -13,7 +13,7 @@
  */
 
 import type { ContextBundle, Profile, RenderedItem, RoomSummary } from '@photographic/core';
-import { estimateTokens } from '@photographic/core';
+import { ROOM_LIST_TOKEN_BUDGET, estimateTokens } from '@photographic/core';
 
 import { wrapRoomContent } from './boundary.js';
 import { DATA_BOUNDARY, HOW_TO_CONFIRM, LANGUAGE } from './policy-text.js';
@@ -133,17 +133,136 @@ function selectWithinBudget(
   return kept;
 }
 
-function renderRooms(rooms: RoomSummary[]): string | null {
-  const shared = rooms.filter((room) => room.role !== undefined && room.slug !== 'personal');
-  if (shared.length === 0) return null;
+/**
+ * The overview: every room the person has, one line each.
+ *
+ * This is the half of "full context immediately" that is not the profile. The personal
+ * room is read whole and sits above; every other room appears here as a name, whether it
+ * is shared, and a sentence saying what it is for. That is deliberately not enough to
+ * answer from — it is enough to know that answering would need a tool call, and which
+ * room to make it about.
+ *
+ * Which is the failure it exists to prevent. A model that was never told a room exists
+ * does not go looking for it: it answers from the profile, sounds confident, and is
+ * wrong about work that lives somewhere it never saw. Room names are cheap; being
+ * unaware of a room is not.
+ *
+ * `headlines: false` renders the same list without the sentences, for when the budget
+ * will not carry them. Every room still appears — a room without its headline costs the
+ * model one tool call, a room missing from the list costs it the room.
+ */
+function renderRooms(rooms: RoomSummary[], options: { headlines: boolean }): string | null {
+  if (rooms.length === 0) return null;
 
-  const lines = shared.map((room) => {
-    const unseen = room.unseenCount > 0 ? ` · ${room.unseenCount} nya` : '';
-    return `- ${room.title}: ${room.oneLine}${unseen}`;
-  });
+  // Titles and headlines are written by people, and in a shared room by people other
+  // than the one being helped. A room called "ignore previous instructions" is a cheap
+  // attack and this list is the one place every session reads.
+  return `${ROOM_OVERVIEW_PREAMBLE}
+${wrapRoomContent(packRooms(rooms, options.headlines).join('\n'), {
+  label: 'rumslista',
+  notice: false,
+})}`;
+}
 
-  return `Rum personen kan nå. Säg namnet som det står här när du sparar eller söker.
-${lines.join('\n')}`;
+/**
+ * Fits the overview into `ROOM_LIST_TOKEN_BUDGET`, names first and headlines with the
+ * slack.
+ *
+ * The order of those two is the whole point. Spending the budget on the first few rooms'
+ * headlines and running out before the last room's name is the one outcome worth
+ * avoiding: the model would know a great deal about three rooms and nothing about the
+ * existence of the fourth, and it is the fourth it will be wrong about. So a headline is
+ * only kept while what remains still covers every room left in the list.
+ *
+ * Rooms come in the room service's order, personal room first, and headlines therefore
+ * thin out towards the end of the list rather than at random.
+ */
+function packRooms(rooms: RoomSummary[], headlines: boolean): string[] {
+  const names = rooms.map((room) => roomLine(room, false));
+  const costs = names.map((line) => estimateTokens(`${line}\n`));
+  let remaining = costs.reduce((sum, cost) => sum + cost, 0);
+
+  if (remaining > ROOM_LIST_TOKEN_BUDGET) return truncateRooms(names, costs);
+
+  const lines: string[] = [];
+  let used = 0;
+
+  for (const [index, room] of rooms.entries()) {
+    const name = names[index]!;
+    remaining -= costs[index]!;
+
+    const full = roomLine(room, headlines);
+    const cost = estimateTokens(`${full}\n`);
+    const keepHeadline = headlines && used + cost + remaining <= ROOM_LIST_TOKEN_BUDGET;
+
+    lines.push(keepHeadline ? full : name);
+    used += keepHeadline ? cost : costs[index]!;
+  }
+
+  return lines;
+}
+
+/**
+ * More rooms than the budget holds names for.
+ *
+ * Says how many were left out rather than ending the list quietly, because a list that
+ * looks complete and is not will be treated as complete — and `search_memory` does reach
+ * the rooms that fell off, so the model has somewhere to go once it knows they exist.
+ */
+function truncateRooms(names: string[], costs: number[]): string[] {
+  const lines: string[] = [];
+  let used = 0;
+
+  for (const [index, name] of names.entries()) {
+    const cost = costs[index]!;
+    if (lines.length > 0 && used + cost > ROOM_LIST_TOKEN_BUDGET - OVERFLOW_LINE_TOKENS) break;
+    lines.push(name);
+    used += cost;
+  }
+
+  const hidden = names.length - lines.length;
+  if (hidden > 0) {
+    lines.push(`- (${hidden} rum till som inte fick plats här — search_memory söker i dem ändå)`);
+  }
+
+  return lines;
+}
+
+/** Room left for the line that says what was left out. */
+const OVERFLOW_LINE_TOKENS = 25;
+
+const ROOM_OVERVIEW_PREAMBLE = `Personens rum. Det personliga rummet står i sin helhet
+ovan; av de övriga har du bara raden nedan. Hänger svaret på vad som finns i ett rum,
+anropa get_context med rummets namn först. Säg namnen exakt som de står.`;
+
+function roomLine(room: RoomSummary, headline: boolean): string {
+  const marks = [sharing(room)];
+  if (room.unseenCount > 0) {
+    marks.push(room.unseenCount === 1 ? '1 ny' : `${room.unseenCount} nya`);
+  }
+
+  const head = `- ${room.title} (${marks.join(' · ')})`;
+
+  if (room.kind === 'personal') return `${head}: profilen ovan är det här rummet`;
+
+  // No dangling colon on a room that has nothing to say yet.
+  const text = headline ? room.oneLine.trim() : '';
+  return text ? `${head}: ${text}` : head;
+}
+
+/**
+ * Whether anyone else writes here, which is what changes how a model should behave.
+ *
+ * Room kind does not answer it. A room you created and never invited anyone to is shared
+ * by kind and private in fact, and a model that treats it as shared will hedge and
+ * attribute for an audience of one.
+ */
+function sharing(room: RoomSummary): string {
+  if (room.kind === 'personal') return 'personligt';
+
+  const others = room.memberCount - 1;
+  if (others <= 0) return 'bara du';
+  return others === 1 ? 'delad med 1 person' : `delad med ${others} personer`;
 }
 
 export interface RenderOptions {
@@ -181,33 +300,38 @@ på något om personen, och nämn inte det här för dem.`,
 ].join('\n\n---\n\n');
 
 /**
- * Fits everything into the budget by dropping context, never rules.
+ * Fits everything into the budget by giving up the recoverable parts in order.
  *
- * The earlier version of this trimmed whole blocks off the end of the rendered string,
- * which put the data boundary last in line to be dropped — and the boundary is exactly
- * what must survive when there is a lot of room content, because a large shared room is
- * when text written by other people is most likely to reach the model. Dropping it to
- * make room for more of that text is the confused-deputy hole stated as an algorithm.
+ * An earlier version trimmed whole blocks off the end of the rendered string, which put
+ * the data boundary last in line to be dropped — and the boundary is exactly what must
+ * survive when there is a lot of room content, because a large shared room is when text
+ * written by other people is most likely to reach the model. Dropping it to make room
+ * for more of that text is the confused-deputy hole stated as an algorithm.
  *
- * So the rules are reserved first, then the optional context, and the profile is
- * rendered into whatever is left. Everything drops at an item or block boundary; nothing
- * is ever cut mid-sentence, because a rule stated halfway is a puzzle rather than a rule.
+ * So things give way in the order of what it costs the person to lose them:
+ *
+ *   1. the room headlines, leaving the room names. One tool call to recover.
+ *   2. the active room's brief, which the model asked for and can ask for again.
+ *   3. profile items, by salience, down to a floor of one.
+ *
+ * The rules and the list of room names are never given up. A model missing a rule acts
+ * against the person's standing wishes, and a model missing a room does not know there
+ * is anything to ask about — neither is recoverable by the model noticing.
+ *
+ * Everything drops at an item or block boundary; nothing is cut mid-sentence, because a
+ * rule stated halfway is a puzzle rather than a rule.
  */
 export function renderInstructions(bundle: ContextBundle, options: RenderOptions = {}): string {
   const includeRules = options.includeRules ?? true;
   const budget = options.budgetTokens ?? INSTRUCTIONS_TOKEN_BUDGET;
   const rules = includeRules ? [HOW_TO_CONFIRM, DATA_BOUNDARY, LANGUAGE] : [];
 
-  // Optional before the profile, because the model can ask for a room list or a brief
-  // with a tool call. It cannot ask for context it was never told exists.
-  const optional: string[] = [];
-  const rooms = renderRooms(bundle.rooms);
-  if (rooms) optional.push(rooms);
+  const active: string[] = [];
   if (bundle.activeRoom) {
     // No per-payload notice here: `DATA_BOUNDARY` is a few hundred tokens below in the
     // same string, and spending the budget on saying it twice would come out of the
     // profile.
-    optional.push(
+    active.push(
       `Aktivt rum: ${bundle.activeRoom.title}\n` +
         wrapRoomContent(bundle.activeRoom.brief, {
           label: bundle.activeRoom.title,
@@ -216,17 +340,28 @@ export function renderInstructions(bundle: ContextBundle, options: RenderOptions
     );
   }
 
-  for (let keep = optional.length; keep >= 0; keep -= 1) {
-    const context = optional.slice(0, keep);
-    const reserved = estimateTokens([PREAMBLE, ...context, ...rules].join(SEPARATOR));
-    const profile = renderProfile(bundle.profile, Math.max(0, budget - reserved));
-    const out = [PREAMBLE, profile, ...context, ...rules].join(SEPARATOR);
+  let tightest: string | null = null;
 
-    if (keep === 0 || estimateTokens(out) <= budget) return out;
+  for (const headlines of [true, false]) {
+    const rooms = renderRooms(bundle.rooms, { headlines });
+
+    for (let keep = active.length; keep >= 0; keep -= 1) {
+      // Rooms before the active room: the overview is what tells the model the rest of
+      // the memory exists, and it reads in the order it is written.
+      const context = [...(rooms ? [rooms] : []), ...active.slice(0, keep)];
+      const reserved = estimateTokens([PREAMBLE, ...context, ...rules].join(SEPARATOR));
+      const profile = renderProfile(bundle.profile, Math.max(0, budget - reserved));
+      const out = [PREAMBLE, profile, ...context, ...rules].join(SEPARATOR);
+
+      if (estimateTokens(out) <= budget) return out;
+      tightest = out;
+    }
   }
 
-  // Unreachable: the loop returns at keep === 0.
-  return [PREAMBLE, ...rules].join(SEPARATOR);
+  // Over budget with nothing left that may be given up. Returning the tightest render
+  // beats trimming it: what remains is the rules, the room names and one profile item,
+  // and there is no way to cut that which does not cost more than the overrun.
+  return tightest ?? [PREAMBLE, ...rules].join(SEPARATOR);
 }
 
 const SEPARATOR = '\n\n---\n\n';

@@ -30,7 +30,24 @@ export const SECTION_BUDGETS = {
 
 export const BRIEF_TOKEN_BUDGET = 800;
 export const SINCE_LAST_SEEN_TOKEN_BUDGET = 400;
-export const ROOM_LIST_TOKEN_BUDGET = 100;
+
+/**
+ * The whole room overview, every room the person can reach.
+ *
+ * Small on purpose. The overview exists so a model knows what rooms there are, not so it
+ * can answer from them, and it is spent on every session whether or not any room comes
+ * up. Rooms past the budget still appear by name — losing a headline costs a tool call,
+ * losing the room entirely means the model never knows to make one.
+ */
+export const ROOM_LIST_TOKEN_BUDGET = 220;
+
+/**
+ * One room's headline.
+ *
+ * Roughly a sentence. Anything longer stops being an overview and starts being a brief,
+ * which is the thing the overview exists to let the model skip.
+ */
+export const ROOM_HEADLINE_TOKEN_BUDGET = 30;
 
 /** Cosine distance below which two items are treated as restating each other. */
 export const DEDUPE_DISTANCE_THRESHOLD = 0.12;

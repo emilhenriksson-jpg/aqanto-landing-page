@@ -47,9 +47,10 @@ export class RoomService implements RoomPort {
     const rows = withinScope(actor, await this.deps.store.rooms.accessibleRooms(actor.personId));
     const roomIds = rows.map((row) => row.room.id);
 
-    const [unseen, oneLines] = await Promise.all([
+    const [unseen, oneLines, members] = await Promise.all([
       this.deps.store.readState.unseenCounts(actor.personId, roomIds),
       this.deps.text?.oneLineFor(roomIds) ?? Promise.resolve(new Map<RoomId, string>()),
+      this.deps.store.memberships.countsForRooms(roomIds),
     ]);
 
     return rows
@@ -57,8 +58,12 @@ export class RoomService implements RoomPort {
         roomId: room.id,
         slug: room.slug,
         title: room.title,
+        kind: room.kind,
         role,
         oneLine: oneLines.get(room.id)?.trim() || firstLine(room.description),
+        // Never below one: the person reading the list is a member of every room in it,
+        // so a zero here would be a dropped row rather than an empty room.
+        memberCount: Math.max(1, members.get(room.id) ?? 0),
         unseenCount: unseen.get(room.id) ?? 0,
       }))
       .sort(byPersonalThenTitle);
@@ -153,5 +158,6 @@ function firstLine(description: string | null): string {
 
 /** The personal room is always first: it is the room a person means by default. */
 function byPersonalThenTitle(a: RoomSummary, b: RoomSummary): number {
-  return a.title.localeCompare(b.title, 'sv');
+  const personal = (summary: RoomSummary) => (summary.kind === 'personal' ? 0 : 1);
+  return personal(a) - personal(b) || a.title.localeCompare(b.title, 'sv');
 }

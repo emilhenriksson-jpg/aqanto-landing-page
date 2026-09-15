@@ -259,6 +259,32 @@ export const SUMMARISE_SYSTEM_PROMPT = [
   '- Never exceed the token budget you are given. Under budget is fine.',
 ].join('\n');
 
+/**
+ * The room overview every session opens with, one sentence per room.
+ *
+ * A different job from `SUMMARISE_SYSTEM_PROMPT`, not a shorter one. This sentence is
+ * read while a model decides whether a room is worth opening, so it has to say what the
+ * room is for; the most recent three facts, compressed, tell a model nothing about that
+ * and read like an answer it can use without opening anything.
+ */
+export const HEADLINE_SYSTEM_PROMPT = [
+  'You write the one-line description of a room in a personal memory system. A room is a',
+  'space where someone keeps notes on one part of their life or work, sometimes shared',
+  'with other people.',
+  '',
+  'You are given notes from inside the room. Say what the room is for, not what the notes',
+  'say. Another AI model reads your sentence to decide whether to open the room, so name',
+  'the subject and the kind of thing kept there.',
+  '',
+  '- One sentence. No final full stop needed, no preamble, no "this room contains".',
+  '- Name the recurring subject: the project, the property, the company, the group.',
+  '- Concrete over general: "Renovering av villan: offerter, hantverkare och tidplan"',
+  '  beats "Anteckningar om ett hus".',
+  '- Leave out specific figures, dates and names of individuals. They belong in the room,',
+  '  not in a line every session reads.',
+  '- Write in the language of the notes.',
+].join('\n');
+
 export function buildSummariseUserMessage(input: { texts: string[]; budgetTokens: number }): string {
   return [
     `TOKEN BUDGET: ${input.budgetTokens}. The summary must fit inside it.`,

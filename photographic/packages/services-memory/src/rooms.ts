@@ -6,6 +6,7 @@ import type {
   Actor,
   MemberRole,
   Person,
+  ProjectionPort,
   Room,
   RoomId,
   RoomPort,
@@ -16,25 +17,11 @@ import { NotPermittedError } from '@photographic/core';
 import { slugify } from './identity.js';
 import { MemoryStore, newId } from './store.js';
 
-/** The one-line summary shown when a room is listed rather than opened. */
-function oneLineFor(store: MemoryStore, roomId: RoomId): string {
-  const room = store.rooms.get(roomId);
-  if (room?.description) return room.description;
-
-  // Falling back to the most recent memory rather than to "empty room" means the list
-  // reads like the rooms actually do, which is what makes a model able to pick the
-  // right one from a spoken name.
-  const recent = store
-    .itemsInRoom(roomId)
-    .filter((i) => i.status === 'active')
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-
-  if (!recent) return 'Inget sparat än';
-  return recent.body.length > 120 ? `${recent.body.slice(0, 117)}...` : recent.body;
-}
-
 export class MemoryRooms implements RoomPort {
-  constructor(private readonly store: MemoryStore) {}
+  constructor(
+    private readonly store: MemoryStore,
+    private readonly projection: Pick<ProjectionPort, 'headlinesFor'>,
+  ) {}
 
   async create(actor: Actor, input: { title: string; description?: string }): Promise<Room> {
     const title = input.title.trim();
@@ -77,14 +64,19 @@ export class MemoryRooms implements RoomPort {
   }
 
   async listForPerson(actor: Actor): Promise<RoomSummary[]> {
-    const summaries = this.store.accessibleRoomIds(actor.personId).map((roomId) => {
+    const roomIds = this.store.accessibleRoomIds(actor.personId);
+    const headlines = await this.projection.headlinesFor(roomIds);
+
+    const summaries = roomIds.map((roomId) => {
       const room = this.store.rooms.get(roomId)!;
       return {
         roomId,
         slug: room.slug,
         title: room.title,
+        kind: room.kind,
         role: this.store.roleIn(actor.personId, roomId) ?? 'viewer',
-        oneLine: oneLineFor(this.store, roomId),
+        oneLine: headlines.get(roomId)?.rendered ?? '',
+        memberCount: this.memberCount(roomId),
         unseenCount: this.unseenCount(actor, roomId),
       } satisfies RoomSummary;
     });
@@ -149,6 +141,10 @@ export class MemoryRooms implements RoomPort {
     if (!this.store.canRead(actor.personId, roomId)) throw new NotPermittedError();
     const latest = this.store.allEvents().filter((e) => e.roomId === roomId).at(-1);
     this.store.readState.set(`${actor.personId}:${roomId}`, latest?.seq ?? 0);
+  }
+
+  private memberCount(roomId: RoomId): number {
+    return this.store.memberships.filter((m) => m.roomId === roomId && m.leftAt === null).length;
   }
 
   private unseenCount(actor: Actor, roomId: RoomId): number {

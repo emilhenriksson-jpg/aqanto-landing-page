@@ -90,8 +90,8 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
   const audit = new MemoryAudit(clock);
 
   const identity = new MemoryIdentity(store);
-  const projection = new MemoryProjection(store);
-  const rooms = new MemoryRooms(store);
+  const projection = new MemoryProjection(store, llm);
+  const rooms = new MemoryRooms(store, projection);
   const invites = new MemoryInvites(store, notify, options.baseUrl);
   const ingest = new MemoryIngest(store, llm, projection, jobs);
   const bundle = new MemoryBundle(store, projection, rooms);
@@ -108,7 +108,13 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
   jobs.work('rebuild_projections', async (payload) => {
     const personId = payload['personId'] as PersonId | null;
     const roomId = payload['roomId'] as RoomId | undefined;
-    if (roomId) await projection.buildBrief(roomId);
+    if (roomId) {
+      await projection.buildBrief(roomId);
+      // The headline rides along with the brief rather than having its own job. It is
+      // the same invalidation — the room changed — and summarising it here is what keeps
+      // the session-start path free of model calls.
+      await projection.buildHeadline(roomId);
+    }
     if (personId) await projection.buildProfile(personId);
   });
 

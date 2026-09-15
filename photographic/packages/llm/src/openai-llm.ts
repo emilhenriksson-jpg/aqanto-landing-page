@@ -24,6 +24,7 @@ import {
   parseCompare,
   parseFacts,
   parseJsonObject,
+  HEADLINE_SYSTEM_PROMPT,
   SUMMARISE_SYSTEM_PROMPT,
 } from './prompts.js';
 
@@ -187,7 +188,11 @@ export class OpenAiLlm implements LlmPort {
     return parseCompare(raw);
   }
 
-  async summarise(input: { texts: string[]; budgetTokens: number }): Promise<string> {
+  async summarise(input: {
+    texts: string[];
+    budgetTokens: number;
+    as?: 'briefing' | 'headline';
+  }): Promise<string> {
     const texts = input.texts.map((t) => t.trim()).filter(Boolean);
     if (texts.length === 0 || input.budgetTokens <= 0) return '';
 
@@ -196,7 +201,10 @@ export class OpenAiLlm implements LlmPort {
       temperature: 0,
       max_tokens: Math.max(64, Math.ceil(input.budgetTokens * 1.1)),
       messages: [
-        { role: 'system', content: SUMMARISE_SYSTEM_PROMPT },
+        {
+          role: 'system',
+          content: input.as === 'headline' ? HEADLINE_SYSTEM_PROMPT : SUMMARISE_SYSTEM_PROMPT,
+        },
         { role: 'user', content: buildSummariseUserMessage({ ...input, texts }) },
       ],
     });

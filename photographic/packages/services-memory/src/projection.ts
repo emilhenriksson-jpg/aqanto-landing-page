@@ -16,17 +16,20 @@ import type {
   EventSeq,
   Item,
   ItemKind,
+  LlmPort,
   Profile,
   ProfileSections,
   PersonId,
   ProjectionPort,
   RenderedItem,
+  RoomHeadline,
   RoomId,
 } from '@photographic/core';
 import { NotFoundError, NotPermittedError } from '@photographic/core';
 import {
   BRIEF_TOKEN_BUDGET,
   PROFILE_TOKEN_BUDGET,
+  ROOM_HEADLINE_TOKEN_BUDGET,
   SECTION_BUDGETS,
   SINCE_LAST_SEEN_TOKEN_BUDGET,
   estimateTokens,
@@ -68,8 +71,12 @@ export class MemoryProjection implements ProjectionPort {
   private versions = new Map<PersonId, number>();
   private staleProfiles = new Set<PersonId>();
   private staleBriefs = new Set<RoomId>();
+  private staleHeadlines = new Set<RoomId>();
 
-  constructor(private readonly store: MemoryStore) {}
+  constructor(
+    private readonly store: MemoryStore,
+    private readonly llm: Pick<LlmPort, 'summarise'>,
+  ) {}
 
   async buildProfile(personId: PersonId): Promise<Profile> {
     const roomId = this.store.personalRoomIdOf(personId);
@@ -163,9 +170,92 @@ export class MemoryProjection implements ProjectionPort {
     return this.buildBrief(roomId);
   }
 
+  /**
+   * The room in one sentence.
+   *
+   * Three sources, in descending order of how much they can be trusted to say what the
+   * room is *for*. What the owner wrote wins outright and is never regenerated: a person
+   * who took the trouble to describe their room should not find a model's paraphrase in
+   * its place next week. Failing that the contents are summarised. A room with nothing
+   * in it says so, because a model told "Inget sparat än" will stop trying to answer
+   * from a room that cannot answer, while a model told nothing will search it.
+   */
+  async buildHeadline(roomId: RoomId): Promise<RoomHeadline> {
+    const room = this.store.rooms.get(roomId);
+    if (!room) throw new NotFoundError('Rummet finns inte.');
+
+    // The personal room never needs summarising: the overview says the profile above is
+    // this room, which is the only true thing to say about it. Summarising it anyway
+    // would mean a model call on every fact a person saves about themselves — the most
+    // frequent write in the product — for a sentence nothing reads.
+    if (room.kind === 'personal') return this.cacheHeadline(roomId, '', 'owner');
+
+    const owner = ownerHeadline(room.description);
+    if (owner) return this.cacheHeadline(roomId, owner, 'owner');
+
+    const bodies = this.store
+      .itemsInRoom(roomId)
+      .filter((i) => i.status === 'active')
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, HEADLINE_SOURCE_ITEMS)
+      .map((i) => i.body);
+
+    if (bodies.length === 0) return this.cacheHeadline(roomId, EMPTY_HEADLINE, 'empty');
+
+    const summary = oneSentence(
+      await this.llm.summarise({
+        texts: bodies,
+        budgetTokens: ROOM_HEADLINE_TOKEN_BUDGET,
+        as: 'headline',
+      }),
+    );
+
+    return summary
+      ? this.cacheHeadline(roomId, summary, 'derived')
+      : this.cacheHeadline(roomId, EMPTY_HEADLINE, 'empty');
+  }
+
+  /**
+   * Cached headlines, and a cheap stand-in for the ones not built yet.
+   *
+   * The stand-in is the point. This runs on every session start, so it cannot summarise
+   * and it cannot wait — but returning nothing for a room the person created a minute
+   * ago would hide the room from the overview, which is the one thing the overview must
+   * not do. So an unbuilt headline comes back as the owner's description or as "nothing
+   * saved yet", marked stale, and the job replaces it with something better.
+   */
+  async headlinesFor(roomIds: RoomId[]): Promise<Map<RoomId, RoomHeadline>> {
+    const out = new Map<RoomId, RoomHeadline>();
+
+    for (const roomId of roomIds) {
+      const cached = this.store.headlines.get(roomId);
+      if (cached && !this.staleHeadlines.has(roomId)) {
+        out.set(roomId, cached);
+        continue;
+      }
+
+      const room = this.store.rooms.get(roomId);
+      if (!room) continue;
+
+      out.set(roomId, {
+        roomId,
+        rendered: ownerHeadline(room.description) || cached?.rendered || EMPTY_HEADLINE,
+        source: room.description ? 'owner' : cached?.source ?? 'empty',
+        builtFromSeq: cached?.builtFromSeq ?? (0 as EventSeq),
+        stale: true,
+        builtAt: cached?.builtAt ?? this.store.now(),
+      });
+    }
+
+    return out;
+  }
+
   async invalidate(input: { personId?: PersonId; roomId?: RoomId }): Promise<void> {
     if (input.personId) this.staleProfiles.add(input.personId);
-    if (input.roomId) this.staleBriefs.add(input.roomId);
+    if (input.roomId) {
+      this.staleBriefs.add(input.roomId);
+      this.staleHeadlines.add(input.roomId);
+    }
   }
 
   async activeRoomContext(actor: Actor, roomId: RoomId): Promise<ActiveRoomContext> {
@@ -192,10 +282,72 @@ export class MemoryProjection implements ProjectionPort {
     return { roomId, title: room.title, brief: brief.rendered, sinceLastSeen };
   }
 
+  private cacheHeadline(
+    roomId: RoomId,
+    rendered: string,
+    source: RoomHeadline['source'],
+  ): RoomHeadline {
+    const headline: RoomHeadline = {
+      roomId,
+      rendered,
+      source,
+      builtFromSeq: this.latestSeq(),
+      stale: false,
+      builtAt: this.store.now(),
+    };
+
+    this.store.headlines.set(roomId, headline);
+    this.staleHeadlines.delete(roomId);
+    return headline;
+  }
+
   private latestSeq(): EventSeq {
     return (this.store.allEvents().at(-1)?.seq ?? 0) as EventSeq;
   }
 }
+
+/** How much of a room to read before saying what it is. */
+const HEADLINE_SOURCE_ITEMS = 12;
+
+const EMPTY_HEADLINE = 'Inget sparat än';
+
+/**
+ * What the owner wrote, kept as they wrote it.
+ *
+ * Not put through `oneSentence`. A person who describes their room in two short
+ * sentences meant both of them, and cutting the second is how "Ledningsgruppen i
+ * Buyersclub. Beslut och underlag." turns into a line that says less than the room's own
+ * title. Only the length ceiling applies, because the overview still has to fit.
+ */
+function ownerHeadline(description: string | null): string {
+  return clampHeadline((description ?? '').replace(/\s+/g, ' ').trim());
+}
+
+/**
+ * Cuts a generated headline down to its first sentence.
+ *
+ * This applies to what the model wrote, not to what the person wrote. A summariser asked
+ * for one sentence will sometimes produce three, and the second and third are where it
+ * starts listing the contents — which is the brief's job and would push the next room out
+ * of the model's attention on the way.
+ */
+function oneSentence(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  if (!flat) return '';
+
+  const end = flat.search(/[.!?](\s|$)/);
+  return clampHeadline(end === -1 ? flat : flat.slice(0, end + 1));
+}
+
+/** The last line of defence for a sentence that never ends. */
+function clampHeadline(text: string): string {
+  return text.length > HEADLINE_MAX_CHARS
+    ? `${text.slice(0, HEADLINE_MAX_CHARS - 1).trimEnd()}…`
+    : text;
+}
+
+/** Roughly the token budget expressed in characters. */
+const HEADLINE_MAX_CHARS = ROOM_HEADLINE_TOKEN_BUDGET * 4;
 
 /**
  * Renders memories as a bulleted list, and the leading marker is not decoration.

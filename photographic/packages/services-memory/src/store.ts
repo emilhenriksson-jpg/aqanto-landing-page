@@ -38,6 +38,7 @@ import type {
   Proposal,
   ProposalId,
   Room,
+  RoomHeadline,
   RoomId,
   SessionId,
   ShortId,
@@ -96,6 +97,7 @@ export class MemoryStore {
   /** Cached projections. Rebuilt by jobs, never synchronously on the write path. */
   readonly profiles = new Map<PersonId, Profile>();
   readonly briefs = new Map<RoomId, Brief>();
+  readonly headlines = new Map<RoomId, RoomHeadline>();
 
   /** Item embeddings, kept beside the item as `app.item.embedding` does. */
   readonly embeddings = new Map<ItemId, number[]>();

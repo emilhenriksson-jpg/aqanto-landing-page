@@ -35,6 +35,7 @@ import type {
   ProposalId,
   Provenance,
   Room,
+  RoomHeadline,
   RoomId,
   RoomSummary,
   SearchHit,
@@ -208,6 +209,26 @@ export interface ProjectionPort {
   buildBrief(roomId: RoomId): Promise<Brief>;
   getBrief(actor: Actor, roomId: RoomId): Promise<Brief>;
 
+  /**
+   * Builds one room's headline, summarising the room when its owner never described it.
+   *
+   * The job path, and the only method here allowed to call the model. A headline is read
+   * on every session and written a few times a month, so it is built when the room
+   * changes rather than when someone looks.
+   */
+  buildHeadline(roomId: RoomId): Promise<RoomHeadline>;
+
+  /**
+   * Headlines for a room list, from cache.
+   *
+   * Never calls the model and never waits for one: this runs inside every bundle build,
+   * and a session start that blocks on summarising eleven rooms is a voice turn nobody
+   * waits through. A room whose headline has not been built yet comes back with whatever
+   * is cheaply true — the owner's description, or that the room is empty — and is left
+   * marked stale for the job to improve.
+   */
+  headlinesFor(roomIds: RoomId[]): Promise<Map<RoomId, RoomHeadline>>;
+
   /** Marks derived state stale. Called from the write path; rebuilds happen in jobs. */
   invalidate(input: { personId?: PersonId; roomId?: RoomId }): Promise<void>;
 
@@ -380,7 +401,22 @@ export interface LlmPort {
   /** Decides whether a candidate restates, contradicts or is unrelated to an existing item. */
   compare(a: string, b: string): Promise<'same' | 'contradicts' | 'unrelated'>;
 
-  summarise(input: { texts: string[]; budgetTokens: number }): Promise<string>;
+  /**
+   * Compresses text for a model to read later.
+   *
+   * `as` picks what kind of compression, and the two are not interchangeable. A
+   * `briefing` says what the notes contain, which is what a document summary and a room
+   * brief are for. A `headline` says what the thing *is* — one sentence naming a room's
+   * subject and purpose, which is what belongs in a list of rooms a model skims before
+   * deciding which one to open. Summarising the contents at headline length produces the
+   * latest few facts with no indication of what the room is for, which reads like an
+   * answer and is not one.
+   */
+  summarise(input: {
+    texts: string[];
+    budgetTokens: number;
+    as?: 'briefing' | 'headline';
+  }): Promise<string>;
 }
 
 export interface NotifyPort {

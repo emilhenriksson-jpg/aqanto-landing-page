@@ -377,6 +377,27 @@ describe('sharing a room with someone else', () => {
     expect(rendered).toContain('Buyersclub Ledning');
   });
 
+  itWhenWired('opens a session with an overview of every room, read or not', async () => {
+    const jacob = await harness.personByEmail(jacobEmail);
+    const actor = harness.actorFor(jacob, 'cursor');
+    await harness.runJobsToCompletion();
+
+    const rendered = harness.services.bundle.render(
+      await harness.services.bundle.build(actor),
+    );
+
+    // What a model has to know before it can be useful: who this is, which rooms exist,
+    // which of them other people write in, and roughly what each is for. Nothing here
+    // required a tool call, and nothing here is a room read in full.
+    expect(rendered).toMatch(/profilen ovan är det här rummet/);
+    expect(rendered).toMatch(/Buyersclub Ledning \(delad med \d+ personer?/);
+    expect(rendered).toContain('förvärvet');
+
+    // And the overview says what to do about it, because a model that knows a room
+    // exists and not how to open it will answer from the little it was given.
+    expect(rendered).toMatch(/get_context med rummets namn/);
+  });
+
   itWhenWired('never leaks the personal room to the person you invited', async () => {
     const jacob = await harness.personByEmail(jacobEmail);
     const jacobActor = harness.actorFor(jacob, 'cursor');

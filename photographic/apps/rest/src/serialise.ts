@@ -61,8 +61,12 @@ export function serialiseRoomSummary(summary: RoomSummary) {
     roomId: summary.roomId,
     slug: summary.slug,
     title: summary.title,
+    kind: summary.kind,
     role: summary.role,
     oneLine: summary.oneLine,
+    // The app draws the same distinction the instructions do: a room other people write
+    // in does not look like a room only you have ever opened.
+    memberCount: summary.memberCount,
     unseenCount: summary.unseenCount,
   };
 }

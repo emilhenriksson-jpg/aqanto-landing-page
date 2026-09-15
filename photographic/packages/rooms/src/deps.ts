@@ -112,6 +112,16 @@ export interface MembershipStore {
   add(input: MembershipInsert): Promise<Membership>;
 
   listForRoom(roomId: RoomId): Promise<Array<{ person: Person; role: MemberRole }>>;
+
+  /**
+   * Active members per room, for the room list.
+   *
+   * A count rather than `listForRoom` per room, because the overview only needs to know
+   * whether anyone else is in there — and loading every member of eleven rooms to
+   * discover that most have one is how a session start turns into a dozen queries.
+   * Rooms with no active membership may be omitted.
+   */
+  countsForRooms(roomIds: RoomId[]): Promise<Map<RoomId, number>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +202,13 @@ export interface RoomsStore {
  * its own description, so `@photographic/rooms` never depends on `projection`.
  */
 export interface RoomTextSource {
-  /** One line per room for the room list, normally taken from the brief. */
+  /**
+   * Each room in one sentence, for the overview every session opens with.
+   *
+   * The room's headline, not the first line of its brief: what the room is for rather
+   * than what was last said in it. Read from cache on the session-start path, so an
+   * implementation must not summarise here. See `RoomHeadline`.
+   */
   oneLineFor(roomIds: RoomId[]): Promise<Map<RoomId, string>>;
 
   /** Readable preview for an invited person who may not have an account yet. */
