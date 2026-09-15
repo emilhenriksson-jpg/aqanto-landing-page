@@ -371,7 +371,20 @@ describe('deletion: what it removes and what it keeps', () => {
     expect(survived.rows[0]?.status).toBe('active');
   });
 
-  it('removes them instead when the person chose that', async () => {
+  /**
+   * The test that used to pass while the behaviour was broken.
+   *
+   * It asserted `item.status = 'deleted'`, `purge_after` set and a `delete_reason` — all
+   * three of which the old bulk `UPDATE` did set. What it never asked was whether the
+   * removal went through the trash, which is what its own comment claimed and what the
+   * consent copy promises. It did not: `app.trash` derives from the last lifecycle *event*
+   * and the bulk update wrote none, so the contributions were gone from the room, absent
+   * from every trash, and hard-deleted by `purge_expired_items` thirty days later.
+   *
+   * Asserted through `TrashPort` now, in both directions. Reading the column is what let a
+   * silent mass deletion look like an ordinary one for as long as it did.
+   */
+  it('removes them instead when the person chose that, through the ordinary trash', async () => {
     await remember(emil, sharedRoom, 'Emils beslut om budgeten');
 
     const { request } = await accounts.requestDeletion(emil, {
@@ -382,15 +395,53 @@ describe('deletion: what it removes and what it keeps', () => {
 
     expect(done?.removed['shared_items_trashed']).toBe(1);
 
-    // Through the ordinary trash, visibly, so an owner can restore within thirty days.
-    // "Ingen tyst massradering."
-    const row = await pool.query<{ status: string; purge_after: Date; delete_reason: string }>(
-      `SELECT status, purge_after, delete_reason FROM app.item WHERE room_id = $1`,
+    // Visible to the room's owner, which is the whole of "ingen tyst massradering": the
+    // other members see it left, and they can put it back.
+    const trash = await wired.services.trash.list(elias, { roomId: sharedRoom });
+    const entry = trash.find((row) => row.body === 'Emils beslut om budgeten');
+
+    expect(entry).toBeDefined();
+    expect(entry?.deleteReason).toContain('Kontot raderades');
+    expect(entry?.daysRemaining).toBeGreaterThan(0);
+  });
+
+  it('leaves the removal restorable by the room owner for the thirty days', async () => {
+    await remember(emil, sharedRoom, 'Emils beslut om budgeten');
+    const { request } = await accounts.requestDeletion(emil, {
+      immediate: true,
+      contributions: 'remove',
+    });
+    await accounts.executeDeletion(request.id);
+
+    const entry = (await wired.services.trash.list(elias, { roomId: sharedRoom }))[0]!;
+    const restored = await wired.services.trash.restore(elias, entry.shortId, sharedRoom);
+
+    expect(restored.status).toBe('active');
+    expect(restored.body).toBe('Emils beslut om budgeten');
+    // And the room can read it again, which is the thing an owner actually wanted.
+    expect(await wired.services.trash.list(elias, { roomId: sharedRoom })).toEqual([]);
+  });
+
+  it('records the departing person as the actor, so the room can see whose left', async () => {
+    // Attribution, not bookkeeping: the other members are entitled to know whose
+    // contributions went and that it was a choice. This runs before the tombstone for
+    // exactly that reason, which is why the sweep's order is load-bearing.
+    await remember(emil, sharedRoom, 'Emils beslut om budgeten');
+    const { request } = await accounts.requestDeletion(emil, {
+      immediate: true,
+      contributions: 'remove',
+    });
+    await accounts.executeDeletion(request.id);
+
+    const deleted = await pool.query<{ actor_person_id: string; motivation: string }>(
+      `SELECT actor_person_id, motivation FROM app.event
+       WHERE room_id = $1 AND event_type = 'item.deleted'`,
       [sharedRoom],
     );
-    expect(row.rows[0]?.status).toBe('deleted');
-    expect(row.rows[0]?.purge_after).toBeInstanceOf(Date);
-    expect(row.rows[0]?.delete_reason).toContain('Kontot raderades');
+
+    expect(deleted.rows).toHaveLength(1);
+    expect(deleted.rows[0]?.actor_person_id).toBe(emil.personId);
+    expect(deleted.rows[0]?.motivation).toContain('Kontot raderades');
   });
 
   it('never touches another member’s contributions, whichever choice was made', async () => {
@@ -402,11 +453,86 @@ describe('deletion: what it removes and what it keeps', () => {
     });
     await accounts.executeDeletion(request.id);
 
-    const theirs = await pool.query<{ status: string }>(
-      `SELECT status FROM app.item WHERE room_id = $1 AND body = 'Elias underlag'`,
-      [sharedRoom],
-    );
-    expect(theirs.rows[0]?.status).toBe('active');
+    // Through the trash rather than the column, for the same reason as above: an empty trash
+    // is the assertion that nothing of Elias's was touched.
+    expect(await wired.services.trash.list(elias, { roomId: sharedRoom })).toEqual([]);
+
+    const theirs = await wired.services.retrieval.listForRoom(elias, sharedRoom);
+    expect(theirs.map((item) => item.body)).toContain('Elias underlag');
+  });
+
+  /**
+   * Deletion is a dozen SQL statements and two sets of blob deletions that cannot share a
+   * transaction with them, so the property worth testing is not that it never fails — it is
+   * that a failure anywhere leaves it resumable, and that resuming does not do the finished
+   * steps again.
+   *
+   * The failure is injected rather than simulated: `blobs.delete` throws once, which lands
+   * the sweep in the middle, between the contributions step and the personal room.
+   */
+  it('resumes where it stopped rather than starting over', async () => {
+    await remember(emil, sharedRoom, 'Emils beslut om budgeten');
+    await upload(emil, personalRoom, 'kontrakt.md', 'Villans kontrakt');
+
+    const { request } = await accounts.requestDeletion(emil, {
+      immediate: true,
+      contributions: 'remove',
+    });
+
+    const realDelete = blobs.delete.bind(blobs);
+    let thrown = false;
+    blobs.delete = async (key: string) => {
+      if (!thrown) {
+        thrown = true;
+        throw new Error('object storage unavailable');
+      }
+      return realDelete(key);
+    };
+
+    await expect(accounts.executeDeletion(request.id)).rejects.toThrow(/object storage/);
+
+    // The contributions step committed before the failure and must not run again — a second
+    // pass over an already-trashed memory would mint a second undo token and a second
+    // `item.deleted`, which is two log entries for one removal.
+    const deletedEvents = await eventsIn(sharedRoom, 'item.deleted');
+    expect(deletedEvents).toHaveLength(1);
+
+    blobs.delete = realDelete;
+    const done = await accounts.executeDeletion(request.id);
+
+    expect(done?.status).toBe('completed');
+    // One count, not two, even though the sweep ran twice.
+    expect(done?.removed['shared_items_trashed']).toBe(1);
+    expect(await eventsIn(sharedRoom, 'item.deleted')).toHaveLength(1);
+  });
+
+  it('will not let two sweeps run one deletion', async () => {
+    await remember(emil, sharedRoom, 'Emils beslut om budgeten');
+    const { request } = await accounts.requestDeletion(emil, {
+      immediate: true,
+      contributions: 'remove',
+    });
+
+    // Both start at once. The lease is taken conditionally in SQL, so the second finds the
+    // deletion already claimed and declines rather than duplicating the work.
+    const [first, second] = await Promise.all([
+      accounts.executeDeletion(request.id),
+      accounts.executeDeletion(request.id),
+    ]);
+
+    expect([first, second].filter(Boolean)).toHaveLength(1);
+    expect(await eventsIn(sharedRoom, 'item.deleted')).toHaveLength(1);
+  });
+
+  it('refuses to execute a deletion whose freeze has not expired', async () => {
+    // The claim carries the freeze condition, so a hand-run sweep cannot execute early. The
+    // thirty days are the person's window to change their mind, not a scheduling hint.
+    const { request } = await accounts.requestDeletion(emil, {
+      immediate: false,
+      contributions: 'keep',
+    });
+
+    expect(await accounts.executeDeletion(request.id)).toBeNull();
   });
 
   it('turns the person into a tombstone rather than deleting the row', async () => {

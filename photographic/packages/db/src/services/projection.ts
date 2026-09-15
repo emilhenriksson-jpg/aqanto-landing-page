@@ -378,8 +378,21 @@ export class PgProjection implements ProjectionPort {
   }
 
   async invalidate(input: { personId?: PersonId; roomId?: RoomId }): Promise<void> {
-    if (input.roomId) this.staleHeadlines.add(input.roomId);
+    if (input.roomId) this.markHeadlineStale(input.roomId);
     await invalidateProjections(this.pool, input);
+  }
+
+  /**
+   * The process-memory half of `invalidate`, on its own and without touching the database.
+   *
+   * Needed because a lifecycle transition marks its durable state stale *inside* its own
+   * transaction (`markStaleWithin`) and still has to tell this cache. Calling `invalidate`
+   * for that would issue the same `UPDATE app.brief` from a second pooled connection, which
+   * blocks on the row the open transaction already holds — a self-deadlock that only shows
+   * up once the write path is properly transactional.
+   */
+  markHeadlineStale(roomId: RoomId): void {
+    this.staleHeadlines.add(roomId);
   }
 
   async activeRoomContext(actor: Actor, roomId: RoomId): Promise<ActiveRoomContext> {

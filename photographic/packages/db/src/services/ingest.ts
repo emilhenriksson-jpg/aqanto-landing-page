@@ -108,7 +108,7 @@ export class PgIngest implements IngestPort {
   constructor(
     private readonly pool: Pool,
     private readonly llm: LlmPort,
-    private readonly projection: ProjectionPort,
+    private readonly projection: ProjectionPort & { markHeadlineStale(roomId: RoomId): void },
     private readonly jobs: JobPort,
     private readonly clock: () => Date = () => new Date(),
   ) {}
@@ -401,7 +401,7 @@ export class PgIngest implements IngestPort {
       softDeleteWithin(tx, { actor, item, now, ...(reason === undefined ? {} : { reason }) }),
     );
 
-    await this.pokeHeadlineCache(item.roomId);
+    this.pokeHeadlineCache(item.roomId);
     return { item: result.item, undoToken: result.undoToken };
   }
 
@@ -438,7 +438,7 @@ export class PgIngest implements IngestPort {
 
     if (!restored) throw new NotFoundError('Det finns inget att ta tillbaka.');
 
-    await this.pokeHeadlineCache(item.roomId);
+    this.pokeHeadlineCache(item.roomId);
     return restored;
   }
 
@@ -597,7 +597,7 @@ export class PgIngest implements IngestPort {
 
     if (outcome.raced) throw new ValidationError('Förslaget är redan hanterat.');
 
-    if (outcome.item) await this.pokeHeadlineCache(outcome.item.roomId);
+    if (outcome.item) this.pokeHeadlineCache(outcome.item.roomId);
     return outcome.item;
   }
 
@@ -714,7 +714,7 @@ export class PgIngest implements IngestPort {
       await markStaleWithin(tx, loser.roomId);
     });
 
-    await this.pokeHeadlineCache(loser.roomId);
+    this.pokeHeadlineCache(loser.roomId);
     return winner;
   }
 
@@ -729,7 +729,7 @@ export class PgIngest implements IngestPort {
   async restore(actor: Actor, item: Item): Promise<Item> {
     const result = await withTransaction(this.pool, (tx) => restoreWithin(tx, { actor, item }));
 
-    if (result.applied) await this.pokeHeadlineCache(item.roomId);
+    if (result.applied) this.pokeHeadlineCache(item.roomId);
     return result.item;
   }
 
@@ -1214,8 +1214,8 @@ export class PgIngest implements IngestPort {
 
     // Only the in-process headline cache is left to poke; the durable half of both rooms'
     // invalidation committed with the move.
-    await this.projection.invalidate({ roomId: origin.id });
-    await this.projection.invalidate({ roomId: target.id });
+    this.pokeHeadlineCache(origin.id);
+    this.pokeHeadlineCache(target.id);
 
     return { outcome: 'placed', item: { ...item, roomId: target.id }, event };
   }
@@ -1487,17 +1487,18 @@ export class PgIngest implements IngestPort {
    *
    * `PgProjection` keeps room headlines in process memory (there is no table for them
    * yet), so a transition that committed its own `app.brief` and `app.job` rows still has
-   * to tell this process's cache. Called after the commit, and safe to lose: the rebuild
-   * job it rides beside is already durable.
+   * to tell this process's cache. Deliberately *not* `projection.invalidate`, which would
+   * repeat the SQL from a second pooled connection and block on the row the open
+   * transaction is holding. Safe to lose: the rebuild job it rides beside is durable.
    */
-  private async pokeHeadlineCache(roomId: RoomId): Promise<void> {
-    await this.projection.invalidate({ roomId });
+  private pokeHeadlineCache(roomId: RoomId): void {
+    this.projection.markHeadlineStale(roomId);
   }
 
   private async markStale(roomId: RoomId, db: Db = this.pool): Promise<void> {
     // The durable half on whatever unit of work the caller is inside, so it commits with
-    // the change that made it stale; the in-process headline cache after.
+    // the change that made it stale; the in-process headline cache alongside.
     await markStaleWithin(db, roomId);
-    await this.projection.invalidate({ roomId });
+    this.pokeHeadlineCache(roomId);
   }
 }

@@ -288,6 +288,26 @@ export class PgAccounts {
     const request = await this.claim(deletionId);
     if (!request) return null;
 
+    try {
+      return await this.sweep(deletionId, request);
+    } catch (error) {
+      // Hands the lease straight back. The timeout exists for a worker that died without
+      // being able to say so; a worker still running and holding a caught error knows the
+      // deletion is free, and making the next attempt wait out the lease would turn a
+      // transient object-storage error into a quarter of an hour of a half-deleted person.
+      await execute(
+        this.pool,
+        `UPDATE app.account_deletion SET claimed_at = NULL WHERE id = $1 AND status = 'requested'`,
+        [deletionId],
+      );
+      throw error;
+    }
+  }
+
+  private async sweep(
+    deletionId: string,
+    request: DeletionRow,
+  ): Promise<DeletionRequest | null> {
     const personId = request.person_id as PersonId;
     const progress: Record<string, unknown> = { ...(request.progress ?? {}) };
     const done = (step: string): boolean => progress[`step:${step}`] === true;
@@ -505,10 +525,11 @@ export class PgAccounts {
     // memory the person shared into the room rather than typed there.
     const rows = await queryRows<ItemRow>(
       this.pool,
-      `SELECT ${ITEM_COLUMNS} FROM app.item i
-       JOIN app.room r ON r.id = i.room_id
-       WHERE i.author_person_id = $1 AND r.kind = 'shared' AND i.status <> 'deleted'
-       ORDER BY i.created_at`,
+      `SELECT ${ITEM_COLUMNS} FROM app.item
+       WHERE author_person_id = $1
+         AND status <> 'deleted'
+         AND room_id IN (SELECT id FROM app.room WHERE kind = 'shared')
+       ORDER BY created_at`,
       [personId],
     );
 
@@ -540,9 +561,10 @@ export class PgAccounts {
     const row = await queryOne<{ count: string }>(
       this.pool,
       `SELECT count(*) AS count
-       FROM app.item i
-       JOIN app.room r ON r.id = i.room_id
-       WHERE i.author_person_id = $1 AND r.kind = 'shared' AND i.status <> 'deleted'`,
+       FROM app.item
+       WHERE author_person_id = $1
+         AND status <> 'deleted'
+         AND room_id IN (SELECT id FROM app.room WHERE kind = 'shared')`,
       [personId],
     );
     return Number(row?.count ?? 0);
