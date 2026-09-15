@@ -49,6 +49,16 @@ export interface AppDeps {
   oauth?: OAuthProvider;
   /** Sign-up needs a code store and a sender; omit to leave those routes unmounted. */
   connect?: { deps: ConnectDeps; config?: Partial<ConnectConfig> };
+  /**
+   * The MCP endpoint, mounted at `/mcp`.
+   *
+   * Passed in as a bare fetch handler rather than imported, so this app does not depend
+   * on the MCP server and can be tested without one. The two surfaces share a process
+   * because they have to share an origin: a client discovers the authorisation server
+   * from the MCP endpoint's own metadata, and splitting the hosts means maintaining two
+   * OAuth deployments to serve one login.
+   */
+  mcp?: { fetch(request: Request): Promise<Response> };
 }
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
@@ -72,6 +82,27 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.onError(handleError);
 
   app.get('/health', (c) => c.json({ ok: true, environment: config.environment }));
+
+  // ---------------------------------------------------------------------------
+  // MCP
+  // ---------------------------------------------------------------------------
+
+  // Mounted outside `authenticate`: MCP carries its own bearer token and has to answer an
+  // unauthenticated request with a 401 that names its metadata document, which is how a
+  // client discovers the login on its own. Routing it through this app's auth middleware
+  // would return a 401 without that header, and every client would need setting up by
+  // hand. The handler receives the request unmodified and matches on the path suffix, so
+  // the prefix lives here and in no second place.
+  if (deps.mcp) {
+    const mcp = deps.mcp;
+    app.all('/mcp', (c) => mcp.fetch(c.req.raw));
+    app.all('/mcp/*', (c) => mcp.fetch(c.req.raw));
+    // RFC 9728 puts the metadata for a resource at `/mcp` under this path, and it is what
+    // the endpoint's own 401 points at. The API's document, one segment up, describes the
+    // API — a client following the MCP challenge must not land on it and read a `resource`
+    // it never asked for.
+    app.get(`${OAUTH_PATHS.protectedResourceMetadata}/*`, (c) => mcp.fetch(c.req.raw));
+  }
 
   // ---------------------------------------------------------------------------
   // OAuth discovery

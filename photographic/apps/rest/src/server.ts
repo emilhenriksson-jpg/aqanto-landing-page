@@ -22,6 +22,7 @@ import {
   MemorySessionIssuer,
 } from '@photographic/connect/testing';
 import type { ConnectDeps } from '@photographic/connect';
+import { createMcpApp, defaultConfig } from '@photographic/mcp';
 import { createMemoryServices } from '@photographic/services-memory';
 
 import { createApp } from './app.js';
@@ -64,22 +65,32 @@ function createDevOAuthProvider(): OAuthProvider {
     body: { error: 'temporarily_unavailable', error_description: 'OAuth är inte inkopplad ännu.' },
   });
 
+  // One session per person rather than one per request. A fresh session on every call
+  // would leave the client health screen reading from a session that never received
+  // anything, so the web client would show as red seconds after it worked.
+  const webSessions = new Map<PersonId, SessionId>();
+
   return {
     introspect: async (token: string): Promise<TokenClaims | null> => {
       // `session-<personId>-<n>`, the shape `MemorySessionIssuer` mints.
-      const personId = token.match(/^session-(.+)-\d+$/)?.[1];
+      const personId = token.match(/^session-(.+)-\d+$/)?.[1] as PersonId | undefined;
       if (!personId) return null;
-      if (!(await wired.services.identity.findById(personId as PersonId))) return null;
+      if (!(await wired.services.identity.findById(personId))) return null;
 
-      const session = await wired.services.sessions.start({
-        personId: personId as PersonId,
-        agentClient: 'web',
-        transport: 'rest',
-      });
+      let sessionId = webSessions.get(personId);
+      if (!sessionId) {
+        const session = await wired.services.sessions.start({
+          personId,
+          agentClient: 'web',
+          transport: 'rest',
+        });
+        sessionId = session.id;
+        webSessions.set(personId, sessionId);
+      }
 
       return {
-        personId: personId as PersonId,
-        sessionId: session.id as SessionId,
+        personId,
+        sessionId,
         agentClient: 'web',
         clientId: 'dev',
         scopes: ['memory.read', 'memory.write', 'rooms.read', 'rooms.write'],
@@ -120,12 +131,40 @@ sender.send = async (input) => {
   logger.warn('signup_code', { channel: input.channel, code: input.code });
 };
 
+const oauth = createDevOAuthProvider();
+
+/**
+ * The MCP endpoint, on the same origin as the API.
+ *
+ * It resolves its own actor rather than reusing the API's auth middleware, and the actor
+ * it gets has no session: MCP opens one per connection, at initialize, and keeping it for
+ * the life of that connection is what makes the client health screen meaningful. A
+ * session per request would show the person a green light that went out again immediately.
+ */
+const mcp = createMcpApp({
+  services: wired.services,
+  config: defaultConfig({ publicUrl: config.publicUrl }),
+  log: logger,
+  authenticate: async (token) => {
+    const claims = await oauth.introspect(token);
+    if (!claims) return null;
+
+    return {
+      personId: claims.personId,
+      agentClient: claims.agentClient ?? 'unknown',
+      sessionId: null,
+      roomScope: claims.roomScope,
+    };
+  },
+});
+
 const app = createApp({
   services: wired.services,
   config,
   logger,
-  oauth: createDevOAuthProvider(),
+  oauth,
   connect: { deps: connectDeps },
+  mcp,
 });
 
 // Background work runs on a timer rather than a separate worker process, which is right
