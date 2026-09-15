@@ -406,6 +406,25 @@ describe('every authenticated route has decided its scope', () => {
       reachableWithoutToken: true,
       guardedBy: 'a signed, expiring token in the path; POST /v1/export/:id/link is first-party only',
     },
+    {
+      /**
+       * The break-glass sign-in, and the one exemption that is the point rather than a
+       * concession. A recovery path that required a token would require you to already be
+       * recovered — it exists for the day nobody can sign in at all, so it cannot sit
+       * behind the thing that is broken.
+       *
+       * What guards it instead is that the token is minted on the machine, by someone who
+       * already has `fly ssh console`, under a secret that never leaves the process. The
+       * endpoint answers identically whether or not `BREAK_GLASS_SECRET` is set, so
+       * probing it tells an attacker nothing about whether the path is armed.
+       */
+      key: 'POST /v1/signup/break-glass',
+      method: 'POST',
+      path: '/v1/signup/break-glass',
+      reachableWithoutToken: true,
+      guardedBy:
+        'a single-use HMAC token minted only on the machine under BREAK_GLASS_SECRET, ten minute expiry, plus the signup rate limit',
+    },
   ];
 
   const exemptKeys = new Set(exempt.map((entry) => entry.key));
@@ -453,8 +472,25 @@ describe('every authenticated route has decided its scope', () => {
       }),
     );
 
-    expect(response.status, `${entry.key} answered 401; guardedBy claims: ${entry.guardedBy}`)
-      .not.toBe(401);
+    /**
+     * A 401 from the *auth middleware* means the route needs a token after all, and a
+     * route that needs a token belongs in the scope table. A 401 from the route's own
+     * handler is a different thing — break-glass answers one uniform refusal for every
+     * reason, deliberately, so that probing it cannot reveal whether the path is armed.
+     *
+     * `WWW-Authenticate` is what separates them: `unauthorized()` in `middleware.ts`
+     * always sets it, because RFC 9728 is how an MCP client discovers where to
+     * authenticate, and a route throwing `AuthError` never does. So this still fails for
+     * the case it exists to catch, without forcing a route to pick a weaker status than
+     * the one it means.
+     */
+    const fromAuthMiddleware =
+      response.status === 401 && response.headers.get('www-authenticate') !== null;
+
+    expect(
+      fromAuthMiddleware,
+      `${entry.key} was refused by the auth middleware; guardedBy claims: ${entry.guardedBy}`,
+    ).toBe(false);
   });
 });
 

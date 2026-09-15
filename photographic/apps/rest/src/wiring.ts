@@ -36,13 +36,17 @@ import {
 } from '@photographic/auth/testing';
 import type { ConnectDeps } from '@photographic/connect';
 import {
+  BREAK_GLASS_SECRET_MIN_LENGTH,
   generateCode,
   readSignedSession,
   SESSION_TOKEN_PREFIX,
   SignedSessionIssuer,
 } from '@photographic/connect';
+// `MemoryCodeStore` only. `MemorySessionIssuer` was the other half of this import and is
+// deliberately gone: it minted `session-<personId>-<n>`, which `verify` then checked by
+// shape, and that was the account takeover. `SignedSessionIssuer` replaced it in #14.
 import { MemoryCodeStore } from '@photographic/connect/testing';
-import { createCodeSenderFromEnv } from '@photographic/delivery';
+import { createCodeSenderFromEnv, inertChannelDetail } from '@photographic/delivery';
 import type { Actor, PersonId, Services, SessionId } from '@photographic/core';
 import {
   createPool,
@@ -72,6 +76,7 @@ import {
 import type { Hono } from 'hono';
 
 import { createApp } from './app.js';
+import { BREAK_GLASS_PATH } from './break-glass-page.js';
 import type { RestConfig } from './config.js';
 import type { AppEnv } from './context.js';
 import type { Logger } from './logger.js';
@@ -487,6 +492,43 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     smsProvider: delivery.sms,
   });
 
+  // `error`, on every boot, once per inert channel.
+  //
+  // This is what stands in for refusing to start. A channel with no provider in
+  // production does not deliver — it refuses at send time (see `RefusingCodeSender` for
+  // why that is preferred over taking the whole site down over a signup setting) — and
+  // the cost of that choice is that a broken channel could otherwise go unnoticed for
+  // weeks. So it is said at the loudest level available, with the fix in the line, every
+  // single boot, rather than once in a warning nobody reads twice.
+  for (const channel of delivery.inert) {
+    logger.error('code_delivery_inert', { channel, detail: inertChannelDetail(channel) });
+  }
+
+  /**
+   * Whether there is a way in that does not depend on a supplier.
+   *
+   * Said at boot because it is the one thing an operator cannot check from outside: the
+   * endpoint answers identically whether or not the secret is set, on purpose. With the
+   * secret unset and SMS unconfigured, nobody can sign in at all — so this is a warning
+   * rather than a note, and the sentence names the fix.
+   */
+  const breakGlass = process.env.BREAK_GLASS_SECRET ?? null;
+  if (breakGlass && breakGlass.length >= BREAK_GLASS_SECRET_MIN_LENGTH) {
+    logger.info('break_glass_armed', { path: BREAK_GLASS_PATH });
+  } else {
+    logger.warn('break_glass_unavailable', {
+      detail:
+        breakGlass
+          ? `BREAK_GLASS_SECRET är kortare än ${BREAK_GLASS_SECRET_MIN_LENGTH} tecken och används inte. ` +
+            'Sätt en riktig nyckel med `openssl rand -hex 32`.'
+          : 'BREAK_GLASS_SECRET är inte satt, så nödinloggningen på maskinen kan inte användas. ' +
+            'Utan den och utan SMS-leverantör finns ingen väg in i produkten.',
+    });
+  }
+
+  // A refusal in production rather than the warning this replaced. A key that is
+  // regenerated on every boot invalidates every code it ever signed, and a warning nobody
+  // reads is how that reaches a person instead of an operator.
   const codeSecret = requiredSecret({
     name: 'CODE_SECRET',
     value: process.env.CODE_SECRET,
@@ -552,7 +594,7 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     config,
     logger,
     oauth,
-    connect: { deps: connect },
+    connect: { deps: connect, breakGlassSecret: breakGlass },
     mcp,
     clientGrants: grants,
     exports: wired.exports,
