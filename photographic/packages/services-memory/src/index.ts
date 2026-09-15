@@ -148,9 +148,11 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
    *
    * `purge_trash` and `expire_invites` had a handler and nothing that ever enqueued it,
    * exactly as on the Postgres root before PR #23: the handler existed, so the feature
-   * read as built, and invites simply never expired here either. `purge_documents` and
-   * `reconcile_storage` stay unseeded — `scripts/job-producers-baseline.json` records
-   * that as a fact about this implementation, not a decision to make here.
+   * read as built, and invites simply never expired here either. `purge_documents` is
+   * registered just above and stays unseeded on purpose — `scripts/job-producers-baseline.json`
+   * records that as a fact about this implementation, not a decision to make here.
+   * `reconcile_storage` is not registered in this root at all; it is Postgres-only,
+   * because there is no separate storage ledger to reconcile against in memory.
    *
    * `.catch` rather than `await`: this composition root is synchronous, by contract with
    * every existing caller of `createMemoryServices`, and `MemoryJobs.enqueue` has already
