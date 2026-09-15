@@ -157,3 +157,13 @@ _Agents append here. Do not edit another package to unblock yourself._
   into `createPostgresServices`, so `DATABASE_URL` still refuses to boot — by design,
   until the remaining ports (ingest, projection, bundle, retrieval, trash, history,
   sessions, jobs) land and the e2e harness can run `HARNESS=postgres`.
+
+- **orchestrator** — Postgres composition root landed. `createPostgresServices` wires every
+  port (identity → rooms → invites → ingest → projection → bundle → retrieval →
+  documents → trash → history → events → sessions → jobs → audit) with the same job
+  handlers as memory (`rebuild_projections`, `summarise_document`, `purge_trash`).
+  `apps/rest` selects it when `DATABASE_URL` is set; the process no longer exits.
+  `e2e` harness runs the same 22-test journey against memory (`HARNESS=memory`) and
+  Postgres (default when `databaseUrl` / `DATABASE_URL` is present; resets schema per
+  run). Smoke tests in `@photographic/db` cover register → remember → profile and
+  invite isolation. All green: db 3, e2e 22×2, rest 53, monorepo typecheck clean.

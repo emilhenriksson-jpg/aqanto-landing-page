@@ -5,10 +5,9 @@
  * decision about what is wired to what lives in `wiring.ts`, so that the part a test can
  * cover is not tangled with the part that cannot be.
  *
- * `DATABASE_URL` will select the real services once `@photographic/db` implements the
- * ports, and until then setting it is an error rather than a silent downgrade — being
- * told the database is not wired up is useful, believing you are talking to it when you
- * are not is not.
+ * `DATABASE_URL` selects `@photographic/db`'s Postgres services; unset, it is the
+ * in-memory reference implementation and data does not survive a restart. Both are
+ * production paths now, not a placeholder and a promise.
  */
 
 import { serve } from '@hono/node-server';
@@ -21,17 +20,14 @@ const config = loadConfigFromEnv();
 const logger = createLogger({ level: config.logLevel });
 
 if (process.env.DATABASE_URL) {
-  logger.error('database_not_wired', {
-    detail: 'DATABASE_URL är satt men @photographic/db implementerar inte portarna ännu.',
+  logger.info('using_postgres', { detail: 'DATABASE_URL är satt: kör mot Postgres.' });
+} else {
+  logger.warn('using_reference_implementation', {
+    detail: 'Inget DATABASE_URL: kör mot minnesimplementationen. Data försvinner vid omstart.',
   });
-  process.exit(1);
 }
 
-logger.warn('using_reference_implementation', {
-  detail: 'Inget DATABASE_URL: kör mot minnesimplementationen. Data försvinner vid omstart.',
-});
-
-const wiring = createWiring({ config, logger });
+const wiring = await createWiring({ config, logger });
 
 // Background work runs on a timer rather than a separate worker process, which is right
 // for development and is the first thing to split out when there is more than one
@@ -59,7 +55,9 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
     clearInterval(jobTimer);
     clearInterval(purgeTimer);
-    server.close(() => process.exit(0));
+    server.close(() => {
+      void wiring.close().finally(() => process.exit(0));
+    });
     setTimeout(() => process.exit(1), config.shutdownGraceMs).unref();
   });
 }

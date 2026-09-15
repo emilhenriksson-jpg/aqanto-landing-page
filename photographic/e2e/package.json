@@ -11,11 +11,14 @@
     "@photographic/agent": "workspace:*",
     "@photographic/connect": "workspace:*",
     "@photographic/core": "workspace:*",
-    "@photographic/services-memory": "workspace:*"
+    "@photographic/db": "workspace:*",
+    "@photographic/services-memory": "workspace:*",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",
-    "@types/node": "^22.10.2"
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.23.1"
   }
 }

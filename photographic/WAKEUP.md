@@ -1,46 +1,52 @@
 # Godmorgon
 
-Kort: API + MCP går att köra lokalt. Postgres och riktig LLM är **inte** inkopplade ännu.
+Kort: API + MCP går att köra lokalt **mot Postgres** eller in-memory. Riktig LLM och publik HTTPS för Claude saknas fortfarande.
 
 ## Fungerar nu
 
 - REST + MCP på samma origin (OAuth/PKCE, verktyg, onboarding-flöden)
-- In-memory-referens (`@photographic/services-memory`) + **FakeLlm** — ingen OpenAI-nyckel behövs
-- Schema + `pnpm db:migrate` finns; migreringar är idempotenta
-- Tester för connect / agent / auth / rest / mcp är gröna lokalt
+- **`createPostgresServices`** — hela `Services`-ytan mot lokal Postgres
+- Sätt `DATABASE_URL` → servern kör Postgres; utan den → in-memory + FakeLlm
+- e2e: samma 22-testresa grön mot memory **och** Postgres
+  (`cd photographic/e2e && HARNESS=memory pnpm test` / `HARNESS=postgres pnpm test`)
+- Schema + `pnpm db:migrate` / `pnpm db:reset`; migreringar är idempotenta
+- Web-rum-UI (demo-data) på `:5173`
 
 ## Fungerar inte
 
-- **Postgres-portarna** — `@photographic/db` har pool + migrate, men implementerar inte `Services` ännu
-- Servern **vägrar** `DATABASE_URL` medvetet (hellre krasch än tyst fake)
-- Riktig LLM i processen (FakeLlm svarar deterministiskt)
-- Fly med attached Postgres bootar inte förrän db-wiring landar
-- e2e mot din riktiga Claude (kräver publik HTTPS-URL)
+- Riktig OpenAI-LLM i processen (FakeLlm svarar deterministiskt; flagga saknas)
+- Fly med durable Postgres + publik HTTPS så Claude Desktop kan ansluta på riktigt
+- Web-appen är inte kopplad till REST ännu (demo-data)
+- Riktiga e-post/SMS-koder (dev skriver koden i loggen)
 
 ## Ett kommando
 
 ```bash
-cd photographic && pnpm install && pnpm dev
+cd photographic && pnpm install && pnpm db:migrate && DATABASE_URL=postgres://photographic:photographic@127.0.0.1:5432/photographic pnpm dev
 ```
 
 → `http://localhost:8787` — health `/health`, MCP `/mcp`.  
 Signup-kod skrivs i loggen (`signup_code`).
 
-Skärmar utan backend: `pnpm --filter @photographic/onboarding dev` (kod `424242`).
+Utan databas (fortfarande OK):
+
+```bash
+cd photographic && pnpm install && pnpm dev
+```
 
 ## Publik MCP (så Claude kan ansluta)
 
 **Snabbast — tunnel framför laptopen:**
 
 ```bash
-pnpm dev
+DATABASE_URL=postgres://photographic:photographic@127.0.0.1:5432/photographic pnpm dev
 npx untun@latest tunnel http://localhost:8787
 ```
 
 Lägg till `/mcp` på https-URL:en. Claude: Customize → Connectors → custom connector.
 
-**Fly:** `scripts/deploy.md`. Deploy **utan** `DATABASE_URL` (in-memory) tills db-portarna finns. Data dör vid omstart / machine suspend.
+**Fly:** `scripts/deploy.md`. Nu OK att sätta `DATABASE_URL` (Fly Postgres) — processen bootar mot riktiga portarna.
 
 ## Om du bara ska veta en sak
 
-Det du ser lokalt är produkten på låtsas-persistens. Samma HTTP/MCP-yta — inte samma lagring.
+Persistensen är på plats lokalt. Det som saknas för “Claude svarar om dig” är en publik HTTPS-URL och (valfritt) riktig LLM bakom flaggan.

@@ -1,24 +1,21 @@
 /**
  * The wiring the acceptance test runs against.
  *
- * `journey.test.ts` was written before anything implemented the ports, and it reports
- * skipped rather than passed until this module exists. It now exists, backed by
- * `@photographic/services-memory` — the reference implementation of every port.
+ * `journey.test.ts` runs unmodified against two backends, picked by `HARNESS`:
  *
- * Being precise about what that does and does not prove, because a green acceptance
- * suite is exactly the kind of thing that gets read as more than it is:
+ *  - `memory` (the default) — `@photographic/services-memory`, the reference
+ *    implementation. This is the one that proves the product's behaviour: the tiering,
+ *    the permission resolution, the trash and its purge, the invite loop, the profile
+ *    ceiling and the data boundary are all real code here, and the seams between
+ *    packages are real.
+ *  - `postgres` — `@photographic/db`'s `createPostgresServices`, behind the same
+ *    `Services` shape, against the real schema in `packages/db/migrations`. This is
+ *    where the SQL — row-level security, the append-only trigger, the hybrid search
+ *    query — joins the same suite.
  *
- *  - It does prove the product's behaviour end to end. The tiering, the permission
- *    resolution, the trash and its purge, the invite loop, the profile ceiling and the
- *    data boundary are all real code here, and the seams between packages are real.
- *  - It does not prove the SQL. Row-level security, the append-only trigger and the
- *    hybrid search query are separately verified against a local Postgres, and the
- *    `postgres` driver below is where they join this suite once `@photographic/db`
- *    implements the ports.
- *
- * Both drivers run the same test file on purpose. That is the whole reason the
- * reference implementation was worth writing: it turns "does Postgres behave correctly"
- * into a diff against something that already does.
+ * Both drivers running the same test file is the whole reason the reference
+ * implementation was worth writing: it turns "does Postgres behave correctly" into a
+ * diff against something that already does.
  */
 
 import type {
@@ -32,6 +29,7 @@ import type {
   ShortId,
 } from '@photographic/core';
 import { BUNDLE_TOKEN_BUDGET } from '@photographic/core';
+import { createPool, createPostgresServices, reset } from '@photographic/db';
 import {
   MemoryCodeSender,
   MemoryCodeStore,
@@ -49,7 +47,8 @@ import {
   type VerificationHandle,
 } from '@photographic/connect';
 import { verifyCode } from '@photographic/connect';
-import { createMemoryServices, type MemoryStore } from '@photographic/services-memory';
+import { createMemoryServices } from '@photographic/services-memory';
+import type { Pool } from 'pg';
 
 export const MCP_URL = 'https://photographic.me/mcp';
 export const CONNECT_PAGE_URL = 'https://photographic.me/connect';
@@ -64,7 +63,6 @@ export interface HarnessOptions {
 
 export interface Harness {
   services: Services;
-  store: MemoryStore;
   mcpUrl: string;
   connect: ConnectSurface;
 
@@ -107,20 +105,134 @@ interface ConnectSurface {
   previewImport(text: string): ImportPreview;
 }
 
+/**
+ * What differs between the two drivers, isolated to three things: how the backend is
+ * built, how it is torn down, and how a test reaches into it for state no port exposes
+ * (a purge deadline in the past, "does this text exist anywhere at all"). Everything
+ * else in this file is driver-agnostic.
+ */
+interface Backend {
+  services: Services;
+  actorFor(personId: PersonId, agentClient?: AgentClient, roomScope?: RoomId[]): Actor;
+  runJobsToCompletion(): Promise<number>;
+  expireTrash(shortId: ShortId): Promise<void>;
+  textExistsAnywhere(text: string): Promise<boolean>;
+  teardown(): Promise<void>;
+}
+
+async function createMemoryBackend(baseUrl: string): Promise<Backend> {
+  const wired = createMemoryServices({ baseUrl });
+  const { store } = wired;
+
+  return {
+    services: wired.services,
+    actorFor: wired.actorFor,
+    runJobsToCompletion: wired.runJobsToCompletion,
+
+    expireTrash: async (shortId) => {
+      for (const item of store.items.values()) {
+        if (item.shortId !== shortId) continue;
+        if (item.status !== 'deleted') throw new Error(`${shortId} ligger inte i papperskorgen.`);
+        item.purgeAfter = new Date(Date.now() - 1000);
+        return;
+      }
+      throw new Error(`Hittade inget minne med id ${shortId}`);
+    },
+
+    // Deliberately includes the append-only event log and the cached projections, not
+    // just the item table: "deleted" that leaves the sentence sitting in an event
+    // payload or a rendered profile is not deletion, and the trash promised deletion.
+    textExistsAnywhere: async (text) => {
+      const needle = text.toLowerCase();
+      const hit = (value: string | null | undefined) =>
+        typeof value === 'string' && value.toLowerCase().includes(needle);
+
+      for (const item of store.items.values()) if (hit(item.body)) return true;
+      for (const proposal of store.proposals.values()) if (hit(proposal.body)) return true;
+      for (const chunk of store.chunks.values()) if (hit(chunk.text)) return true;
+      for (const doc of store.documents.values()) if (hit(doc.text) || hit(doc.summary)) return true;
+      for (const profile of store.profiles.values()) if (hit(profile.rendered)) return true;
+      for (const brief of store.briefs.values()) if (hit(brief.rendered)) return true;
+      for (const event of store.allEvents()) {
+        if (hit(JSON.stringify(event.payload))) return true;
+      }
+      return false;
+    },
+
+    teardown: async () => {
+      // Nothing to release: the reference implementation holds no handles.
+    },
+  };
+}
+
+async function createPostgresBackend(baseUrl: string, databaseUrl: string): Promise<Backend> {
+  const pool: Pool = createPool({ connectionString: databaseUrl });
+  // Wipe and re-migrate so a leftover row from a previous run cannot make a test pass
+  // for the wrong reason — or fail because an email is already taken.
+  await reset(pool);
+  const wired = await createPostgresServices({ pool, baseUrl });
+
+  return {
+    services: wired.services,
+    actorFor: wired.actorFor,
+    runJobsToCompletion: wired.runJobsToCompletion,
+
+    expireTrash: async (shortId) => {
+      const result = await pool.query(
+        `UPDATE app.item SET purge_after = now() - interval '1 second'
+         WHERE short_id = $1 AND status = 'deleted'`,
+        [shortId],
+      );
+      if (result.rowCount === 0) {
+        throw new Error(`Hittade inget minne i papperskorgen med id ${shortId}.`);
+      }
+    },
+
+    // Same intent as the memory driver: check every place the text could still be,
+    // including the append-only log, cast to text so a redacted payload (which drops
+    // the `body` key entirely) does not accidentally still match.
+    textExistsAnywhere: async (text) => {
+      const needle = `%${text}%`;
+      const row = await pool.query<{ found: boolean }>(
+        `SELECT
+           EXISTS (SELECT 1 FROM app.item WHERE body ILIKE $1) OR
+           EXISTS (SELECT 1 FROM app.proposal WHERE body ILIKE $1) OR
+           EXISTS (SELECT 1 FROM app.chunk WHERE text ILIKE $1) OR
+           EXISTS (SELECT 1 FROM app.document WHERE summary ILIKE $1) OR
+           EXISTS (SELECT 1 FROM app.profile WHERE rendered ILIKE $1) OR
+           EXISTS (SELECT 1 FROM app.brief WHERE rendered ILIKE $1) OR
+           EXISTS (SELECT 1 FROM app.event WHERE payload::text ILIKE $1)
+           AS found`,
+        [needle],
+      );
+      return row.rows[0]?.found ?? false;
+    },
+
+    teardown: () => wired.close(),
+  };
+}
+
 export async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
-  const driver = options.driver ?? (process.env.HARNESS as DriverName | undefined) ?? 'memory';
+  // `databaseUrl` alone selects Postgres: the journey always passes one because its
+  // comment promises a real schema, and requiring a second env var on top of that is how
+  // a suite ends up green against memory while everyone thinks it ran against SQL.
+  const driver =
+    options.driver ??
+    (process.env.HARNESS as DriverName | undefined) ??
+    (options.databaseUrl || process.env.DATABASE_URL ? 'postgres' : 'memory');
+  const baseUrl = 'https://photographic.me';
 
-  if (driver === 'postgres') {
-    // Deliberately a hard failure rather than a silent fall back to memory. Being told
-    // the Postgres suite is unavailable is useful; being told it passed when it ran
-    // against something else is not.
-    throw new Error(
-      'HARNESS=postgres kräver att @photographic/db implementerar portarna. Kör utan HARNESS för referensimplementationen.',
-    );
-  }
+  const backend =
+    driver === 'postgres'
+      ? await createPostgresBackend(
+          baseUrl,
+          options.databaseUrl ??
+            process.env.DATABASE_URL ??
+            'postgres://photographic:photographic@127.0.0.1:5432/photographic',
+        )
+      : await createMemoryBackend(baseUrl);
 
-  const wired = createMemoryServices({ baseUrl: 'https://photographic.me' });
-  const { services, store } = wired;
+  const { services } = backend;
 
   const clients = buildClients({ mcpUrl: MCP_URL, connectPageUrl: CONNECT_PAGE_URL });
   const clientById = (id: ClientId) => {
@@ -157,6 +269,22 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     const person = await services.identity.findByEmail(email);
     if (!person) throw new Error(`Ingen person med adressen ${email}`);
     return person;
+  };
+
+  /**
+   * The last invite URL created through `services.invites.create`, tracked by
+   * wrapping the method rather than reaching into either backend's storage. Neither
+   * driver's real store can answer "what was the raw token" after the fact --
+   * Postgres only ever holds `token_hash`, on purpose, because the raw token must only
+   * ever exist in the sent link. This is that link, kept exactly as long as the test
+   * that sent it needs it.
+   */
+  let lastInviteUrl: string | null = null;
+  const originalCreateInvite = services.invites.create.bind(services.invites);
+  services.invites.create = async (actor, input) => {
+    const result = await originalCreateInvite(actor, input);
+    lastInviteUrl = result.url;
+    return result;
   };
 
   const connect: ConnectSurface = {
@@ -204,15 +332,13 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 
   return {
     services,
-    store,
     mcpUrl: MCP_URL,
     connect,
 
-    actorFor: (person, agentClient = 'claude-desktop') =>
-      wired.actorFor(person.id, agentClient),
+    actorFor: (person, agentClient = 'claude-desktop') => backend.actorFor(person.id, agentClient),
 
     actorForEmail: async (email, agentClient = 'claude-desktop') =>
-      wired.actorFor((await personByEmail(email)).id, agentClient),
+      backend.actorFor((await personByEmail(email)).id, agentClient),
 
     registerPerson: (email, displayName) =>
       services.identity.register({ email, ...(displayName ? { displayName } : {}) }),
@@ -269,55 +395,23 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     },
 
     lastInvite: () => {
-      const row = [...store.invites.values()].at(-1);
-      if (!row) throw new Error('Ingen inbjudan har skapats.');
-      return { url: row.url };
+      if (!lastInviteUrl) throw new Error('Ingen inbjudan har skapats.');
+      return { url: lastInviteUrl };
     },
 
-    runJobsToCompletion: wired.runJobsToCompletion,
+    runJobsToCompletion: backend.runJobsToCompletion,
 
     /**
      * Moves a deadline into the past instead of waiting thirty days for it.
      *
-     * The equivalent of an `UPDATE app.item SET purge_after = ...`, which is what the
-     * Postgres driver will do. Testing retention any other way means either a suite
+     * The equivalent of `UPDATE app.item SET purge_after = ...`, which is exactly what
+     * the Postgres driver does. Testing retention any other way means either a suite
      * that takes a month or a purge function that trusts an argument about what time it
      * is — and the second is how a bug deletes everything.
      */
-    expireTrash: async (shortId) => {
-      for (const item of store.items.values()) {
-        if (item.shortId !== shortId) continue;
-        if (item.status !== 'deleted') throw new Error(`${shortId} ligger inte i papperskorgen.`);
-        item.purgeAfter = new Date(Date.now() - 1000);
-        return;
-      }
-      throw new Error(`Hittade inget minne med id ${shortId}`);
-    },
+    expireTrash: backend.expireTrash,
 
-    /**
-     * Looks for the text everywhere it could possibly still be.
-     *
-     * Deliberately includes the append-only event log and the cached projections, not
-     * just the item table. "Deleted" that leaves the sentence sitting in an event
-     * payload or a rendered profile is not deletion, and the trash promised deletion.
-     */
-    textExistsAnywhere: async (text) => {
-      const needle = text.toLowerCase();
-      const hit = (value: string | null | undefined) =>
-        typeof value === 'string' && value.toLowerCase().includes(needle);
-
-      for (const item of store.items.values()) if (hit(item.body)) return true;
-      for (const proposal of store.proposals.values()) if (hit(proposal.body)) return true;
-      for (const chunk of store.chunks.values()) if (hit(chunk.text)) return true;
-      for (const doc of store.documents.values()) if (hit(doc.text) || hit(doc.summary)) return true;
-      for (const profile of store.profiles.values()) if (hit(profile.rendered)) return true;
-      for (const brief of store.briefs.values()) if (hit(brief.rendered)) return true;
-      for (const event of store.allEvents()) {
-        if (hit(JSON.stringify(event.payload))) return true;
-      }
-
-      return false;
-    },
+    textExistsAnywhere: backend.textExistsAnywhere,
 
     commitImport: async (actor, preview) => {
       const room = await services.identity.personalRoomOf(actor.personId);
@@ -331,9 +425,6 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       }
     },
 
-    teardown: async () => {
-      // Nothing to release: the reference implementation holds no handles. The Postgres
-      // driver closes its pool here.
-    },
+    teardown: backend.teardown,
   };
 }

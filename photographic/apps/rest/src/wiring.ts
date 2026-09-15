@@ -2,15 +2,18 @@
  * The composition root.
  *
  * Everything the process needs, constructed and handed back — but not started. Nothing
- * here listens on a port, sets a timer or reads `process.env`, which is the point: the
- * wiring is the part most likely to be wrong, and a test can only cover it if building it
- * has no side effects. `server.ts` is then a short script that takes what this returns
- * and serves it.
+ * here listens on a port or sets a timer, which is the point: the wiring is the part
+ * most likely to be wrong, and a test can only cover it if building it has no side
+ * effects. `server.ts` is then a short script that reads `process.env`, builds this and
+ * serves it.
  *
- * This builds the reference implementation from `@photographic/services-memory`, which is
- * what makes `pnpm dev` work on a laptop with nothing installed. That is not about
- * convenience: it means the web and voice clients can be built against a real HTTP API,
- * and a real MCP client can complete a real OAuth flow, before Postgres exists.
+ * Which `Services` this builds depends on `DATABASE_URL`. Unset, it is the reference
+ * implementation from `@photographic/services-memory` — what makes `pnpm dev` work on a
+ * laptop with nothing installed, so the web and voice clients can be built against a
+ * real HTTP API before Postgres exists. Set, it is `@photographic/db`'s
+ * `createPostgresServices`, behind the exact same `Services` shape: nothing downstream
+ * of this function — the app, the OAuth provider, the MCP mount — knows or needs to know
+ * which one it is talking to.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -30,6 +33,7 @@ import {
   MemorySessionIssuer,
 } from '@photographic/connect/testing';
 import type { Actor, PersonId, Services, SessionId } from '@photographic/core';
+import { createPool, createPostgresServices } from '@photographic/db';
 import { createMcpApp, defaultConfig } from '@photographic/mcp';
 import { createMemoryServices } from '@photographic/services-memory';
 import type { Hono } from 'hono';
@@ -49,11 +53,49 @@ export interface Wiring {
   /** Background work, run by whoever owns the schedule. */
   runJobs(): Promise<unknown>;
   purgeTrash(): Promise<number>;
+  /** Closes whatever the chosen backend holds open (a Postgres pool; nothing for memory). */
+  close(): Promise<void>;
 }
 
-export function createWiring(input: { config: RestConfig; logger: Logger }): Wiring {
-  const { config, logger } = input;
+interface WiredServices {
+  services: Services;
+  runJobs(): Promise<unknown>;
+  purgeTrash(): Promise<number>;
+  close(): Promise<void>;
+}
+
+/**
+ * Picks the backend. The only place in the process that reads `DATABASE_URL`, so
+ * `wiring.ts` stays the one seam where "which database" is decided.
+ */
+async function createServices(config: RestConfig): Promise<WiredServices> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (databaseUrl) {
+    const pool = createPool({ connectionString: databaseUrl });
+    const wired = await createPostgresServices({ pool, baseUrl: config.publicUrl });
+    return {
+      services: wired.services,
+      runJobs: () => wired.runJobsToCompletion(),
+      purgeTrash: () => wired.services.trash.purgeExpired(),
+      close: () => wired.close(),
+    };
+  }
+
   const wired = createMemoryServices({ baseUrl: config.publicUrl });
+  return {
+    services: wired.services,
+    runJobs: () => wired.jobs.runOnce(),
+    purgeTrash: () => wired.services.trash.purgeExpired(),
+    close: async () => {
+      // Nothing to release: the reference implementation holds no handles.
+    },
+  };
+}
+
+export async function createWiring(input: { config: RestConfig; logger: Logger }): Promise<Wiring> {
+  const { config, logger } = input;
+  const wired = await createServices(config);
 
   /**
    * Turns the browser session token from the sign-up flow into a person.
@@ -181,8 +223,9 @@ export function createWiring(input: { config: RestConfig; logger: Logger }): Wir
     services: wired.services,
     auth,
     oauth,
-    runJobs: () => wired.jobs.runOnce(),
-    purgeTrash: () => wired.services.trash.purgeExpired(),
+    runJobs: () => wired.runJobs(),
+    purgeTrash: () => wired.purgeTrash(),
+    close: () => wired.close(),
   };
 }
 

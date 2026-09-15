@@ -46,7 +46,7 @@ async function harness() {
   const codes: string[] = [];
   const logger = createLogger({ level: 'error' });
 
-  const wiring = createWiring({
+  const wiring = await createWiring({
     config: resolveConfig({ publicUrl: API, webUrl: WEB, environment: 'test' }),
     logger: {
       ...logger,

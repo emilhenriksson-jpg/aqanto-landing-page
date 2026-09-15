@@ -121,6 +121,9 @@ importers:
       '@photographic/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@photographic/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@photographic/mcp':
         specifier: workspace:*
         version: link:../mcp
@@ -241,13 +244,22 @@ importers:
       '@photographic/core':
         specifier: workspace:*
         version: link:../packages/core
+      '@photographic/db':
+        specifier: workspace:*
+        version: link:../packages/db
       '@photographic/services-memory':
         specifier: workspace:*
         version: link:../packages/services-memory
+      pg:
+        specifier: ^8.13.1
+        version: 8.23.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.2
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -323,12 +335,12 @@ importers:
 
   packages/db:
     dependencies:
+      '@photographic/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@photographic/core':
         specifier: workspace:*
         version: link:../core
-      '@photographic/services-memory':
-        specifier: workspace:*
-        version: link:../services-memory
       pg:
         specifier: ^8.13.1
         version: 8.23.0
