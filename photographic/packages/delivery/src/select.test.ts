@@ -11,6 +11,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { DeliveryError } from './errors.js';
+import { LogCodeSender } from './log-sender.js';
 import { ChannelCodeSender, createCodeSenderFromEnv } from './select.js';
 
 const logger = { warn: vi.fn() };
@@ -25,13 +26,24 @@ describe('createCodeSenderFromEnv', () => {
 
   it('still logs by default outside production, which is what dev and the suites rely on', async () => {
     for (const NODE_ENV of ['development', 'test', undefined]) {
-      const selection = createCodeSenderFromEnv({ ...(NODE_ENV ? { NODE_ENV } : {}) }, { logger });
+      const warn = vi.fn();
+      const selection = createCodeSenderFromEnv(
+        { ...(NODE_ENV ? { NODE_ENV } : {}) },
+        { logger: { warn } },
+      );
 
       expect(selection.inert, String(NODE_ENV)).toEqual([]);
       // Resolves rather than throwing: the code goes to the log, as it always has.
       await expect(
         selection.sender.send({ channel: 'sms', destination: '+46701234567', code: '123456' }),
       ).resolves.toBeUndefined();
+      // And the code is really in it. This is the assertion that stops the production fix
+      // below from being applied everywhere by accident, which would leave `pnpm dev` with
+      // no way to sign in either.
+      expect(warn, String(NODE_ENV)).toHaveBeenCalledWith(
+        'signup_code',
+        expect.objectContaining({ code: '123456' }),
+      );
     }
   });
 
@@ -87,6 +99,20 @@ describe('createCodeSenderFromEnv', () => {
       // Only email is inert; sms is configured and must not be wrapped.
       expect(selection.inert).toEqual(['email']);
       expect(selection.sms).toBe('46elks');
+    });
+
+    it('never writes a code to the log, whichever channel is asked', async () => {
+      const warn = vi.fn();
+      const selection = createCodeSenderFromEnv(production, { logger: { warn } });
+
+      for (const channel of ['sms', 'email'] as const) {
+        await selection.sender
+          .send({ channel, destination: '+46701234567', code: '424242' })
+          .catch(() => {});
+      }
+
+      // The refusal logs that it refused; nothing logs what it refused to send.
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('424242');
     });
   });
 
@@ -162,5 +188,51 @@ describe('ChannelCodeSender', () => {
     await expect(
       sender.send({ channel: 'email', destination: 'a@b.se', code: '1' }),
     ).rejects.toThrow('nope');
+  });
+});
+
+/**
+ * The log sender's own two behaviours, tested without going through selection.
+ *
+ * Selection never hands production a `LogCodeSender` at all, so this is the barrier
+ * behind the barrier: what happens if someone constructs one anyway. The reason to test
+ * it here rather than trust `route` is that `MemoryCodeStore` reached production exactly
+ * that way — through a construction nobody re-read.
+ */
+describe('LogCodeSender', () => {
+  it('prints the code by default, which is how a developer signs in', async () => {
+    const warn = vi.fn();
+
+    await new LogCodeSender({ warn }).send({
+      channel: 'sms',
+      destination: '+46701234567',
+      code: '424242',
+    });
+
+    expect(warn).toHaveBeenCalledWith('signup_code', {
+      channel: 'sms',
+      destination: '+46701234567',
+      code: '424242',
+    });
+  });
+
+  it('withholds the code when told to, and still says a code happened', async () => {
+    const warn = vi.fn();
+
+    await new LogCodeSender({ warn }, { revealCode: false }).send({
+      channel: 'sms',
+      destination: '+46701234567',
+      code: '424242',
+    });
+
+    // `signup_code` stays the message: the smoke scripts grep for it, and "a code was
+    // produced for this destination" is worth logging where the code itself is not.
+    expect(warn).toHaveBeenCalledWith('signup_code', {
+      channel: 'sms',
+      destination: '+46701234567',
+      code: null,
+      withheld: 'production',
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('424242');
   });
 });

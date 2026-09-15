@@ -36,6 +36,13 @@ const REDACTED_KEYS = new Set([
   'secret',
   'clientsecret',
   'apikey',
+  // The one-time sign-in code. Last line of defence rather than the fix: production does
+  // not select the log sender at all (`RefusingCodeSender`) and the log sender itself does
+  // not print the code there (`LogCodeSender`). This is what makes a *fourth* mistake —
+  // some future line that logs a code by accident — cost nothing. It is safe to redact
+  // unconditionally because nothing else in this codebase logs a field called `code`:
+  // error codes travel as `error.code` inside a serialised error, not as a top-level field.
+  'code',
   'body',
   'text',
   'query',

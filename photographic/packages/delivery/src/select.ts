@@ -55,14 +55,20 @@ export function createCodeSenderFromEnv(
   env: NodeJS.ProcessEnv,
   deps: { logger: DeliveryLogger },
 ): CodeSenderSelection {
-  const log = new LogCodeSender(deps.logger);
+  // The one environment read that decides policy rather than wiring, kept here because
+  // this is already the only file in the package that looks at `env`.
+  const inProduction = env.NODE_ENV === 'production';
+
+  // Two independent barriers rather than one, because they fail differently. The wrapper
+  // below is what a person actually meets: the channel refuses to claim it sent anything.
+  // `revealCode` is what happens if that wrapper is ever bypassed — a channel added later
+  // and forgotten in `route`, a sender constructed somewhere else — and it means the worst
+  // case is a code that goes nowhere rather than a code that goes into the log.
+  const log = new LogCodeSender(deps.logger, { revealCode: !inProduction });
 
   const email = pickEmail(env, log);
   const sms = pickSms(env, log);
 
-  // The one environment read that decides policy rather than wiring, kept here because
-  // this is already the only file in the package that looks at `env`.
-  const inProduction = env.NODE_ENV === 'production';
   const inert: SignupChannel[] = [];
 
   const route = (channel: SignupChannel, kind: string, sender: CodeSender): CodeSender => {
