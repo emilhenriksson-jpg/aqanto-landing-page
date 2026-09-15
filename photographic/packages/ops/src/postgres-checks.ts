@@ -146,7 +146,7 @@ export function migrationCheck(options: MigrationCheckOptions): Check {
             `Liggaren säger att ${lying[0]} är applicerad, men det den skapar finns inte i ` +
             'databasen. Schemat är fel och migreringsköraren kommer aldrig att rätta det, ' +
             'eftersom den bara läser liggaren. Vanligaste orsaken: en återställd databas ' +
-            'som fick tom ligare och blev helstämplad vid boot. Kör de saknade filerna ' +
+            'som fick tom liggare och blev helstämplad vid boot. Kör de saknade filerna ' +
             'manuellt och rätta liggaren innan något mer skrivs.',
           fields,
         });

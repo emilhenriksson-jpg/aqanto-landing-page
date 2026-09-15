@@ -1102,3 +1102,30 @@ against; flagged rather than assumed working.
   and it is not part of signup or login. And `apps/web` was not touched at all: it is not
   served in production yet and the deploy track is fixing that separately, so nothing here
   changes SPA mounting or server routing.
+
+## observabilitet — larm som når en människa, och en bevisad återställning
+
+- **`@photographic/ops`** (nytt paket). Fem kontroller en gång per minut i processen, och
+  ett meddelande när en av dem *ändrar sig* — inte ett mätvärde till: reservläget
+  (minnesimplementation eller lokal disk i produktion), migrationsliggaren mot det schema
+  den påstår, jobbkön, exporter som hängt, och upprepade misslyckade utskick. Kanaler är
+  webhook (Slack/Discord/ntfy) och SMS över samma 46elks-konto som inloggningskoderna;
+  SMS bara för `critical`, en timmes cooldown, och ett meddelande när det löser sig.
+  `HEARTBEAT_URL` pingas på varje frisk körning och medvetet *inte* när en kritisk
+  kontroll faller — den enda larmvägen som fungerar när maskinen är borta. Variablerna
+  står i `scripts/deploy.md`.
+- **Migrationskontrollen litar inte på liggaren.** Varje rad prövas mot något migrationen
+  faktiskt skapade (`MIGRATION_ARTIFACTS`), för att `migrate.ts` stämplar alla filer som
+  körda när liggaren är tom och `app.person` finns — reproducerat: schemat stannade på
+  0004, liggaren fick elva rader, noll filer kördes, och eftersom köraren bara läser
+  liggaren rättas det aldrig. Ett test failar om en ny migration saknar artefakt.
+- **Återställning körd, inte antagen.** 2 202 minnen, 2 892 händelser, 401 förslag och 80
+  dokument (20,9 MB) skrivna genom produktens egna tjänster, säkerhetskopierade och
+  återställda till ett scratch-mål: `pg_dump -Fc` 0,4 s → 2,1 MB, `pg_restore` 6,8 s,
+  varje tabell och varje dokument identiskt (`pnpm --filter @photographic/ops
+  verify-restore`, som hämtar och hashar om varje dokument, inte bara räknar rader).
+  Samma läsvägar gav samma svar mot originalet och mot kopian.
+- **Två fällor mätta.** `pg_restore --data-only` mot ett migrerat schema återställer
+  *ingenting* — tabellerna laddas i bokstavsordning, så varje barntabell faller på sin
+  främmande nyckel innan `person` och `room` finns. Och Supabases säkerhetskopior
+  innehåller inte Storage, bara metadata om objekten, så dokumenten behöver en egen kopia.

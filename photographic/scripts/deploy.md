@@ -156,6 +156,67 @@ app's shape.
 | HTTPS terminated properly | Fly terminates TLS at its edge (`force_https = true`), using the certificate from `fly certs` above; renewal is automatic once issued. |
 | Reachable from any device | Once DNS (step 5) and the cert (step 6) are live: any HTTPS client, anywhere — no laptop, no tunnel process, nothing that has to stay open. |
 
+### Alarms: the secrets that decide whether anyone finds out
+
+Every failure this project has had so far was found by a person noticing that something
+looked wrong. `@photographic/ops` runs five checks once a minute inside the process — the
+in-memory/local-disk fallback, the migration ledger against the schema it claims, the job
+queue, stuck exports, repeated delivery failures — and sends when one changes. Unset, all
+of it goes to the log, which is the state we were already in.
+
+```bash
+fly secrets set ALERT_WEBHOOK_URL='https://hooks.slack.com/services/...'   # or Discord, ntfy
+fly secrets set ALERT_SMS_TO='+467...'      # criticals only; reuses the 46elks sign-up credentials
+fly secrets set HEARTBEAT_URL='https://hc-ping.com/<uuid>'                 # dead-man's switch
+```
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `ALERT_WEBHOOK_URL` | unset | Chat webhook. Body carries `text` *and* `content`, so Slack, Discord and ntfy all render it. Gets warnings and criticals. |
+| `ALERT_WEBHOOK_TOKEN` | unset | `Authorization: Bearer` for the webhook, if it needs one. |
+| `ALERT_SMS_TO` | unset | Owner's number, E.164. Requires `ELKS_API_USERNAME`, `ELKS_API_PASSWORD`, `SMS_FROM` — the same 46elks account sign-up codes go through — and **refuses to boot half-configured** rather than logging silently. |
+| `ALERT_SMS_MIN_SEVERITY` | `critical` | An SMS costs money and interrupts; a channel that gets muted is worse than no channel. |
+| `ALERT_WEBHOOK_MIN_SEVERITY` | `warning` | |
+| `ALERT_COOLDOWN_MINUTES` | `60` | How often a still-failing check is repeated. Fires immediately on the change, then hourly, plus one message when it recovers. |
+| `WATCHDOG_INTERVAL_SECONDS` | `60` | |
+| `HEARTBEAT_URL` | unset | Pinged on every healthy pass and deliberately **not** pinged while a critical check fails. This is the only alarm that can fire when the machine is gone, which is the failure a one-machine deploy is most exposed to. |
+
+Two boot log lines say whether any of it is live: `alerting_selected` names the channels,
+and `alerting_not_configured` / `heartbeat_not_configured` are warnings in production.
+Test the channel deliberately rather than finding out on the night it matters — this sends
+one harmless warning:
+
+```bash
+fly ssh console -C 'pnpm --filter @photographic/ops check -- --send --test'
+fly ssh console -C 'pnpm --filter @photographic/ops check'   # one pass, JSON, exit 1 if failing
+```
+
+### Restoring: what is proven and the two traps
+
+The full runbook is `docs/recovery.md` in the project notes. The parts that belong beside
+the code:
+
+- **Supabase's backups do not include Storage.** Their own documentation is explicit:
+  the database keeps only metadata about objects. So the daily backup covers memories and
+  not document originals, and the bucket needs its own copy — `aws s3 sync` against the
+  project's S3 endpoint, or `supabase storage cp -r`.
+- **Verify a restore, do not eyeball it.** `pnpm --filter @photographic/ops verify-restore`
+  fingerprints a memory — per-table digests, event-log continuity, and every document's
+  bytes re-fetched and re-hashed — and diffs two fingerprints. Read-only, safe against
+  production, which is where the baseline has to come from:
+  ```bash
+  DATABASE_URL=<prod>    pnpm --filter @photographic/ops verify-restore -- --out /tmp/before.json
+  DATABASE_URL=<scratch> pnpm --filter @photographic/ops verify-restore -- --baseline /tmp/before.json
+  ```
+- **`pg_restore --data-only` into a migrated database restores nothing.** Measured: tables
+  load alphabetically, so every child table fails its foreign key before `person` and
+  `room` arrive, and the result is an empty schema and exit code 1 after a wall of errors
+  that reads like noise. Restore into an *empty* database, or pass `--disable-triggers`.
+- **An empty migration ledger beside an existing `app.person` makes the schema permanently
+  wrong.** `migrate.ts` stamps all eleven files as applied without running any of them;
+  since the runner only ever consults the ledger, nothing will fix it later. Reproduced,
+  and it is what the `migrations` check exists to catch.
+
 ### What this still needs from the platform track
 
 A stable, always-on host answers "does the hostname keep working," not "does Claude
