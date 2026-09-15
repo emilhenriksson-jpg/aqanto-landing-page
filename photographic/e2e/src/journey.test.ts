@@ -377,6 +377,43 @@ describe('the trash and the record', () => {
     );
   });
 
+  /**
+   * The emergency sign-in, in the feed, on both drivers.
+   *
+   * `apps/rest` proves the real write path — the exchange appends `session.break_glass_used`
+   * and the script appends `session.break_glass_minted`. What this covers is the half that
+   * can silently differ: `ACTION_OF` is duplicated in `PgHistory` and `MemoryHistory`, and a
+   * sign-in that shows up in one implementation and not the other would mean a person can be
+   * told their account is audited while their own screen shows nothing.
+   */
+  it('shows an emergency sign-in in the feed, whichever driver is serving', async () => {
+    const actor = await harness.actorForEmail(email, 'web');
+    const room = await harness.services.identity.personalRoomOf(actor.personId);
+
+    for (const eventType of ['session.break_glass_minted', 'session.break_glass_used']) {
+      await harness.services.events.append({
+        roomId: room.id,
+        eventType,
+        payload: { jti: 'abc123' },
+        actorPersonId: actor.personId,
+        agentClient: 'api',
+        explicit: true,
+      });
+    }
+
+    const history = await harness.services.history.list(actor);
+    const actions = history.map((e: { action: string }) => e.action);
+
+    expect(actions).toContain('break_glass_minted');
+    expect(actions).toContain('break_glass_used');
+
+    // About the account, not about a memory: a line implying a memory changed would be
+    // worse than no line at all.
+    const minted = history.find((e: { action: string }) => e.action === 'break_glass_minted');
+    expect(minted.body).toBeNull();
+    expect(minted.shortId).toBeNull();
+  });
+
   it('erases the text, not just the row, once retention runs out', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
     const room = await harness.services.identity.personalRoomOf(actor.personId);

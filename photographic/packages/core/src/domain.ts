@@ -280,7 +280,18 @@ export type HistoryAction =
   | 'document_added'
   | 'room_created'
   | 'member_joined'
-  | 'member_left';
+  | 'member_left'
+  /**
+   * The emergency sign-in, minted on the machine and then spent.
+   *
+   * The only two entries here that are about the *account* rather than about a memory, and
+   * they are in this feed for the reason the feed exists: a person has to be able to see
+   * that someone signed in as them without going through SMS. An event that lives only in
+   * `app.event` is one we can say was audited and they cannot read, which is worse than
+   * not claiming it. See `scripts/break-glass-signin.ts`.
+   */
+  | 'break_glass_minted'
+  | 'break_glass_used';
 
 /**
  * One line of user-facing history.
