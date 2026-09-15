@@ -78,6 +78,10 @@ const server = serve(
       // invisible until someone tries to finish an OAuth flow in a browser.
       loginUrl: `${config.webUrl}/login`,
       servingWebApp: config.webDist !== null,
+      // Said separately, because "the API is up" and "the product is reachable" were the
+      // same log line once and that is how the product was unreachable for a whole
+      // deploy without anyone seeing it.
+      servingProductApp: config.appDist !== null,
     });
   },
 );

@@ -6,7 +6,7 @@
  */
 
 import type { LogLevel } from './logger.js';
-import { resolveWebDist } from './web-app.js';
+import { resolveAppDist, resolveWebDist } from './web-app.js';
 
 export interface RestConfig {
   /** Interface and port the node server binds to. */
@@ -35,11 +35,21 @@ export interface RestConfig {
   webUrl: string;
 
   /**
-   * The built browser app, served from this origin, or `null` to serve none.
+   * The built auth app (`apps/onboarding`), served from this origin, or `null` for none.
    *
    * Set by `loadConfigFromEnv`; `createApp` never looks at the filesystem itself.
    */
   webDist: string | null;
+
+  /**
+   * The built product app (`apps/web`) — Rum, Kalender, Godkänn, Papperskorg, Historik,
+   * Fråga, Kompass — or `null` for none.
+   *
+   * Separate from `webDist` because they are mounted together over different paths, and
+   * because the two go missing for different reasons: this one is the product being
+   * unreachable, that one is the OAuth flow dead-ending after its redirect.
+   */
+  appDist: string | null;
 
   environment: 'development' | 'test' | 'production';
   logLevel: LogLevel;
@@ -98,6 +108,7 @@ export const DEFAULT_CONFIG: RestConfig = {
   // process is not serving it.
   webUrl: 'http://localhost:5174',
   webDist: null,
+  appDist: null,
   environment: 'development',
   logLevel: 'info',
   corsOrigins: [
@@ -136,6 +147,7 @@ export function loadConfigFromEnv(env: Env = process.env): RestConfig {
   const port = int(env.PORT, DEFAULT_CONFIG.port);
   const publicUrl = (env.PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/+$/, '');
   const webDist = env.WEB_DIST === '' ? null : resolveWebDist(env);
+  const appDist = env.APP_DIST === '' ? null : resolveAppDist(env);
 
   // When this process serves the browser app, the login page is on this origin and
   // pointing it at a dev server that is not running is the one way to break a
@@ -149,6 +161,7 @@ export function loadConfigFromEnv(env: Env = process.env): RestConfig {
     publicUrl,
     webUrl: webUrl.replace(/\/+$/, ''),
     webDist,
+    appDist,
     environment,
     logLevel: pickLogLevel(env.LOG_LEVEL, environment),
     corsOrigins: list(env.CORS_ORIGINS) ?? defaultCorsOrigins(env),

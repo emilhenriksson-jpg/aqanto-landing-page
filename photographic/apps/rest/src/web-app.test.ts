@@ -17,27 +17,46 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { loadConfigFromEnv } from './config.js';
 import type { AppEnv } from './context.js';
-import { isApiPath, mountWebApp, resolveAsset, resolveWebDist } from './web-app.js';
+import {
+  AUTH_APP_ROUTES,
+  isApiPath,
+  mountWebApp,
+  ownsPath,
+  PRODUCT_APP_ROUTES,
+  resolveAsset,
+  resolveWebDist,
+} from './web-app.js';
 
 let dist: string;
+let productDist: string;
 
 beforeAll(() => {
   dist = mkdtempSync(join(tmpdir(), 'photographic-web-'));
+  productDist = mkdtempSync(join(tmpdir(), 'photographic-product-'));
+  mkdirSync(join(productDist, 'assets'), { recursive: true });
+  writeFileSync(
+    join(productDist, 'index.html'),
+    '<!doctype html><div id="root" data-app="product-bundle"></div>',
+  );
   mkdirSync(join(dist, 'assets'), { recursive: true });
-  writeFileSync(join(dist, 'index.html'), '<!doctype html><div id="root"></div>');
+  writeFileSync(
+    join(dist, 'index.html'),
+    '<!doctype html><div id="root" data-app="onboarding-bundle"></div>',
+  );
   writeFileSync(join(dist, 'assets', 'app-abc123.js'), 'export const x = 1;\n');
   writeFileSync(join(dist, 'secret-sibling.txt'), 'not under dist in spirit');
 });
 
 afterAll(() => {
   rmSync(dist, { recursive: true, force: true });
+  rmSync(productDist, { recursive: true, force: true });
 });
 
 function app(): Hono<AppEnv> {
   const instance = new Hono<AppEnv>();
   instance.get('/health', (c) => c.json({ ok: true }));
   instance.get('/v1/rooms', (c) => c.json({ rooms: [] }));
-  mountWebApp(instance, { dist });
+  mountWebApp(instance, { name: 'onboarding', dist, routes: AUTH_APP_ROUTES });
   instance.notFound((c) => c.json({ error: { code: 'not_found' } }, 404));
   return instance;
 }
@@ -82,11 +101,62 @@ describe('serving the browser app from the API origin', () => {
   });
 
   it('does not shadow a prefix that merely starts with an API path', async () => {
-    // `/v1x` is not `/v1`, and a person following a link to one should get the app.
-    const response = await app().request('/v1x');
+    // `/v1x` is not `/v1`. It is also not a route any app declares, so it is a 404 —
+    // the point being that it is not treated as an API path on its way there.
+    expect(isApiPath('/v1x')).toBe(false);
 
-    expect(response.status).toBe(200);
-    expect(await response.text()).toContain('id="root"');
+    const response = await app().request('/v1x');
+    expect(response.status).toBe(404);
+  });
+
+  /**
+   * The regression this file now exists to prevent.
+   *
+   * An open catch-all made every unclaimed path answer `200` with a shell, so
+   * `GET /kalender` looked served while the app that renders it was not in the image at
+   * all — and a path nobody had ever routed looked served too. A status code stopped
+   * being evidence. These assert the boundary in both directions.
+   */
+  it('refuses a path no app declares, rather than answering with a shell', async () => {
+    for (const path of ['/nonsense', '/kalender', '/rum', '/totally-made-up-xyz']) {
+      const response = await app().request(path);
+
+      expect(response.status, path).toBe(404);
+      expect(response.headers.get('content-type'), path).toContain('application/json');
+    }
+  });
+
+  it('serves each app only over the routes it declares', async () => {
+    const instance = new Hono<AppEnv>();
+    mountWebApp(
+      instance,
+      { name: 'onboarding', dist, routes: AUTH_APP_ROUTES },
+      { name: 'web', dist: productDist, routes: PRODUCT_APP_ROUTES },
+    );
+    instance.notFound((c) => c.json({ error: { code: 'not_found' } }, 404));
+
+    // Each bundle is identifiable, so this asserts *which* app answered rather than
+    // that something did.
+    const auth = await instance.request('/login?auth_request=abc');
+    expect(await auth.text()).toContain('onboarding-bundle');
+
+    const product = await instance.request('/kalender');
+    expect(await product.text()).toContain('product-bundle');
+
+    expect((await instance.request('/nonsense')).status).toBe(404);
+  });
+});
+
+describe('ownsPath', () => {
+  it("matches a declared route and the paths beneath it", () => {
+    expect(ownsPath(['/kalender'], '/kalender')).toBe(true);
+    expect(ownsPath(['/kalender'], '/kalender/2026-10-15')).toBe(true);
+    expect(ownsPath(['/kalender'], '/kalendarium')).toBe(false);
+  });
+
+  it("does not let '/' own everything, which is the open catch-all again", () => {
+    expect(ownsPath(['/'], '/')).toBe(true);
+    expect(ownsPath(['/'], '/anything')).toBe(false);
   });
 });
 
@@ -124,8 +194,10 @@ describe('reading outside the build directory', () => {
   it('answers with the shell rather than a file from the host', async () => {
     const response = await app().request('/../../../../../../etc/passwd');
 
-    expect(response.status).toBe(200);
-    expect(await response.text()).toContain('id="root"');
+    // Never a file from the host. It is now a 404 rather than the shell, because no app
+    // declares that route — which is a better answer to the same question.
+    expect(response.status).toBe(404);
+    expect(response.headers.get('content-type')).toContain('application/json');
   });
 });
 

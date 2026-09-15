@@ -81,18 +81,30 @@ function contentType(path: string): string {
 export function resolveWebDist(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
-  const candidates = env.WEB_DIST
-    ? [resolve(env.WEB_DIST)]
-    : [resolve(packageRoot(), '..', 'onboarding', 'dist')];
+  return distIn(env.WEB_DIST, resolve(packageRoot(), '..', 'onboarding', 'dist'));
+}
 
-  for (const candidate of candidates) {
-    try {
-      if (statSync(join(candidate, 'index.html')).isFile()) return candidate;
-    } catch {
-      // No build there. Next candidate, or none.
-    }
+/**
+ * Where the built product app is — `apps/web`, the screens a person actually uses.
+ *
+ * A sibling of `resolveWebDist` rather than a second candidate inside it, because the
+ * two are mounted at the same time over different paths and "which bundle is missing"
+ * has to be answerable separately. `APP_DIST` mirrors `WEB_DIST`, including the
+ * empty-string escape hatch for serving nothing where a build exists.
+ */
+export function resolveAppDist(
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  return distIn(env.APP_DIST, resolve(packageRoot(), '..', 'web', 'dist'));
+}
+
+function distIn(override: string | undefined, fallback: string): string | null {
+  const candidate = override ? resolve(override) : fallback;
+  try {
+    return statSync(join(candidate, 'index.html')).isFile() ? candidate : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 function packageRoot(): string {
@@ -147,35 +159,106 @@ async function fileResponse(path: string, cacheControl: string): Promise<Respons
 }
 
 /**
- * Mounts the browser app over everything the API did not claim.
+ * What each browser app can actually render.
+ *
+ * Enumerated, and that is the whole point of this file's shape. A single-page app
+ * answers *any* path with its shell, so a mount with an open catch-all reports `200` for
+ * routes it cannot render — which is not a cosmetic wrong answer. It is indistinguishable
+ * from the app working: `GET /kalender` returned `200` and the right content type while
+ * the calendar was not being served at all, and the only reason anybody noticed was a
+ * person opening the page and seeing the wrong thing. A nonsense path returned `200` too.
+ *
+ * So the rule here is that a shell is served only for a path the app routes, and
+ * anything else falls through to the JSON 404. These lists are the source of truth for
+ * that, they are exported so a test can read them, and adding a screen means adding its
+ * route here.
+ */
+
+/** `apps/onboarding` — the auth surface. Keep this authoritative; the OAuth round trip
+ * depends on `/login` in particular. `?auth_request=` arrives on `/login`. */
+export const AUTH_APP_ROUTES = ['/login', '/connect', '/invite'] as const;
+
+/** `apps/web` — the product. Mirrors its router in `apps/web/src/App.tsx`. */
+export const PRODUCT_APP_ROUTES = [
+  '/',
+  '/rum',
+  '/klienter',
+  '/godkann',
+  '/fraga',
+  '/papperskorg',
+  '/historik',
+  '/kompass',
+  '/kalender',
+  '/i',
+] as const;
+
+export interface SpaMount {
+  /** Named for the boot log, so which bundle answers which path is visible at startup. */
+  name: string;
+  dist: string;
+  routes: readonly string[];
+}
+
+/**
+ * Whether one of `routes` owns `path`.
+ *
+ * `'/'` matches only itself — as a prefix it would own everything and put the open
+ * catch-all straight back.
+ */
+export function ownsPath(routes: readonly string[], path: string): boolean {
+  return routes.some((route) =>
+    route === '/' ? path === '/' : path === route || path.startsWith(`${route}/`),
+  );
+}
+
+/**
+ * Mounts one or more browser apps over the paths the API did not claim.
  *
  * Call after every API route and before `notFound`. Assets are content-hashed by Vite,
- * so they are immutable; the shell never is, because the next deploy changes which
- * hashed bundle it points at.
+ * so they are immutable; a shell never is, because the next deploy changes which hashed
+ * bundle it points at.
+ *
+ * Both apps emit their assets under `/assets/`, so a request for one is resolved by
+ * trying each bundle in turn. That is safe rather than lucky: Vite derives the filename
+ * from a hash of the contents, so two bundles agreeing on a name agree on the bytes, and
+ * disagreeing on the bytes means disagreeing on the name.
  */
-export function mountWebApp(app: Hono<AppEnv>, input: { dist: string }): void {
-  const dist = resolve(input.dist);
-  const shell = join(dist, 'index.html');
+export function mountWebApp(app: Hono<AppEnv>, ...mounts: readonly SpaMount[]): void {
+  const resolved = mounts.map((mount) => ({
+    ...mount,
+    dist: resolve(mount.dist),
+    shell: join(resolve(mount.dist), 'index.html'),
+  }));
 
   app.get('*', async (c, next) => {
     const path = c.req.path;
     if (isApiPath(path)) return next();
 
-    const asset = resolveAsset(dist, path);
-    if (asset && asset !== shell) {
-      const immutable = path.startsWith('/assets/');
+    for (const mount of resolved) {
+      const asset = resolveAsset(mount.dist, path);
+      if (!asset || asset === mount.shell) continue;
+
       const found = await fileResponse(
         asset,
-        immutable ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
+        path.startsWith('/assets/')
+          ? 'public, max-age=31536000, immutable'
+          : 'public, max-age=300',
       );
       if (found) return found;
     }
 
-    // The shell, for every path the app routes itself: `/login`, `/connect`,
-    // `/invite/<token>`. `no-cache` rather than `no-store` — it revalidates, so a
-    // person on a slow connection still gets a conditional request rather than a
-    // full download, and never a stale bundle reference.
-    const page = await fileResponse(shell, 'no-cache');
-    return page ?? next();
+    for (const mount of resolved) {
+      if (!ownsPath(mount.routes, path)) continue;
+
+      // `no-cache` rather than `no-store` — it revalidates, so a person on a slow
+      // connection still gets a conditional request rather than a full download, and
+      // never a stale bundle reference.
+      const page = await fileResponse(mount.shell, 'no-cache');
+      if (page) return page;
+    }
+
+    // Routed by nobody. A JSON 404 is the honest answer, and it is what makes the two
+    // lists above meaningful rather than decorative.
+    return next();
   });
 }

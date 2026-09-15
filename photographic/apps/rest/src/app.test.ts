@@ -22,6 +22,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from './app.js';
 import { resolveConfig } from './config.js';
 import { silentLogger } from './logger.js';
+import { FIRST_PARTY_CLIENT_ID } from './oauth-contract.js';
 import type { OAuthProvider, TokenClaims } from './oauth-contract.js';
 
 /** Maps a bearer token to a person. Nothing else in the app may decide identity. */
@@ -53,6 +54,7 @@ interface Fixture {
   tokens: Map<string, TokenClaims>;
   sender: MemoryCodeSender;
   signIn(person: Person, agentClient?: TokenClaims['agentClient']): Promise<string>;
+  signInFirstParty(personId: PersonId): Promise<string>;
   get(path: string, token?: string): Promise<TestResponse>;
   post(path: string, body?: unknown, token?: string): Promise<TestResponse>;
   patch(path: string, body?: unknown, token?: string): Promise<TestResponse>;
@@ -135,6 +137,34 @@ async function fixture(): Promise<Fixture> {
       return token;
     },
 
+    /**
+     * The person's own browser, which is a different caller from a connected client.
+     *
+     * Answering a proposal is first-party only — the Godkänn queue exists so that a
+     * person decides, and a route any `memory.write` token could call made that
+     * advisory. `signIn` deliberately issues a client-shaped token (`clientId: 'test'`),
+     * so tests that approve something have to say, as the product does, that it is the
+     * person doing it.
+     */
+    signInFirstParty: async (personId) => {
+      const session = await wired.services.sessions.start({
+        personId,
+        agentClient: 'web',
+        transport: 'rest',
+      });
+      const token = `tok-firstparty-${personId}`;
+      tokens.set(token, {
+        personId,
+        sessionId: session.id as SessionId,
+        agentClient: 'web',
+        clientId: FIRST_PARTY_CLIENT_ID,
+        scopes: [...SUPPORTED_SCOPES],
+        roomScope: [],
+        expiresAt: null,
+      });
+      return token;
+    },
+
     get: (path, token) =>
       app.request(`https://photographic.test${path}`, {
         headers: token ? { authorization: `Bearer ${token}` } : {},
@@ -174,10 +204,22 @@ async function saveIntoRoom(
   }
 
   const { proposal } = await queued.json();
-  const accepted = await f.post(`/v1/memory/proposals/${proposal.id}`, { accept: true }, token);
+  // Approved by the person, not by the client that queued it — see `signInFirstParty`.
+  const accepted = await f.post(
+    `/v1/memory/proposals/${proposal.id}`,
+    { accept: true },
+    await f.signInFirstParty(claimsFor(f, token).personId),
+  );
   if (accepted.status !== 200) {
     throw new Error(`kunde inte godkänna förslaget: ${accepted.status}`);
   }
+}
+
+/** The claims behind a fixture token, so a helper can find whose token it was given. */
+function claimsFor(f: Fixture, token: string): TokenClaims {
+  const claims = f.tokens.get(token);
+  if (!claims) throw new Error('okänd token i testet');
+  return claims;
 }
 
 let f: Fixture;
@@ -837,11 +879,15 @@ describe('importing what another system remembers', () => {
   });
 
   it('puts an approved proposal into the profile', async () => {
-    const { token } = await register(f, 'emil@example.com', 'Emil');
+    const { person, token } = await register(f, 'emil@example.com', 'Emil');
     await f.post('/v1/import', { text: '- User is allergic to ketchup' }, token);
 
     const pending = await (await f.get('/v1/memory/proposals', token)).json();
-    const res = await f.post(`/v1/memory/proposals/${pending.proposals[0].id}`, { accept: true }, token);
+    const res = await f.post(
+      `/v1/memory/proposals/${pending.proposals[0].id}`,
+      { accept: true },
+      await f.signInFirstParty(person.id),
+    );
     expect(res.status).toBe(200);
 
     await f.wired.runJobsToCompletion();
@@ -850,10 +896,14 @@ describe('importing what another system remembers', () => {
   });
 
   it('records an approval as an approval', async () => {
-    const { token } = await register(f, 'emil@example.com', 'Emil');
+    const { person, token } = await register(f, 'emil@example.com', 'Emil');
     await f.post('/v1/import', { text: '- User is allergic to ketchup' }, token);
     const pending = await (await f.get('/v1/memory/proposals', token)).json();
-    await f.post(`/v1/memory/proposals/${pending.proposals[0].id}`, { accept: true }, token);
+    await f.post(
+      `/v1/memory/proposals/${pending.proposals[0].id}`,
+      { accept: true },
+      await f.signInFirstParty(person.id),
+    );
 
     const history = await (await f.get('/v1/history', token)).json();
     const saved = history.entries.find((e: { action: string }) => e.action === 'saved');

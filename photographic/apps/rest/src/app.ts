@@ -53,7 +53,7 @@ import { memoryRoutes } from './routes/memory.js';
 import { oauthRoutes } from './routes/oauth.js';
 import { publicInviteRoutes, roomRoutes } from './routes/rooms.js';
 import { trashRoutes } from './routes/trash.js';
-import { mountWebApp } from './web-app.js';
+import { AUTH_APP_ROUTES, mountWebApp, PRODUCT_APP_ROUTES } from './web-app.js';
 
 export interface AppDeps {
   services: Services;
@@ -286,10 +286,22 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   // The browser app
   // ---------------------------------------------------------------------------
 
-  // Last, so it can only answer paths the API did not claim, and only when there is a
-  // build to serve. This is what lets one hostname carry the API, the MCP endpoint and
-  // the login page an authorization request redirects to.
-  if (config.webDist) mountWebApp(app, { dist: config.webDist });
+  // Last, so they can only answer paths the API did not claim, and only where there is a
+  // build to serve. This is what lets one hostname carry the API, the MCP endpoint, the
+  // login page an authorization request redirects to, and the product itself.
+  //
+  // The auth app is listed first so it stays authoritative for `/login` even if the
+  // product app were ever given an overlapping route: the OAuth round trip depends on
+  // that page and nothing else should be able to take it.
+  mountWebApp(
+    app,
+    ...(config.webDist
+      ? [{ name: 'onboarding', dist: config.webDist, routes: AUTH_APP_ROUTES }]
+      : []),
+    ...(config.appDist
+      ? [{ name: 'web', dist: config.appDist, routes: PRODUCT_APP_ROUTES }]
+      : []),
+  );
 
   app.notFound((c) =>
     c.json({ error: { code: 'not_found', message: 'Den vägen finns inte.' } }, 404),

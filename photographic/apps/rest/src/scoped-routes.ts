@@ -87,8 +87,9 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   // -------------------------------------------------------------------------
 
   ['POST', '/memory', SCOPE_MEMORY_WRITE],
+  // Creating a proposal, not answering one. This is the queue's entrance and a model is
+  // meant to use it; `POST /memory/proposals/:id` is the exit and is first-party only.
   ['POST', '/memory/proposals', SCOPE_MEMORY_WRITE],
-  ['POST', '/memory/proposals/:id', SCOPE_MEMORY_WRITE],
   ['PATCH', '/memory/:shortId', SCOPE_MEMORY_WRITE],
   ['DELETE', '/memory/:shortId', SCOPE_MEMORY_WRITE],
   ['POST', '/memory/undo', SCOPE_MEMORY_WRITE],
@@ -181,6 +182,27 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
 export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
   ['PATCH', '/clients/:clientId'],
   ['DELETE', '/clients/:clientId'],
+
+  /**
+   * Answering a proposal.
+   *
+   * The Godkänn queue exists so that a *person* decides what enters their memory, and
+   * this route is where that decision is recorded. It used to require `memory.write`,
+   * which every connected client holds — so a client could answer the proposals it had
+   * just created, and the queue was advisory rather than a gate. Verified against the
+   * live deploy: a model's own access token approved its own `update_compass` proposal
+   * and the item landed.
+   *
+   * That no shipping client does this is a fact about today's clients, not a property
+   * of the system. Export and deletion are already first-party only on exactly this
+   * reasoning, and approving a write into someone's memory is at least as consequential
+   * as reading it out.
+   *
+   * Costs nothing legitimate: the web app answers proposals with the person's session
+   * token (`apps/web/src/api/client.ts`), which is what `firstPartyOnly` requires, and
+   * no MCP tool exposes approval at all.
+   */
+  ['POST', '/memory/proposals/:id'],
 
   /**
    * Export and deletion.

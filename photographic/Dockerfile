@@ -63,6 +63,15 @@ RUN pnpm --filter @photographic/rest... run build
 # connecting. Building it here is also what makes `webUrl` equal `PUBLIC_URL`, because
 # the login page is then on this origin.
 RUN pnpm --filter @photographic/onboarding... run build
+# The product itself: Rum, Kalender, Godkänn, Papperskorg, Historik, Fråga, Kompass.
+#
+# Also not a dependency of `@photographic/rest`, and it was missing for the same reason
+# the consent screen was — with a worse symptom, because the onboarding app's catch-all
+# answered every unclaimed path with its own shell. So `GET /kalender` returned 200 and
+# `text/html` while the calendar was not served at all, and a nonsense path returned 200
+# too. `mountWebApp` now only serves a shell for a route the app actually declares, so a
+# missing build is a 404 rather than a plausible-looking wrong page.
+RUN pnpm --filter @photographic/web... run build
 
 # Fail the build rather than the first boot if a workspace package cannot resolve its
 # own dependencies. This is the exact failure the manifest list caused, and it cost a

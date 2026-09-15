@@ -31,6 +31,7 @@ import type {
 import { NotFoundError, NotPermittedError } from '@photographic/core';
 import {
   BRIEF_TOKEN_BUDGET,
+  COMPASS_PRINCIPLES,
   compassEntriesFrom,
   PROFILE_TOKEN_BUDGET,
   ROOM_HEADLINE_TOKEN_BUDGET,
@@ -197,6 +198,19 @@ export class PgProjection implements ProjectionPort {
       [personId],
     );
     if (!row) return this.buildProfile(personId);
+
+    // A profile cached before `0015_personal_compass.sql` has `compass = '[]'`, the
+    // column default, and returning it would deliver a person no compass at all until
+    // something else happened to rebuild their profile. Treated as a cache miss rather
+    // than as an answer: the six principles are not optional and their absence is not a
+    // state the person chose. Rebuilding also refreshes the cached text, so a later edit
+    // to a default in `packages/core/src/compass.ts` reaches an existing account instead
+    // of stopping at whatever was cached the day they signed up.
+    //
+    // Bounded: the rebuild writes the full set, so this happens once per stale profile.
+    if (!Array.isArray(row.compass) || row.compass.length !== COMPASS_PRINCIPLES.length) {
+      return this.buildProfile(personId);
+    }
 
     return {
       personId,
