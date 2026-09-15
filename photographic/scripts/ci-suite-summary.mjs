@@ -64,8 +64,14 @@ for (const [name, expected] of Object.entries(expectations.groups)) {
   if (report.status !== 'passed') {
     problems.push(`${name}: ${report.problems?.join(' ') || 'sviten misslyckades.'}`);
   }
-  if (report.skipped > expected.maxSkipped) {
-    problems.push(`${name}: ${report.skipped} överhoppade, taket är ${expected.maxSkipped}.`);
+  // The same key-aware rule `run-suites.mjs` applies, so the gate and the job that
+  // produced the report cannot disagree about the same numbers. In practice CI never has
+  // a key and this is the keyless ceiling either way — stated rather than assumed,
+  // because the one thing worse than a wrong bound is two places holding different ones.
+  const gated = process.env.OPENAI_API_KEY ? (expected.openAiGated ?? 0) : 0;
+  const maxSkipped = expected.maxSkipped - gated;
+  if (report.skipped > maxSkipped) {
+    problems.push(`${name}: ${report.skipped} överhoppade, taket är ${maxSkipped}.`);
   }
 }
 
