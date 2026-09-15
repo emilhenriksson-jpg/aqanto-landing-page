@@ -6,9 +6,14 @@
  * neither had ever run once. These tests are the proof that giving them a producer
  * actually reaches the real behaviour -- not only that the enqueue call compiles -- and
  * that a sweep which throws is recorded rather than disappearing. See the comment beside
- * `jobs.work('purge_trash', ...)` in `./index.ts` for why the job queue is the one
+ * `jobs.scheduleRecurring(...)` in `./index.ts` for why the job queue is the one
  * mechanism for both, replacing the `setInterval` and the missing producer it used to be
  * split across.
+ *
+ * Each test enqueues its own ad hoc job rather than waiting on that recurring chain: it
+ * is seeded one interval out (an hour, fifteen minutes), deliberately not immediately --
+ * see `MemoryJobs.scheduleRecurring` -- so a test that drained the queue a moment after
+ * construction would find nothing due yet.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -45,7 +50,9 @@ describe('purge_trash, run through the queue', () => {
 
     expect(await wired.services.trash.list(actor)).toHaveLength(1);
 
-    // The point of this test: nothing here calls `trash.purgeExpired()`. Only the queue.
+    // The point of this test: nothing here calls `trash.purgeExpired()`. Only the queue,
+    // via an ad hoc enqueue rather than the recurring chain -- see the file comment.
+    await wired.jobs.enqueue({ kind: 'purge_trash' });
     const ran = await wired.runJobsToCompletion();
     expect(ran).toBeGreaterThan(0);
 
@@ -80,7 +87,8 @@ describe('expire_invites, run through the queue', () => {
     const before = await wired.services.invites.listForRoom(actor, room.id);
     expect(before[0]?.status).toBe('pending');
 
-    // As above: nothing here calls `invites.expireOverdue()`. Only the queue.
+    // As above: nothing here calls `invites.expireOverdue()`. Only the queue, ad hoc.
+    await wired.jobs.enqueue({ kind: 'expire_invites' });
     const ran = await wired.runJobsToCompletion();
     expect(ran).toBeGreaterThan(0);
 
@@ -95,6 +103,7 @@ describe('a sweep that fails is recorded rather than swallowed, and does not sto
     wired.jobs.work('purge_trash', async () => {
       throw new Error('kaboom: simulerat purgningsfel');
     });
+    await wired.jobs.enqueue({ kind: 'purge_trash' });
 
     // A rejection here, rather than the assertions below running at all, is the failure
     // mode this test exists to rule out: a failed sweep is the exact case that a
@@ -112,6 +121,7 @@ describe('a sweep that fails is recorded rather than swallowed, and does not sto
     wired.jobs.work('expire_invites', async () => {
       throw new Error('kaboom: simulerat expireringsfel');
     });
+    await wired.jobs.enqueue({ kind: 'expire_invites' });
 
     await wired.runJobsToCompletion();
 
