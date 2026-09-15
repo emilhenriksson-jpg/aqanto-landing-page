@@ -6,6 +6,7 @@
  */
 
 import type { LogLevel } from './logger.js';
+import { resolveWebDist } from './web-app.js';
 
 export interface RestConfig {
   /** Interface and port the node server binds to. */
@@ -27,8 +28,18 @@ export interface RestConfig {
    * redirects to, and the connect page a QR code points at. Deriving those from the API
    * origin sends people to an origin that serves no HTML, and the failure only shows up
    * in a browser — never in a test that checks the redirect happened.
+   *
+   * The two coincide when this process serves the browser app itself (see `webDist`),
+   * which is what a single public hostname requires.
    */
   webUrl: string;
+
+  /**
+   * The built browser app, served from this origin, or `null` to serve none.
+   *
+   * Set by `loadConfigFromEnv`; `createApp` never looks at the filesystem itself.
+   */
+  webDist: string | null;
 
   environment: 'development' | 'test' | 'production';
   logLevel: LogLevel;
@@ -71,8 +82,10 @@ export const DEFAULT_CONFIG: RestConfig = {
   host: '0.0.0.0',
   port: 8787,
   publicUrl: 'http://localhost:8787',
-  // The onboarding app's dev port, which is where the login page lives today.
+  // The onboarding app's dev port, which is where the login page lives when this
+  // process is not serving it.
   webUrl: 'http://localhost:5174',
+  webDist: null,
   environment: 'development',
   logLevel: 'info',
   corsOrigins: [
@@ -107,12 +120,20 @@ export function loadConfigFromEnv(env: Env = process.env): RestConfig {
   const environment = pickEnvironment(env.NODE_ENV);
   const port = int(env.PORT, DEFAULT_CONFIG.port);
   const publicUrl = (env.PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/+$/, '');
+  const webDist = env.WEB_DIST === '' ? null : resolveWebDist(env);
+
+  // When this process serves the browser app, the login page is on this origin and
+  // pointing it at a dev server that is not running is the one way to break a
+  // connection that otherwise works. `WEB_ORIGIN` still wins, for the case where the
+  // pages really are published somewhere else.
+  const webUrl = env.WEB_ORIGIN ?? (webDist ? publicUrl : DEFAULT_CONFIG.webUrl);
 
   return resolveConfig({
     host: env.HOST ?? DEFAULT_CONFIG.host,
     port,
     publicUrl,
-    webUrl: (env.WEB_ORIGIN ?? DEFAULT_CONFIG.webUrl).replace(/\/+$/, ''),
+    webUrl: webUrl.replace(/\/+$/, ''),
+    webDist,
     environment,
     logLevel: pickLogLevel(env.LOG_LEVEL, environment),
     corsOrigins: list(env.CORS_ORIGINS) ?? defaultCorsOrigins(env),

@@ -14,3 +14,4 @@ export * from './middleware.js';
 export * from './oauth-contract.js';
 export * from './schemas.js';
 export * from './serialise.js';
+export { isApiPath, mountWebApp, resolveAsset, resolveWebDist } from './web-app.js';

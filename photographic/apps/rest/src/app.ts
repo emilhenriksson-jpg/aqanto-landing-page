@@ -41,6 +41,7 @@ import { memoryRoutes } from './routes/memory.js';
 import { oauthRoutes } from './routes/oauth.js';
 import { publicInviteRoutes, roomRoutes } from './routes/rooms.js';
 import { trashRoutes } from './routes/trash.js';
+import { mountWebApp } from './web-app.js';
 
 export interface AppDeps {
   services: Services;
@@ -200,6 +201,15 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   authenticated.route('/', roomRoutes());
 
   app.route('/v1', authenticated);
+
+  // ---------------------------------------------------------------------------
+  // The browser app
+  // ---------------------------------------------------------------------------
+
+  // Last, so it can only answer paths the API did not claim, and only when there is a
+  // build to serve. This is what lets one hostname carry the API, the MCP endpoint and
+  // the login page an authorization request redirects to.
+  if (config.webDist) mountWebApp(app, { dist: config.webDist });
 
   app.notFound((c) =>
     c.json({ error: { code: 'not_found', message: 'Den vägen finns inte.' } }, 404),
