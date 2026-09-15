@@ -58,8 +58,17 @@ app's shape.
 2. **Deploy.** From `photographic/`:
    ```bash
    fly launch --no-deploy   # only if the app does not exist yet in this Fly org
-   fly deploy
+   fly deploy --ha=false
    ```
+   `--ha=false` is not optional cost-shaving, it is the difference between the machine
+   count that was costed and double it. Without it Fly creates a *second* machine on the
+   first deploy of an `[http_service]` app — "Creating a second machine for high
+   availability and zero downtime deployments" — regardless of `min_machines_running = 1`.
+   That is a real trade (a one-machine deploy has a few seconds where nothing answers),
+   but it doubles a $13.15/month machine to $26.30, and it is a decision to take
+   deliberately rather than to inherit from a default. It also used to be actively
+   harmful: with the old `LocalBlobStore` default, two machines meant an upload landed on
+   one machine's disk and a later read could be routed to the other and find nothing.
    Builds from the existing `Dockerfile`. This can succeed and answer at
    `https://photographic.fly.dev` before the custom domain and cert are wired up in
    steps 4–6 — useful for confirming the container itself boots — but no client should
@@ -70,11 +79,33 @@ app's shape.
 3. **Secrets** (not in `fly.toml` — anything reaching here is a secret, not config):
    ```bash
    fly secrets set DATABASE_URL=postgres://...   # Supabase connection string, PR #2
+   fly secrets set SUPABASE_URL=https://<ref>.supabase.co \
+                   SUPABASE_SERVICE_ROLE_KEY=eyJ...   # document originals, see below
    fly secrets set OPENAI_API_KEY=sk-... PHOTOGRAPHIC_LLM=openai   # optional real LLM
    ```
    Without `DATABASE_URL` the deployed process runs the in-memory reference
    implementation — fine for proving the deploy boots, wrong for anything meant to
    persist or for Claude to actually use.
+
+   **`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are not optional in production**, even
+   though the process boots happily without them. They are what `resolveBlobStore` needs
+   to pick `SupabaseStorageBlobStore`; without them it falls back to `LocalBlobStore` and
+   writes document originals to the machine's own disk, which Fly replaces on every
+   deploy. The failure is silent in the worst way: the upload succeeds, the extracted text
+   stays in Postgres and stays searchable, and only the original file is gone. Check the
+   boot log says `{"msg":"blob_storage","kind":"supabase"}` and not `"local"`.
+
+   The bucket must exist first — the adapter does not create it, and a missing bucket
+   surfaces as a `400` from Storage rather than as anything about configuration. Private,
+   always; `signedUrl` is what hands out time-limited access:
+   ```bash
+   curl -X POST "$SUPABASE_URL/storage/v1/bucket" \
+     -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+     -H 'Content-Type: application/json' \
+     -d '{"id":"documents","name":"documents","public":false}'
+   ```
+   The key is readable headlessly from the Management API — no dashboard visit needed:
+   `GET /v1/projects/{ref}/api-keys?reveal=true`, the entry with `name: service_role`.
 4. **Attach the custom domain and request a certificate:**
    ```bash
    fly certs add mcp.photographic.space
