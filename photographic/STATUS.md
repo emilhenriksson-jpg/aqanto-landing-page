@@ -1118,6 +1118,133 @@ against; flagged rather than assumed working.
   served in production yet and the deploy track is fixing that separately, so nothing here
   changes SPA mounting or server routing.
 
+## Durability — export streaming, job leases, document life cycle
+
+Findings 7, 9 and 10 of the second review, plus Astra's note that the export download link
+was not single-use. All four verified against the code before anything was changed; all
+four were real, and one of them was worse than reported.
+
+**Where the review was right, in its own words.** `BufferingSink` (`exports.ts:107–115`)
+collected every chunk in an array and handed `Buffer.concat` to `BlobStore.put` — two
+copies of the whole archive — while `ZipWriter.assertWithinZipLimits` refused anything past
+4 GB against a 10 GB product limit on a 2 GB machine. `app.job` was claimed with `locked_at`
+and nothing else: no lease, no reaper, so a process that died after claiming held the row
+for ever. `documents.ts` wrote bytes and charged the person's quota before the document
+transaction with no compensation and no delete route. `export_download` counted `use_count`
+and never capped it, on a seven-day TTL.
+
+**Worse than reported, in two places.** First, the download path had the same memory bug as
+the build — `resolveDownload` did `blobs.get(key)` in full and the route answered
+`c.body(bytes)` — so even a successfully built 8 GB archive would have taken the machine
+down on the way out. Astra caught this (`B7`); the second review's finding 7 named only the
+build. Second, `purge_trash` and `expire_invites` had handlers registered in both
+composition roots and **nothing anywhere ever enqueued them**. So invite expiry was not
+"stopping after a crash" as finding 9 says — it had never run at all, and neither had the
+trash purge outside the timer in `server.ts`. A handler with no producer reads as a built
+feature, which is why it survived.
+
+**Export.** `ZipWriter` writes zip64 where it is needed: a streamed entry (unknown length)
+gets a 64-bit data descriptor, an entry of known length under 4 GB is written exactly as
+before, and the zip64 end records appear only once the directory outgrows zip32 — so a
+small archive is byte-identical to what shipped. `BlobStore` gained `createUpload` and
+`getStream`. `S3BlobStore` does a real multipart upload (8 MiB parts, awaited, so
+backpressure reaches the zip writer); `LocalBlobStore` streams to a temp file and renames;
+`SupabaseStorageBlobStore` spools to disk and streams off it, because the Storage REST API
+takes one request with a length. **Deploy note:** the Supabase path is capped at
+`SUPABASE_EXPORT_SPOOL_MAX_BYTES` (2 GB default) and refuses with an instruction rather
+than filling the machine's disk — for the full 10 GB, point `BLOB_S3_*` at Supabase's own
+S3-compatible endpoint and `S3BlobStore` takes over with no ceiling but the product's. One
+build at a time per process, and the download is piped from storage.
+
+Verified at the real limit rather than near it: a 10 GB archive written to disk through the
+streaming sink is read correctly by `python3 -m zipfile` — entry sizes right, and the entry
+whose local header sits past 4 GB found through the zip64 records
+(`PHOTOGRAPHIC_NEAR_LIMIT_GB=10 PHOTOGRAPHIC_NEAR_LIMIT_DISK=1`, 13 s). The default suite
+crosses the 4 GB cliff through a discarding sink and asserts the heap grows by less than
+64 MB. Against Postgres, a 3 GB export of six 512 MB documents runs end to end with heap
+growth under 96 MB and the archive digest computed as it streams.
+
+**Jobs.** A claim is now a lease: `locked_by` is a worker id (`host:pid:rand`),
+`lease_expires_at` is a deadline, and a handler heartbeats while it works, so "this takes
+eleven minutes" and "this process is gone" stop looking the same. Every sweep calls
+`app.reclaim_expired_jobs` first, which counts the attempt — a job that kills its worker
+every time therefore fails visibly instead of looping. Recurring maintenance is scheduled
+(`scheduleRecurring`, each run enqueuing the next), which is what fixes invite expiry
+never having run. Exports get the same lease plus a reaper that requeues a build whose
+machine went away, deletes its half-written object, and fails it visibly once attempts run
+out. `GET /v1/ops/queue` (first-party) and a once-a-minute log line report depth, oldest
+waiting job, lapsed leases and failure counts — counts and kinds only, never error text,
+which can carry fragments of somebody's memory.
+
+**Documents.** `app.blob_upload` records the storage charge as it is made, so a crash
+leaves something a reaper can act on; the upload path compensates for the failures it is
+alive to see, and `reconcile_storage` handles the rest, including ledger rows orphaned
+before any of this existed. A blob is deleted only when no document, ledger row or upload
+in flight references those bytes — content addressing means one object can belong to
+several people. Documents now have trash, restore and a thirty-day purge with events in the
+room's history; `app.search_chunks` skips the trash. The storage charge is held until the
+purge on purpose: releasing it at delete would let a restore fail at the limit.
+
+**The download link is single-use** in the sense that survives a dropped connection.
+`complete()` is called by the route after the last byte, so a transfer that broke leaves
+the link usable inside a 15-minute window, and a completed one kills it. One hour rather
+than seven days, five attempts maximum, and a spent link answers exactly like a link that
+never existed. Reasoning and the cost — the download stays proxied through our process
+rather than a signed Supabase URL, because a signed URL cannot be counted or revoked — in
+`EXPORT.md`, decision 3, which also records that this reverses 0013's stated choice.
+
+Migrations `0018` and `0019` — numbered off `main`'s applied `0016_app_role_grants` and
+`0017_lifecycle_atomicity`, which landed while this branch was open. Renumbering is free
+here because neither of mine has been applied anywhere but a throwaway database; the ledger
+keys on filename, so a rename after a real apply would re-run the DDL.
+
+New suites: `packages/db/src/services/jobs.test.ts` (10),
+`exports.test.ts` (14), `documents-lifecycle.test.ts` (12),
+`packages/documents/src/streaming.test.ts` (7, including the S3 multipart request sequence
+against a fake signer), `packages/export/src/near-limit.test.ts` (2),
+`apps/rest/src/durability.test.ts` (10), plus `e2e/src/documents.test.ts` +2 running on both
+drivers. Monorepo typecheck clean; every
+package suite green; `e2e` 64 on `HARNESS=memory` and 64 on `HARNESS=postgres`.
+
+**Merged with `main` rather than rebased**, so the history stays honest about what was
+written against which tree. Three conflicts, all mechanical: `jobs.ts` keeps the write
+path's transactional `enqueueJob` alongside the lease and heartbeat here; `wiring.ts` hands
+`createApp` both the readiness probe and the queue source; `STATUS.md` keeps both sections.
+Two of my tests were written against interfaces `main` has since changed — the
+client-supplied `confirmed` flag is gone (a memory into the person's own room needs no
+approval anyway) and `AgentClient` no longer has a bare `'claude'`.
+
+One interaction worth checking rather than assuming, because CI cannot see it: `0016`'s
+least-privilege role does not exist in CI or in local development, so nothing in the
+pipeline proves my new tables and functions are reachable by it. Migrated a throwaway
+database with `photographic_app` present and asked the role directly — INSERT and DELETE on
+`app.blob_upload`, SELECT on `app.job_stats` and `app.export_stats`, EXECUTE on
+`app.reclaim_expired_jobs`, `app.blob_is_unreferenced` and `app.orphaned_storage_objects`
+all granted, and the views and function actually readable as that role. `ALTER DEFAULT
+PRIVILEGES` in `0016` covers later migrations, which is what makes that true.
+
+**Checked against a running process, not only in tests.** `tsx src/server.ts` against local
+Postgres: the four recurring rows are seeded exactly once with future deadlines,
+`GET /v1/ops/queue` answers 401 without a token and real numbers with a signed session. An
+export requested over HTTP was built by the ten-second sweep, its link downloaded through
+the streaming route, `unzip -t` clean, and the `x-photographic-sha256` header matched
+`sha256sum` of the received file byte for byte — so the digest computed while streaming
+describes what the person actually gets. A second request for the same link answered 404.
+Re-driven after the merge on a real `SignedSessionIssuer` token rather than the old
+forgeable shape, so this is a check of the merged tree and not of the tree I wrote.
+Then the row was forced to `running` with a lapsed lease and a stray `pending_key`, as a
+dead machine leaves it: the next sweep logged `exports_reclaimed`, deleted the stray object,
+rebuilt the archive and returned it to `ready` at `attempts = 2`.
+
+**Left deliberately.** Finding 8's proposal/deletion state machines were not touched: they
+are the other agent's transactional lifecycle work in `ingest.ts` and `account.ts`, and two
+of us rewriting those would conflict. Document delete does *not* go through `app.trash` —
+that view is derived from item lifecycle events and belongs to that same track; documents
+carry their own `deleted_at`/`purge_after` in the same shape, so merging them into one
+trash surface later is additive. The `document.deleted` / `document.restored` /
+`document.purged` events are in the log but not in the `app.activity` view, which is track
+2's. No web screens: `DELETE /v1/documents/:id`, `/restore`, `/documents/trash` and
+`/v1/ops/queue` are API only, and the screens track owns the rest.
 ## write-path — the approval gate and the log as the truth
 
 Findings 2, 3, 5, 6 and 8 of `docs/review-second-opinion.md`, plus the `/v1/import` scope

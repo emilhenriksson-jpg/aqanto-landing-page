@@ -75,6 +75,10 @@ export interface DocumentRow {
   summary: string | null;
   uploadedBy: PersonId;
   uploadedAt: Date;
+  /** In the trash since. Null for a live document; see `DocumentPort.remove`. */
+  deletedAt: Date | null;
+  /** When the trash stops holding it. Null for a live document. */
+  purgeAfter: Date | null;
 }
 
 export interface ChunkRow {

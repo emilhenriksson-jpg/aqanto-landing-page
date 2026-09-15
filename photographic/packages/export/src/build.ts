@@ -89,6 +89,43 @@ class HashingSink implements ZipSink {
   }
 }
 
+/**
+ * Starts reading a blob, and answers null when there is nothing to read.
+ *
+ * The first chunk is pulled before the caller writes an entry header. A blob store that
+ * does not have the key throws on that first read, and finding out then is the difference
+ * between an archive with one file missing and a note about it, and an archive with a
+ * half-written entry in it. A failure *after* bytes have arrived is a genuine storage
+ * fault and is left to propagate — that one should fail the export rather than be
+ * summarised as a missing file.
+ */
+async function openBlob(
+  deps: ExportDeps,
+  storageKey: string,
+): Promise<AsyncIterable<Uint8Array> | null> {
+  const iterator = deps.blobs.getStream(storageKey)[Symbol.asyncIterator]();
+
+  let first: IteratorResult<Uint8Array>;
+  try {
+    first = await iterator.next();
+  } catch (error) {
+    if (error instanceof NotFoundError) return null;
+    throw error;
+  }
+
+  return {
+    async *[Symbol.asyncIterator]() {
+      if (first.done) return;
+      yield first.value;
+      for (;;) {
+        const next = await iterator.next();
+        if (next.done) return;
+        yield next.value;
+      }
+    },
+  };
+}
+
 /** Hashes one entry's bytes as they stream, without holding them. */
 function hashingPassthrough(
   source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
@@ -283,24 +320,24 @@ export async function buildExportArchive(
       filename: doc.filename,
     });
 
-    try {
-      const bytes = await deps.blobs.get(doc.storageKey);
-      await archive.add(path, hashingPassthrough([bytes], record(path)));
-      fileCount += 1;
-    } catch (error) {
+    // Opened before the entry's header is written, because a missing blob has to be
+    // discovered while the archive can still leave the entry out. Streamed after that: an
+    // original can be 25 MB and there is no reason for two of them to be resident.
+    const opened = await openBlob(deps, doc.storageKey);
+    if (!opened) {
       // A row that names a blob the store does not have. Noted in the archive rather
       // than failing the export: the person's other twelve years of memory should not be
       // withheld over one missing file, and a silent gap would be worse than a line
       // saying which file is missing.
-      if (error instanceof NotFoundError) {
-        notes.push(
-          `Filen "${doc.filename}" kunde inte läsas ur lagringen och finns inte med i arkivet. ` +
-            `Metadata om den ligger kvar i documents.ndjson.`,
-        );
-        continue;
-      }
-      throw error;
+      notes.push(
+        `Filen "${doc.filename}" kunde inte läsas ur lagringen och finns inte med i arkivet. ` +
+          `Metadata om den ligger kvar i documents.ndjson.`,
+      );
+      continue;
     }
+
+    await archive.add(path, hashingPassthrough(opened, record(path)));
+    fileCount += 1;
   }
 
   // ---------------------------------------------------------------------

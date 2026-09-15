@@ -247,3 +247,67 @@ describe('the storage counter', () => {
     expect(listed.filter((doc) => doc.filename === 'en.md' || doc.filename === 'två.md')).toHaveLength(2);
   });
 });
+
+describe('deleting a document', () => {
+  it('behaves like deleting a memory: reversible, and gone from every read meanwhile', async () => {
+    // The same promise the product makes about memories, checked against both backends
+    // rather than against one. There was no way to delete a single document at all before
+    // this, so a file in the wrong room was permanent and the person could see it.
+    await h.registerPerson('papperskorg@example.com', 'Papperskorg');
+    const actor = await h.actorForEmail('papperskorg@example.com');
+    const personal = await h.services.identity.personalRoomOf(actor.personId);
+
+    const { documentId } = await h.services.documents.upload(actor, {
+      roomId: personal.id,
+      filename: 'fel-rum.md',
+      mimeType: 'text/markdown',
+      bytes: utf8('# Fel rum\n\nDen här hamnade fel.'),
+    });
+
+    const removed = await h.services.documents.remove(actor, documentId);
+    expect(removed?.deletedAt).not.toBeNull();
+    expect(removed?.purgeAfter).not.toBeNull();
+
+    expect(await h.services.documents.get(actor, documentId)).toBeNull();
+    expect(
+      (await h.services.documents.listForRoom(actor, personal.id)).map((doc) => doc.id),
+    ).not.toContain(documentId);
+    expect(await h.services.documents.download(actor, documentId)).toBeNull();
+
+    // Visible where a person goes looking for it, with a deadline they can read.
+    const trashed = await h.services.documents.trashed(actor);
+    expect(trashed.map((doc) => doc.id)).toContain(documentId);
+
+    const restored = await h.services.documents.restore(actor, documentId);
+    expect(restored?.deletedAt).toBeNull();
+    const file = await h.services.documents.download(actor, documentId);
+    expect(new TextDecoder().decode(file?.bytes)).toContain('Den här hamnade fel.');
+  });
+
+  it('holds the storage until the purge, then gives it back', async () => {
+    // Releasing the space at delete would let a restore fail at the storage limit, which
+    // would make the trash a promise we cannot keep.
+    await h.registerPerson('utrymme@example.com', 'Utrymme');
+    const actor = await h.actorForEmail('utrymme@example.com');
+    const personal = await h.services.identity.personalRoomOf(actor.personId);
+    const bytes = utf8(`# Stor\n\n${'q'.repeat(3000)}`);
+
+    const { documentId } = await h.services.documents.upload(actor, {
+      roomId: personal.id,
+      filename: 'utrymme.md',
+      mimeType: 'text/markdown',
+      bytes,
+    });
+
+    await h.services.documents.remove(actor, documentId);
+    const held = await h.services.documents.storageUsage(actor);
+    expect(held.bytesUsed).toBe(bytes.byteLength);
+
+    await h.expireDocumentTrash();
+    expect(await h.services.documents.purgeExpired()).toBeGreaterThanOrEqual(1);
+
+    const freed = await h.services.documents.storageUsage(actor);
+    expect(freed.bytesUsed).toBe(0);
+    expect(freed.objectCount).toBe(0);
+  });
+});
