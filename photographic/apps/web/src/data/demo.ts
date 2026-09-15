@@ -338,3 +338,43 @@ export const DEMO_ACTIVITY: Record<string, ActivityLine[]> = {
     },
   ],
 };
+
+/**
+ * Sparse room documents — calm titles, not a file manager.
+ * Demo only until a live documents list exists.
+ */
+export interface DocumentLine {
+  id: string;
+  title: string;
+  /** Quiet meta, e.g. "PDF · igår". */
+  meta: string;
+}
+
+export const DEMO_DOCUMENTS: Record<string, DocumentLine[]> = {
+  personal: [
+    {
+      id: 'doc-personal-1',
+      title: 'Vaccinationskort Vera',
+      meta: 'PDF · igår',
+    },
+  ],
+  ledning: [
+    {
+      id: 'doc-ledning-1',
+      title: 'Due diligence-paket Q3',
+      meta: 'PDF · igår',
+    },
+    {
+      id: 'doc-ledning-2',
+      title: 'Styrelseunderlag juni',
+      meta: 'PDF · igår',
+    },
+  ],
+  villan: [
+    {
+      id: 'doc-villan-1',
+      title: 'Offert Peab kök',
+      meta: 'PDF · igår',
+    },
+  ],
+};

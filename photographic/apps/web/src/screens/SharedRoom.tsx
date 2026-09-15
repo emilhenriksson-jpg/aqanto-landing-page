@@ -2,6 +2,7 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 
 import { Avatars } from '../components/Avatars.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
+import { DocumentsSection } from '../components/DocumentsSection.js';
 import { Wordmark } from '../components/Wordmark.js';
 import {
   DEMO_ACTIVITY,
@@ -13,7 +14,7 @@ import {
 import { loadSharedRoomFromApi } from '../data/load.js';
 import { useRoomData } from '../hooks/useRoomData.js';
 
-/** Inside a shared room: title, brief as calm prose, memories, then activity. */
+/** Inside a shared room: title, brief as calm prose, memories, documents, activity. */
 export function SharedRoom() {
   const { roomId = '' } = useParams();
   if (!roomId) return <Navigate to="/rum" replace />;
@@ -88,6 +89,8 @@ function SharedRoomReady({ room }: { room: RoomDetail }) {
           </section>
         ))
       )}
+
+      <DocumentsSection roomId={room.id} />
 
       <section className="section-block" aria-labelledby="room-activity">
         <h2 id="room-activity" className="section-block__title">

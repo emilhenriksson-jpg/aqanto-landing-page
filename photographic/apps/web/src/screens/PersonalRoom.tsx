@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 
 import { forgetMemory, isDemoMode, undoMemory } from '../api/index.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
+import { DocumentsSection } from '../components/DocumentsSection.js';
 import { MemoryRow } from '../components/MemoryRow.js';
 import { TokenMeter } from '../components/TokenMeter.js';
 import { Wordmark } from '../components/Wordmark.js';
@@ -117,6 +118,8 @@ function PersonalRoomReady({ room }: { room: RoomDetail }) {
           </section>
         ))}
       </div>
+
+      <DocumentsSection roomId={room.id} />
     </article>
   );
 }

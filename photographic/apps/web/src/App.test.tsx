@@ -20,6 +20,7 @@ describe('App', () => {
     expect(screen.getByText(/Det här är ditt minne/)).toBeInTheDocument();
     expect(screen.getByText('Identitet')).toBeInTheDocument();
     expect(screen.getByText('p-h58j')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Dokument' })).toBeInTheDocument();
   });
 
   it('lets you walk to the room list and into a shared room', async () => {
@@ -39,6 +40,7 @@ describe('App', () => {
     expect(screen.getByLabelText('3 medlemmar')).toBeInTheDocument();
     expect(screen.getByText('Delad med 2 personer')).toBeInTheDocument();
     expect(screen.getByText('r-8k2m')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Dokument' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Aktivitet' })).toBeInTheDocument();
   });
 
