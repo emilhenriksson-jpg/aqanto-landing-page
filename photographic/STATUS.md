@@ -21,7 +21,7 @@ Emil is asleep. These were decided autonomously and are cheap to reverse in the 
 
 _Agents append here. Do not edit another package to unblock yourself._
 
-_None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tokens.css`); apps/web and apps/onboarding import it._
+_None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tokens.css`); apps/web, apps/onboarding and apps/voice import it._
 
 ## In progress
 
@@ -31,6 +31,10 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
   on the room UI; next polish is invite-first-viewport confidence under real devices.
 
 ## Completed
+
+- **voice** — `apps/voice` was an empty stub (`export {}`). Added a minimal Swedish calm
+  landing: Wordmark + one sentence + violet disabled CTA “Kommer snart”, tokens from
+  `@photographic/design-tokens`. Placeholder only until the realtime client lands.
 
 - **orchestrator** — `@photographic/design-tokens`: single `tokens.css` from `DESIGN.md`,
   imported by `apps/web` and `apps/onboarding` (duplicate local token files removed;

@@ -164,6 +164,9 @@ importers:
       '@photographic/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@photographic/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
       hono:
         specifier: ^4.6.14
         version: 4.13.7
