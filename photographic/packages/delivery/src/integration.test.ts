@@ -113,6 +113,8 @@ describe('a code that actually goes somewhere', () => {
     await requestCode(h.deps, { phone: '070 123 45 67' });
 
     expect(received).toHaveLength(0);
-    expect(h.sender.sent.at(-1)?.destination).toBe('+0701234567');
+    // E.164, with the national trunk `0` replaced by the country code rather than kept
+    // behind a `+`. See `normalisePhone`; this expectation asserted the old bug.
+    expect(h.sender.sent.at(-1)?.destination).toBe('+46701234567');
   });
 });

@@ -47,10 +47,52 @@ function normaliseEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/**
+ * The country a bare national number belongs to.
+ *
+ * Swedish, because the product is: the copy is Swedish and the SMS provider is 46elks.
+ * A number typed with no country code is ambiguous in principle and unambiguous in
+ * practice for the people this is for.
+ */
+const DEFAULT_COUNTRY_CODE = '46';
+
+/**
+ * A typed phone number to E.164, which is the only form an SMS provider accepts.
+ *
+ * The leading `0` is the thing that matters and the thing that was missing. A Swede
+ * writes their own number `070-123 45 67` or `0701234567`, where the `0` is a national
+ * trunk prefix that is *replaced* by the country code — not kept. Prefixing `+` to it
+ * produced `+0701234567`, which is not a valid number in any country.
+ *
+ * That failed in the worst available way. The old pattern accepted it, so a code row was
+ * written, the request returned an id, and the person was shown "we sent a code" — while
+ * the provider had been handed a number it must reject. Nothing in that path errors, and
+ * it is invisible while the log sender is in use, because the log accepts anything. So
+ * the last line here is as important as the first: the result has to look like a real
+ * E.164 number or the person finds out now, at the form, instead of waiting for an SMS
+ * that was never sendable.
+ */
 function normalisePhone(phone: string): string {
-  const cleaned = phone.replace(/[\s()-]/g, '');
-  if (!/^\+?\d{6,15}$/.test(cleaned)) throw new ValidationError('Ogiltigt telefonnummer.');
-  return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+  const cleaned = phone.replace(/[\s()\-.\u2013\u2014]/g, '');
+  if (!/^(\+|00)?\d{6,15}$/.test(cleaned)) throw new ValidationError('Ogiltigt telefonnummer.');
+
+  let e164: string;
+  if (cleaned.startsWith('+')) {
+    e164 = cleaned;
+  } else if (cleaned.startsWith('00')) {
+    // The other way to write a country code: 0046… is +46…
+    e164 = `+${cleaned.slice(2)}`;
+  } else if (cleaned.startsWith('0')) {
+    e164 = `+${DEFAULT_COUNTRY_CODE}${cleaned.slice(1)}`;
+  } else {
+    // Already carries a country code, just without the plus: 46701234567.
+    e164 = `+${cleaned}`;
+  }
+
+  // No country code begins with zero, so this is what catches a trunk prefix that
+  // survived, rather than passing it to the provider and calling that "sent".
+  if (!/^\+[1-9]\d{7,14}$/.test(e164)) throw new ValidationError('Ogiltigt telefonnummer.');
+  return e164;
 }
 
 export interface RequestCodeInput {

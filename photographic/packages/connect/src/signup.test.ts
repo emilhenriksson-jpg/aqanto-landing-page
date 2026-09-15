@@ -78,8 +78,42 @@ describe('requesting a code', () => {
     expect(h.codes.raw(byEmail.requestId)?.destination).toBe(EMAIL);
 
     const byPhone = await requestCode(h.deps, { phone: '070 123 45 67' });
-    expect(h.codes.raw(byPhone.requestId)?.destination).toBe('+0701234567');
+    expect(h.codes.raw(byPhone.requestId)?.destination).toBe('+46701234567');
     expect(byPhone.channel).toBe('sms');
+  });
+
+  /**
+   * This used to assert `+0701234567`, which is the bug rather than the behaviour.
+   *
+   * The leading `0` is a national trunk prefix and is *replaced* by the country code,
+   * not kept — so prefixing `+` produced a number valid in no country. It survived
+   * because the expectation was written from what the code did, and because the log
+   * sender accepts any destination, so nothing downstream ever objected. It would have
+   * become visible as "I never got the SMS" the day a real provider was switched on.
+   */
+  it('reaches one destination however a Swede types their own number', async () => {
+    const h = createHarness();
+    const typed = ['070-123 45 67', '0701234567', '+46701234567', '+46 70 123 45 67', '0046701234567'];
+
+    for (const phone of typed) {
+      const requested = await requestCode(h.deps, { phone });
+      expect(h.codes.raw(requested.requestId)?.destination, phone).toBe('+46701234567');
+    }
+  });
+
+  it('keeps a number that already carries another country code', async () => {
+    const h = createHarness();
+    const requested = await requestCode(h.deps, { phone: '+1 202 555 0143' });
+    expect(h.codes.raw(requested.requestId)?.destination).toBe('+12025550143');
+  });
+
+  it('refuses a number no provider could send to, rather than claiming it sent', async () => {
+    const h = createHarness();
+    // `+0…` is what the old normaliser produced. No country code starts with zero, so
+    // this is the guard that stops a trunk prefix reaching the provider.
+    for (const phone of ['+0701234567', '0', '070-123']) {
+      await expect(requestCode(h.deps, { phone }), phone).rejects.toThrow(/Ogiltigt telefonnummer/i);
+    }
   });
 
   it('rejects a request with neither email nor phone', async () => {

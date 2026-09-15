@@ -378,7 +378,15 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
    * codes it was told to email.
    */
   const delivery = createCodeSenderFromEnv(process.env, { logger });
-  logger.info('code_delivery_selected', { email: delivery.email, sms: delivery.sms });
+  // `mailProvider`, not `email`: the logger redacts any field called `email`, so this
+  // line used to print the provider name as `[redacted]` and the one question it exists
+  // to answer — "is this process actually delivering codes, or writing them to me?" —
+  // could not be answered from it. The values are `log`/`resend`/`46elks`, never an
+  // address.
+  logger.info('code_delivery_selected', {
+    mailProvider: delivery.email,
+    smsProvider: delivery.sms,
+  });
 
   if (!process.env.CODE_SECRET) {
     // Codes are HMACed under this key, so a fresh one per boot invalidates every code in
