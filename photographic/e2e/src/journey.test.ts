@@ -22,6 +22,10 @@ let harness: any;
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgres://photographic:photographic@127.0.0.1:5432/photographic';
 
+/** A distinct Swedish mobile number, since signing up is by number and nothing else. */
+const randomMobile = () =>
+  `+4670${String(Math.floor(Math.random() * 10_000_000)).padStart(7, '0')}`;
+
 beforeAll(async () => {
   const mod = await import('./harness.js').catch(() => null);
   if (!mod) return;
@@ -44,10 +48,12 @@ const itWhenWired = (name: string, fn: () => Promise<void>) =>
 
 describe('getting started', () => {
   const email = `ny-${randomUUID()}@example.com`;
+  /** A mobile number is the only way in. See `packages/connect/src/phone.ts`. */
+  const phone = randomMobile();
 
   itWhenWired('signs a person up with a code and sends them straight to connecting', async () => {
-    const requested = await harness.connect.requestCode({ email });
-    expect(requested.destinationHint).not.toBe(email);
+    const requested = await harness.connect.requestCode({ phone });
+    expect(requested.destinationHint).not.toBe(phone);
 
     const verified = await harness.connect.verifyCode({
       requestId: requested.requestId,
@@ -64,7 +70,7 @@ describe('getting started', () => {
     const payload = await harness.connect.connectPayload();
 
     expect(payload.mcpUrl).toBe(harness.mcpUrl);
-    expect(payload.mcpUrl).not.toContain(email);
+    expect(payload.mcpUrl).not.toContain(phone);
 
     // Nothing on this screen may be a secret: it gets screenshotted and pasted around.
     const serialised = JSON.stringify(payload.clients);
@@ -72,13 +78,13 @@ describe('getting started', () => {
   });
 
   itWhenWired('confirms a connection only once context reaches the model', async () => {
-    const actor = await harness.actorForEmail(email, 'claude-desktop');
+    const actor = await harness.actorForPhone(phone, 'claude-desktop');
     const handle = await harness.connect.startVerification(actor, 'claude');
 
     // Configuration existing is not success. Only a delivery is.
     expect((await harness.connect.pollVerification(actor, handle)).status).toBe('waiting');
 
-    await harness.connectMcpClient(await harness.tokenFor(email));
+    await harness.connectMcpClient(await harness.tokenForPhone(phone));
 
     const state = await harness.connect.pollVerification(actor, handle);
     expect(state.status).toBe('connected');
@@ -437,6 +443,7 @@ describe('sharing a room with someone else', () => {
 
   itWhenWired('lets an invited person join without a separate signup step', async () => {
     const annaEmail = `anna-${randomUUID()}@example.com`;
+    const annaPhone = randomMobile();
     const emil = await harness.personByEmail(emilEmail);
     const room = await harness.roomByTitle(harness.actorFor(emil), 'Buyersclub Ledning');
 
@@ -446,8 +453,11 @@ describe('sharing a room with someone else', () => {
       destination: annaEmail,
     });
 
+    // The link reached her by email; the account is made with her number. Delivering an
+    // invitation and signing in are two different things, and only the second one is
+    // phone-only.
     const requested = await harness.connect.requestCode({
-      email: annaEmail,
+      phone: annaPhone,
       inviteToken: harness.tokenFromUrl(url),
     });
     const verified = await harness.connect.verifyCode({
