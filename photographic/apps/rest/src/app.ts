@@ -39,6 +39,7 @@ import {
 } from './oauth-contract.js';
 import { connectRoutes, publicConnectRoutes } from './routes/connect.js';
 import { contextRoutes, type ClientGrants } from './routes/context.js';
+import { documentRoutes } from './routes/documents.js';
 import { historyRoutes } from './routes/history.js';
 import { memoryRoutes } from './routes/memory.js';
 import { oauthRoutes } from './routes/oauth.js';
@@ -238,6 +239,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   authenticated.route('/', trashRoutes());
   authenticated.route('/', historyRoutes());
   authenticated.route('/', roomRoutes());
+  authenticated.route('/', documentRoutes());
 
   app.route('/v1', authenticated);
 

@@ -22,6 +22,7 @@ export {
 } from './pool.js';
 
 export { migrate, MIGRATIONS_DIR } from './migrate.js';
+export { PgStorageLedger } from './services/storage-ledger.js';
 export { reset } from './reset.js';
 
 export {

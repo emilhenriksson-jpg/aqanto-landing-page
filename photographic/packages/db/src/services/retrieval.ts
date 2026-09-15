@@ -5,17 +5,24 @@
  * results -- the same rule `services-memory` states and the same reason: a post-filter
  * is one forgotten line away from leaking another person's room.
  *
- * Ranking is lexical only for now (word overlap, the same stand-in `services-memory`
- * uses for Postgres full-text ranking). Semantic ranking needs real embeddings from
- * `LlmPort.embed`, which the fake produces but which are not yet written to
- * `item.embedding` / `chunk.embedding` by this package's write path; wiring that in is
- * additive to this method; behaviour visible to a caller does not change.
+ * Two sources, ranked two ways, for a reason that is about size rather than taste.
+ * Items are a few hundred short curated sentences per person, so word overlap in
+ * TypeScript is fine and matches what `services-memory` does. Document chunks are every
+ * paragraph of every file a person has uploaded, bounded only by a ten-gigabyte storage
+ * limit — so those are ranked by Postgres full-text search in
+ * `app.search_chunks`, where the index is.
+ *
+ * Semantic ranking needs real embeddings from `LlmPort.embed`. Those are not written to
+ * `item.embedding` / `chunk.embedding` yet, and turning them on is additive to this
+ * method — the chunks already exist with the column empty, which is the whole reason
+ * chunking happens at ingest.
  */
 
 import type {
   Actor,
   ItemKind,
   LlmPort,
+  PersonId,
   RetrievalPort,
   RoomId,
   SearchHit,
@@ -57,17 +64,26 @@ export class PgRetrieval implements RetrievalPort {
       : [...reachable];
     if (scope.length === 0) return [];
 
-    const candidates = await this.candidatesIn(scope);
-    if (candidates.length === 0) return [];
+    const limit = input.limit ?? DEFAULT_SEARCH_LIMIT;
 
-    // The embed call is kept so `LlmPort.embed` is exercised even though this method
-    // does not yet rank by it (see file comment); dropping it silently would make it
-    // easy to forget to wire in later.
+    // Two sources, ranked separately because they are different kinds of thing and no
+    // single ranking is right for both. Items win ties: a sentence a person chose to
+    // save about themselves is more likely to be the answer than a paragraph that
+    // happened to be in a PDF.
+    const [items, chunks] = await Promise.all([
+      this.candidatesIn(scope),
+      this.chunkHits(actor.personId, query, scope, limit),
+    ]);
+
+    // The embed call is kept so `LlmPort.embed` is exercised even though neither source
+    // ranks by it yet (see file comment); dropping it silently would make it easy to
+    // forget to wire in later.
     await this.llm.embed([query]);
 
-    const ranked = rankLexically(query, candidates);
+    const ranked = [...rankLexically(query, items), ...chunks];
+    if (ranked.length === 0) return [];
 
-    return ranked.slice(0, input.limit ?? DEFAULT_SEARCH_LIMIT).map((candidate, index) => ({
+    return ranked.slice(0, limit).map((candidate, index) => ({
       kind: candidate.kind,
       id: candidate.id,
       roomId: candidate.roomId,
@@ -106,30 +122,59 @@ export class PgRetrieval implements RetrievalPort {
        WHERE room_id = ANY($1::uuid[]) AND status = 'active' AND sensitivity <> 'local_only'`,
       [scope],
     );
-    const chunks = await queryRows<{ id: string; room_id: string; document_id: string; text: string }>(
+
+    return items.map((r) => ({
+      kind: 'item' as const,
+      id: r.id,
+      roomId: r.room_id as RoomId,
+      shortId: r.short_id as ShortId,
+      text: r.body,
+      documentId: null,
+    }));
+  }
+
+  /**
+   * Document chunks, ranked by Postgres full-text search.
+   *
+   * Not loaded into memory and ranked in TypeScript like items are, and the difference
+   * is not stylistic. Items are a few hundred short curated sentences per person;
+   * chunks are every paragraph of every document they have ever uploaded, and the
+   * storage limit is ten gigabytes. Pulling that into the process to score it is a
+   * query that works in a demo and falls over on the first real user.
+   *
+   * `app.search_chunks` resolves the room scope inside the query through
+   * `app.accessible_room_ids`. A post-filter over results is one forgotten line away
+   * from returning another person's room, and that failure looks like a working search.
+   */
+  private async chunkHits(
+    personId: PersonId,
+    query: string,
+    scope: RoomId[],
+    limit: number,
+  ): Promise<Array<Candidate & { rank: number }>> {
+    const rows = await queryRows<{
+      chunk_id: string;
+      document_id: string;
+      room_id: string;
+      heading: string | null;
+      text: string;
+      rank: number;
+    }>(
       this.pool,
-      `SELECT id, room_id, document_id, text FROM app.chunk WHERE room_id = ANY($1::uuid[])`,
-      [scope],
+      `SELECT chunk_id, document_id, room_id, heading, text, rank
+       FROM app.search_chunks($1, $2, $3::uuid[], $4)`,
+      [personId, query, scope, limit],
     );
 
-    return [
-      ...items.map((r) => ({
-        kind: 'item' as const,
-        id: r.id,
-        roomId: r.room_id as RoomId,
-        shortId: r.short_id as ShortId,
-        text: r.body,
-        documentId: null,
-      })),
-      ...chunks.map((r) => ({
-        kind: 'chunk' as const,
-        id: r.id,
-        roomId: r.room_id as RoomId,
-        shortId: null,
-        text: r.text,
-        documentId: r.document_id,
-      })),
-    ];
+    return rows.map((row) => ({
+      kind: 'chunk' as const,
+      id: row.chunk_id,
+      roomId: row.room_id as RoomId,
+      shortId: null,
+      text: row.text,
+      documentId: row.document_id,
+      rank: row.rank,
+    }));
   }
 }
 

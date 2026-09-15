@@ -127,6 +127,9 @@ importers:
       '@photographic/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@photographic/documents':
+        specifier: workspace:*
+        version: link:../../packages/documents
       '@photographic/llm':
         specifier: workspace:*
         version: link:../../packages/llm
@@ -356,6 +359,9 @@ importers:
       '@photographic/core':
         specifier: workspace:*
         version: link:../core
+      '@photographic/documents':
+        specifier: workspace:*
+        version: link:../documents
       pg:
         specifier: ^8.13.1
         version: 8.23.0
@@ -500,6 +506,9 @@ importers:
       '@photographic/core':
         specifier: workspace:*
         version: link:../core
+      '@photographic/documents':
+        specifier: workspace:*
+        version: link:../documents
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

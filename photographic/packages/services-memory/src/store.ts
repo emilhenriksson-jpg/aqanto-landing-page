@@ -24,6 +24,7 @@ import type {
   ChunkId,
   ClientSession,
   DocumentId,
+  ExtractionStatus,
   EventSeq,
   Invite,
   InviteId,
@@ -44,13 +45,31 @@ import type {
   ShortId,
 } from '@photographic/core';
 
+/**
+ * Mirrors `app.document` after migration 0010.
+ *
+ * `text` and `summary` are two fields and never fall back to one another: `text` is
+ * what we extracted from the file, `summary` is what a model wrote about it. The product
+ * promise is that the original is always reachable, and one field holding sometimes the
+ * source and sometimes a paraphrase is how that promise quietly stops being true.
+ */
 export interface DocumentRow {
   id: DocumentId;
   roomId: RoomId;
   filename: string;
   mimeType: string;
   byteSize: number;
+  /** Content-addressed key into the blob store. The bytes are never in this row. */
+  storageKey: string;
+  checksum: string;
+  /** Our extraction, verbatim. Empty when there was no text to get. */
   text: string;
+  extraction: ExtractionStatus;
+  /** Swedish, shown to the uploader. Null unless extraction failed. */
+  extractionError: string | null;
+  warnings: string[];
+  pageCount: number | null;
+  /** AI-generated. Null until the `summarise_document` job has run. */
   summary: string | null;
   uploadedBy: PersonId;
   uploadedAt: Date;
@@ -62,6 +81,9 @@ export interface ChunkRow {
   roomId: RoomId;
   ord: number;
   text: string;
+  /** The heading this chunk sits under, when the source had one. */
+  heading: string | null;
+  /** Always null for now. See `chunkDocument` on why the field exists anyway. */
   embedding: number[] | null;
 }
 

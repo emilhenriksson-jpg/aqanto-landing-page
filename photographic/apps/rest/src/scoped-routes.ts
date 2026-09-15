@@ -87,6 +87,28 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   ['DELETE', '/trash/:shortId', SCOPE_MEMORY_WRITE],
 
   // -------------------------------------------------------------------------
+  // Documents
+  // -------------------------------------------------------------------------
+
+  // Uploading is a write to memory, and a document is memory from the start. A
+  // read-only connection cannot put a PDF in someone's room.
+  ['POST', '/documents', SCOPE_MEMORY_WRITE],
+  ['POST', '/rooms/:roomId/documents', SCOPE_MEMORY_WRITE],
+
+  ['GET', '/documents/:documentId', SCOPE_MEMORY_READ],
+  ['GET', '/documents/:documentId/chunks', SCOPE_MEMORY_READ],
+
+  // The extraction and the original file. Same scope as any other read of the person's
+  // memory: a document is not a second category of thing with its own permission.
+  ['GET', '/documents/:documentId/text', SCOPE_MEMORY_READ],
+  ['GET', '/documents/:documentId/file', SCOPE_MEMORY_READ],
+
+  // How full the account is. About the account rather than its contents, so the weakest
+  // read scope every client already has is the right bar — and a client that cannot see
+  // this cannot tell a person why an upload was refused.
+  ['GET', '/storage', SCOPE_PROFILE_READ],
+
+  // -------------------------------------------------------------------------
   // Invites
   // -------------------------------------------------------------------------
 
