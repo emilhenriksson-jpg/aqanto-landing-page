@@ -26,6 +26,16 @@ _Agents append here. Do not edit another package to unblock yourself._
   they agree, but they should be lifted into one shared package when the two apps are
   merged. Not urgent, and not something either of us should fix unilaterally.
 
+## In progress
+
+- **orchestrator** — deploy / morning handoff: workable multi-stage `Dockerfile` for
+  rest+mcp (tsx runtime, migrate-on-start when `DATABASE_URL` is set), `fly.toml`
+  health on `/health`, short Swedish `WAKEUP.md`, and honest `scripts/deploy.md`.
+  `packages/db` has `migrate`/`reset` scripts applying SQL files in order.
+  Still true: process uses in-memory + FakeLlm and refuses `DATABASE_URL` until
+  Postgres adapters exist — public MCP today = local `pnpm dev` + tunnel, or Fly
+  without Postgres.
+
 ## Completed
 
 - **orchestrator** — foundation: pnpm workspace, frozen SQL schema (applied and tested

@@ -326,6 +326,9 @@ importers:
       '@photographic/core':
         specifier: workspace:*
         version: link:../core
+      '@photographic/services-memory':
+        specifier: workspace:*
+        version: link:../services-memory
       pg:
         specifier: ^8.13.1
         version: 8.23.0
@@ -336,6 +339,9 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.13
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

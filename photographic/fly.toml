@@ -1,3 +1,9 @@
+# Photographic MCP + REST API on one origin.
+# MCP endpoint: https://<app>.fly.dev/mcp
+#
+# Do not attach Postgres and set DATABASE_URL until @photographic/db implements
+# the ports — the process currently exits when DATABASE_URL is present.
+
 app = "photographic"
 primary_region = "arn"
 
@@ -14,20 +20,19 @@ primary_region = "arn"
   force_https = true
   auto_stop_machines = "suspend"
   auto_start_machines = true
+  # Keep one warm: Claude/ChatGPT open long-lived MCP sessions.
   min_machines_running = 1
 
-  # Claude and ChatGPT hold MCP connections open, so a short idle timeout drops
-  # sessions mid-conversation.
   [http_service.concurrency]
     type = "requests"
     soft_limit = 200
     hard_limit = 400
 
 [[http_service.checks]]
-  grace_period = "10s"
+  grace_period = "20s"
   interval = "30s"
   method = "GET"
-  path = "/ready"
+  path = "/health"
   timeout = "5s"
 
 [[vm]]

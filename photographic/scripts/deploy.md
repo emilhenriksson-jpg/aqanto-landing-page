@@ -1,47 +1,50 @@
 # Getting a public URL so Claude can connect
 
 Claude reaches an MCP server from Anthropic's cloud, not from your laptop, so the
-server has to be on the public internet. Two ways, depending on whether you want this
-to survive you closing the lid.
+server has to be on the public internet.
+
+**Today:** the process runs the in-memory reference implementation and FakeLlm.
+It exits if `DATABASE_URL` is set (`apps/rest/src/server.ts`). Migrations exist
+(`pnpm db:migrate`) and the Docker image runs them when `DATABASE_URL` is present,
+but do not attach Postgres until `@photographic/db` implements the ports.
 
 ## Quick, for trying it out
 
-Run the server locally and put a tunnel in front of it:
-
 ```bash
-pnpm db:migrate
-pnpm dev                       # serves on :8080
-npx untun@latest tunnel http://localhost:8080
+pnpm install
+pnpm dev                       # :8787 — REST + /mcp, in-memory
+npx untun@latest tunnel http://localhost:8787
 ```
 
-Take the https URL it prints and add `/mcp` to it.
+Take the https URL it prints and add `/mcp`.
 
-## Real, ten minutes
+## Fly, without Postgres (in-memory, data dies on restart)
 
 ```bash
 fly launch --no-deploy            # accept the existing fly.toml
-fly postgres create --name photographic-db --region arn
-fly postgres attach photographic-db
-fly secrets set OPENAI_API_KEY=sk-...
+# Do NOT: fly postgres attach …   # would set DATABASE_URL and the process exits
+fly secrets set OPENAI_API_KEY=sk-...   # optional; unused until real LlmPort is wired
 fly deploy
 ```
 
-Your MCP endpoint is then `https://<app>.fly.dev/mcp`.
+MCP: `https://<app>.fly.dev/mcp`. Health: `/health`.
+
+## Fly, with Postgres (only once db ports land)
+
+```bash
+fly postgres create --name photographic-db --region arn
+fly postgres attach photographic-db
+fly deploy
+```
+
+Boot runs `pnpm db:migrate` then starts the server.
 
 ## Pointing Claude at it
 
-In Claude: **Customize → Connectors → + → Add custom connector**, paste the `/mcp`
-URL, and complete the OAuth flow. Works on Free, Pro and Max. Add it from web or
-desktop first — installing connectors from mobile is still in beta — after which it
-works in the mobile app too.
+**Customize → Connectors → + → Add custom connector**, paste the `/mcp` URL, finish
+OAuth. Add from web or desktop first; then it works on mobile too.
 
 ## Pointing ChatGPT at it
 
-Web only, and it is a developer-mode feature rather than something a normal person
-will do: **Settings → Security and login → Developer mode**, then create a
-developer-mode app pointing at the same `/mcp` URL.
-
-ChatGPT on mobile cannot use MCP at all, and its voice mode reportedly cannot call
-connectors even on the web. For ChatGPT the practical path today is to copy the text
-from `/v1/context/rendered` into Custom Instructions, which is exactly why that
-endpoint returns plain text.
+Web + developer mode only. Mobile MCP does not exist; voice mode reportedly cannot
+call connectors. Fallback: copy `/v1/context/rendered` into Custom Instructions.

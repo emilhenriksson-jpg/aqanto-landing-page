@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+**/dist
+**/.turbo
+**/*.log
+.git
+.gitignore
+**/coverage
+apps/web/dist
+apps/voice/dist
+apps/onboarding/dist

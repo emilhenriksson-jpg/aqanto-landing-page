@@ -1,8 +1,12 @@
-# Single image serving the REST API and the MCP server.
+# Single image: REST API + MCP on one origin (`apps/rest` mounts `/mcp`).
 #
-# The MCP server has to be reachable over public HTTPS: both Anthropic and OpenAI
-# connect from their own cloud infrastructure, never from the user's device. A local
-# server behind a firewall will not work no matter which client is used.
+# Claude and ChatGPT reach MCP from their clouds, so this process must be on a
+# public HTTPS URL — a laptop behind a firewall will never work for those clients.
+#
+# Runtime honesty (2026-09): the process still uses `@photographic/services-memory`
+# and FakeLlm. It *refuses* `DATABASE_URL` until `@photographic/db` implements the
+# ports (`apps/rest/src/server.ts`). Migrations ship in the image and run on boot
+# when `DATABASE_URL` is set, so the day wiring lands a deploy applies schema first.
 
 FROM node:22-slim AS base
 ENV PNPM_HOME=/pnpm
@@ -11,33 +15,39 @@ RUN corepack enable
 WORKDIR /app
 
 FROM base AS deps
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
-COPY packages/core/package.json           packages/core/
-COPY packages/db/package.json             packages/db/
-COPY packages/auth/package.json           packages/auth/
-COPY packages/rooms/package.json          packages/rooms/
-COPY packages/ingest/package.json         packages/ingest/
-COPY packages/projection/package.json     packages/projection/
-COPY packages/retrieval/package.json      packages/retrieval/
-COPY packages/documents/package.json      packages/documents/
-COPY packages/llm/package.json            packages/llm/
-COPY apps/rest/package.json               apps/rest/
-COPY apps/mcp/package.json                apps/mcp/
-COPY apps/web/package.json                apps/web/
-COPY apps/voice/package.json              apps/voice/
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY packages/core/package.json            packages/core/
+COPY packages/db/package.json              packages/db/
+COPY packages/auth/package.json            packages/auth/
+COPY packages/agent/package.json           packages/agent/
+COPY packages/connect/package.json         packages/connect/
+COPY packages/services-memory/package.json packages/services-memory/
+COPY packages/rooms/package.json           packages/rooms/
+COPY packages/ingest/package.json          packages/ingest/
+COPY packages/projection/package.json      packages/projection/
+COPY packages/retrieval/package.json       packages/retrieval/
+COPY packages/documents/package.json       packages/documents/
+COPY packages/llm/package.json             packages/llm/
+COPY apps/rest/package.json                apps/rest/
+COPY apps/mcp/package.json                 apps/mcp/
+COPY apps/web/package.json                 apps/web/
+COPY apps/voice/package.json               apps/voice/
+COPY apps/onboarding/package.json          apps/onboarding/
+COPY e2e/package.json                      e2e/
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
-RUN pnpm --filter @photographic/web run build \
- && pnpm --filter @photographic/voice run build
+# Declaration emit for rest and its workspace deps. We still execute TypeScript
+# with tsx at runtime — no separate JS bundle step yet.
+RUN pnpm --filter @photographic/rest... run build
 
 FROM base AS runtime
 ENV NODE_ENV=production
+ENV PORT=8080
 COPY --from=build /app /app
-
-# The migration runner is idempotent, so running it on every boot is safe and means a
-# deploy can never serve against an out-of-date schema.
-CMD ["sh", "-c", "pnpm db:migrate && node --import tsx apps/rest/src/server.ts"]
-
 EXPOSE 8080
+
+# Migrate only when Postgres is configured. Idempotent. Today a set DATABASE_URL
+# also makes the server exit — deploy without it (in-memory) or wait for db ports.
+CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then pnpm db:migrate; fi; exec node --import tsx apps/rest/src/server.ts"]
