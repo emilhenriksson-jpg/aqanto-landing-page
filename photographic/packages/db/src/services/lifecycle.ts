@@ -1,5 +1,5 @@
 /**
- * Lifecycle transitions for one memory: to the trash, and back out of it.
+ * Lifecycle transitions to the trash and back, for a memory and for a document.
  *
  * These live here rather than as private methods on `PgIngest` because there are two
  * callers that must not have two implementations. `PgIngest.forget` is one. The other is
@@ -205,6 +205,116 @@ async function reread(db: Db, item: Item): Promise<Item | null> {
     item.id,
   ]);
   return row ? mapItem(row) : null;
+}
+
+// ---------------------------------------------------------------------------
+// The same two transitions, for a document
+// ---------------------------------------------------------------------------
+
+/**
+ * A document's trash is the same promise as a memory's, so it is the same code shape.
+ *
+ * `PgDocuments.remove` and `.restore` arrived while the item lifecycle was still being made
+ * transactional, so they were written the way `softDelete` used to be: `UPDATE app.document`
+ * and then `appendEvent` as a separate statement. That is the failure the item path just
+ * stopped having — a process death in between leaves the file gone from its room with
+ * nothing in the log saying so, and the other members of a shared room see a document
+ * disappear with no trace, which is precisely what appending the event was for.
+ *
+ * These are separate functions rather than one generic helper over both tables. The two
+ * differ in more than a table name — a document has no undo token, no short id and a
+ * storage charge that must outlive the delete so a restore cannot fail at the limit — and a
+ * helper parameterised over those differences would be harder to read than two functions
+ * that state them.
+ */
+export interface DocumentTransition {
+  applied: boolean;
+  roomId: RoomId;
+  filename: string;
+  purgeAfter: Date | null;
+}
+
+export async function trashDocumentWithin(
+  db: Db,
+  input: {
+    actor: Actor;
+    documentId: string;
+    roomId: RoomId;
+    filename: string;
+    retentionDays: number;
+    reason?: string;
+  },
+): Promise<DocumentTransition> {
+  const { actor, documentId, roomId, filename } = input;
+
+  const updated = await queryOne<{ purge_after: Date | null }>(
+    db,
+    `UPDATE app.document
+     SET deleted_at = now(), deleted_by = $2, deleted_by_client = $3,
+         purge_after = now() + ($4 || ' days')::interval
+     WHERE id = $1 AND deleted_at IS NULL
+     RETURNING purge_after`,
+    [documentId, actor.personId, actor.agentClient, input.retentionDays],
+  );
+
+  if (!updated) return { applied: false, roomId, filename, purgeAfter: null };
+
+  await appendEvent(db, {
+    roomId,
+    eventType: 'document.deleted',
+    payload: {
+      document_id: documentId,
+      filename,
+      purge_after: updated.purge_after?.toISOString() ?? null,
+      ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+    },
+    actorPersonId: actor.personId,
+    agentClient: actor.agentClient,
+    clientId: actor.clientId ?? null,
+    sessionRef: actor.sessionId,
+    explicit: true,
+    motivation:
+      input.reason?.trim() ||
+      `Dokumentet ligger i papperskorgen i ${input.retentionDays} dagar och går att ta tillbaka.`,
+  });
+
+  await markStaleWithin(db, roomId);
+
+  return { applied: true, roomId, filename, purgeAfter: updated.purge_after };
+}
+
+export async function restoreDocumentWithin(
+  db: Db,
+  input: { actor: Actor; documentId: string; roomId: RoomId; filename: string },
+): Promise<DocumentTransition> {
+  const { actor, documentId, roomId, filename } = input;
+
+  // Conditional on being in the trash, so two clicks on "ta tillbaka" append one
+  // `document.restored` between them — the same reason `restoreWithin` is conditional.
+  const updated = await db.query(
+    `UPDATE app.document
+     SET deleted_at = NULL, deleted_by = NULL, deleted_by_client = NULL, purge_after = NULL
+     WHERE id = $1 AND deleted_at IS NOT NULL`,
+    [documentId],
+  );
+
+  if (!updated.rowCount) return { applied: false, roomId, filename, purgeAfter: null };
+
+  await appendEvent(db, {
+    roomId,
+    eventType: 'document.restored',
+    payload: { document_id: documentId, filename },
+    actorPersonId: actor.personId,
+    agentClient: actor.agentClient,
+    clientId: actor.clientId ?? null,
+    sessionRef: actor.sessionId,
+    explicit: true,
+    motivation: 'Dokumentet är tillbaka i rummet.',
+  });
+
+  await markStaleWithin(db, roomId);
+
+  return { applied: true, roomId, filename, purgeAfter: null };
 }
 
 /** Only the two fields the motivation needs, so this stays one cheap read. */

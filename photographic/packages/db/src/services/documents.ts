@@ -33,6 +33,7 @@ import type { Pool } from 'pg';
 
 import { queryOne, queryRows, withTransaction } from '../pool.js';
 import { appendEvent } from './events.js';
+import { restoreDocumentWithin, trashDocumentWithin } from './lifecycle.js';
 import { canRead, canWrite } from './permissions.js';
 
 interface DocumentRow {
@@ -85,7 +86,11 @@ export class PgDocuments implements DocumentPort {
   constructor(
     private readonly pool: Pool,
     private readonly llm: LlmPort,
-    private readonly projection: ProjectionPort,
+    // Narrowed the same way `PgIngest` narrows it: a lifecycle transition marks its durable
+    // state stale inside its own transaction, so what is left afterwards is the in-process
+    // headline cache, and calling `invalidate` for that would repeat the SQL from a second
+    // pooled connection and block on the row the transaction is holding.
+    private readonly projection: ProjectionPort & { markHeadlineStale(roomId: RoomId): void },
     private readonly jobs: JobPort,
     private readonly blobs: BlobStore,
     private readonly ledger: StorageLedger,
@@ -407,35 +412,31 @@ export class PgDocuments implements DocumentPort {
     if (!existing) return null;
     if (!(await canWrite(this.pool, actor.personId, existing.roomId))) throw new NotPermittedError();
 
+    // One transaction, through the shared lifecycle path a memory's delete goes through.
+    // This used to be the `UPDATE` and then a separate `appendEvent`, which is the shape the
+    // item path stopped having: a failure in between leaves the file gone from the room with
+    // nothing in the log saying so, and the room's other members see it disappear untraceably
+    // — exactly what appending the event was for.
+    const applied = await withTransaction(this.pool, (tx) =>
+      trashDocumentWithin(tx, {
+        actor,
+        documentId,
+        roomId: existing.roomId,
+        filename: existing.filename,
+        retentionDays: TRASH_RETENTION_DAYS,
+        ...(options.reason ? { reason: options.reason } : {}),
+      }),
+    );
+    if (!applied.applied) return null;
+
+    this.projection.markHeadlineStale(existing.roomId);
+
     const row = await queryOne<DocumentRow>(
       this.pool,
-      `UPDATE app.document
-       SET deleted_at = now(),
-           deleted_by = $2,
-           deleted_by_client = $3,
-           purge_after = now() + ($4 || ' days')::interval
-       WHERE id = $1 AND deleted_at IS NULL
-       RETURNING ${DOCUMENT_COLUMNS}`,
-      [documentId, actor.personId, actor.agentClient, TRASH_RETENTION_DAYS],
+      `SELECT ${DOCUMENT_COLUMNS} FROM app.document d WHERE d.id = $1`,
+      [documentId],
     );
-    if (!row) return null;
-
-    await appendEvent(this.pool, {
-      roomId: existing.roomId,
-      eventType: 'document.deleted',
-      payload: {
-        document_id: documentId,
-        filename: existing.filename,
-        purge_after: row.purge_after?.toISOString() ?? null,
-        ...(options.reason ? { reason: options.reason } : {}),
-      },
-      actorPersonId: actor.personId,
-      agentClient: actor.agentClient,
-      motivation: `Dokumentet ligger i papperskorgen i ${TRASH_RETENTION_DAYS} dagar och går att ta tillbaka.`,
-    });
-
-    await this.projection.invalidate({ roomId: existing.roomId });
-    return toSummary(row);
+    return row ? toSummary(row) : null;
   }
 
   async restore(actor: Actor, documentId: DocumentId): Promise<DocumentSummary | null> {
@@ -453,26 +454,24 @@ export class PgDocuments implements DocumentPort {
       throw new NotPermittedError();
     }
 
+    const applied = await withTransaction(this.pool, (tx) =>
+      restoreDocumentWithin(tx, {
+        actor,
+        documentId,
+        roomId: trashed.room_id as RoomId,
+        filename: trashed.filename,
+      }),
+    );
+    if (!applied.applied) return null;
+
+    this.projection.markHeadlineStale(trashed.room_id as RoomId);
+
     const row = await queryOne<DocumentRow>(
       this.pool,
-      `UPDATE app.document
-       SET deleted_at = NULL, deleted_by = NULL, deleted_by_client = NULL, purge_after = NULL
-       WHERE id = $1 AND deleted_at IS NOT NULL
-       RETURNING ${DOCUMENT_COLUMNS}`,
+      `SELECT ${DOCUMENT_COLUMNS} FROM app.document d WHERE d.id = $1`,
       [documentId],
     );
-    if (!row) return null;
-
-    await appendEvent(this.pool, {
-      roomId: row.room_id as RoomId,
-      eventType: 'document.restored',
-      payload: { document_id: documentId, filename: row.filename },
-      actorPersonId: actor.personId,
-      agentClient: actor.agentClient,
-    });
-
-    await this.projection.invalidate({ roomId: row.room_id as RoomId });
-    return toSummary(row);
+    return row ? toSummary(row) : null;
   }
 
   async trashed(
