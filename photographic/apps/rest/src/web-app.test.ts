@@ -146,6 +146,39 @@ describe('serving the browser app from the API origin', () => {
 
     expect((await instance.request('/nonsense')).status).toBe(404);
   });
+
+  /**
+   * Adding a screen means adding its route here, and these are the two that were added
+   * with the account screens and the public page. `/konto` covers its children by prefix.
+   */
+  it('serves the account screens and the public landing page', async () => {
+    const instance = new Hono<AppEnv>();
+    mountWebApp(
+      instance,
+      { name: 'onboarding', dist, routes: AUTH_APP_ROUTES },
+      { name: 'web', dist: productDist, routes: PRODUCT_APP_ROUTES },
+    );
+    instance.notFound((c) => c.json({ error: { code: 'not_found' } }, 404));
+
+    for (const path of ['/konto', '/konto/export', '/konto/radera']) {
+      const response = await instance.request(path);
+      expect(response.status, path).toBe(200);
+      expect(await response.text(), path).toContain('product-bundle');
+    }
+
+    const landing = await instance.request('/start');
+    expect(landing.status).toBe(200);
+    expect(await landing.text()).toContain('onboarding-bundle');
+  });
+
+  /**
+   * `/i/:token` was a second invite landing whose join button only set React state. The
+   * screen is gone; the path stays as a redirect so a short link already shared still
+   * reaches the landing that accepts invites for real.
+   */
+  it('no longer declares the deleted invite copy as a product route', () => {
+    expect(ownsPath(PRODUCT_APP_ROUTES, '/i/abc123')).toBe(false);
+  });
 });
 
 /**

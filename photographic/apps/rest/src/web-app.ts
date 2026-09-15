@@ -175,10 +175,20 @@ async function fileResponse(path: string, cacheControl: string): Promise<Respons
  */
 
 /** `apps/onboarding` — the auth surface. Keep this authoritative; the OAuth round trip
- * depends on `/login` in particular. `?auth_request=` arrives on `/login`. */
-export const AUTH_APP_ROUTES = ['/login', '/connect', '/invite'] as const;
+ * depends on `/login` in particular. `?auth_request=` arrives on `/login`.
+ *
+ * `/start` is the page for someone who has heard of Photografic and has no account yet.
+ * It lives with the auth surface because that is where every way in already is, and it is
+ * the page the apex hostname should serve — see `apps/onboarding/src/screens/Landing.tsx`. */
+export const AUTH_APP_ROUTES = ['/login', '/connect', '/invite', '/start'] as const;
 
-/** `apps/web` — the product. Mirrors its router in `apps/web/src/App.tsx`. */
+/**
+ * `apps/web` — the product. Mirrors its router in `apps/web/src/App.tsx`.
+ *
+ * `/konto` covers `/konto/export` and `/konto/radera` by prefix. `/i` is gone: it was a
+ * second invite landing whose join button only set React state, and the short link now
+ * redirects to the one that accepts invites for real.
+ */
 export const PRODUCT_APP_ROUTES = [
   '/',
   '/rum',
@@ -188,8 +198,8 @@ export const PRODUCT_APP_ROUTES = [
   '/papperskorg',
   '/historik',
   '/kompass',
+  '/konto',
   '/kalender',
-  '/i',
 ] as const;
 
 /**

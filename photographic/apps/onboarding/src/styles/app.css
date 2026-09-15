@@ -404,8 +404,172 @@ h3 {
   background: #fff;
 }
 
+/* ------------------------------------------------------------------ invite */
+
+/*
+ * The first thing anyone ever sees of this product, usually on a phone.
+ *
+ * `.invite__decision` is sized so that who invited you, to what, what you get, what stays
+ * in the room and the button all land inside one 360×640 viewport, measured rather than
+ * eyeballed. Anything below it — the room's own lines — is a choice to scroll.
+ */
+.shell--invite .wordmark {
+  padding-bottom: 24px;
+}
+
+.invite__from {
+  margin: 0 0 6px;
+}
+
+.invite__title {
+  font: 600 1.625rem/1.15 var(--font-sans);
+  letter-spacing: var(--track-display);
+  margin: 0 0 10px;
+}
+
+.invite__brief {
+  color: var(--ink-muted);
+  margin: 0 0 18px;
+}
+
+.invite__what {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.9375rem;
+}
+
+.invite__what li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.invite__what li::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: var(--radius-pill);
+  /* Neutral, not violet: the button is the one saturated thing on this screen. */
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+.invite__consent {
+  margin: 14px 0 0;
+}
+
+.invite__content {
+  margin-top: 56px;
+}
+
+.invite__content-title {
+  font: 500 1rem/1.3 var(--font-sans);
+  color: var(--ink-muted);
+  margin: 0 0 14px;
+}
+
+.invite__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.invite__line {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.invite__line:last-child {
+  border-bottom: 0;
+}
+
+.invite__empty {
+  margin-top: 40px;
+}
+
+/* ----------------------------------------------------------------- landing */
+
+.landing {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.landing__title {
+  font: 600 clamp(1.875rem, 6vw, 2.5rem) / 1.1 var(--font-sans);
+  letter-spacing: var(--track-display);
+  margin: 0 0 18px;
+}
+
+.landing__lede {
+  font-size: 1.0625rem;
+  color: var(--ink-muted);
+  margin: 0 0 32px;
+  max-width: 34rem;
+}
+
+.landing__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.landing__actions-note {
+  margin: 0;
+  max-width: 30rem;
+}
+
+.landing__points {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  margin: 72px 0 48px;
+}
+
+.landing__point {
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: 26px;
+}
+
+.landing__point h2 {
+  font: 500 1.0625rem/1.3 var(--font-sans);
+  letter-spacing: var(--track-heading);
+  margin: 0 0 10px;
+}
+
+.landing__point p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.9375rem;
+}
+
+.landing__honesty {
+  max-width: 34rem;
+}
+
 @media (max-width: 560px) {
   .shell { padding: 24px 16px 96px; }
   .qr { flex-direction: column; align-items: flex-start; }
   .verify__prompt { font-size: 1.375rem; }
+  .landing__points { margin: 48px 0 32px; }
+}
+
+/* Short viewports: the invite decision has to fit without the type collapsing. */
+@media (max-height: 680px) {
+  .shell--invite { padding-top: 18px; }
+  .shell--invite .wordmark { padding-bottom: 18px; }
+  .invite__title { font-size: 1.5rem; }
+  .invite__brief { margin-bottom: 14px; }
+  .invite__what { gap: 8px; margin-bottom: 18px; }
 }
