@@ -42,6 +42,7 @@ import {
   daysRemaining,
   deriveSource,
   memoryEventKindOf,
+  NotFoundError,
 } from '@photographic/core';
 
 import { MemoryStore } from './store.js';
@@ -123,9 +124,19 @@ export class MemoryCalendar implements CalendarPort {
   // Internals
   // -------------------------------------------------------------------------
 
+  /**
+   * See `PgCalendar.scopeFor`. Refuses rather than narrowing to nothing.
+   *
+   * An unreadable room used to give an empty scope and let the caller carry on to read the
+   * room's title unscoped, so a protected room answered 200 with its own name and a
+   * fictional id answered 200 with `null`. Denied and nonexistent have to be one answer.
+   */
   private scopeFor(actor: Actor, roomId?: RoomId): Set<RoomId> {
     if (roomId) {
-      return new Set(this.store.canRead(actor.personId, roomId) ? [roomId] : []);
+      if (!this.store.canRead(actor.personId, roomId)) {
+        throw new NotFoundError('Rummet finns inte.');
+      }
+      return new Set([roomId]);
     }
     return new Set(this.store.accessibleRoomIds(actor.personId));
   }

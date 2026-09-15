@@ -43,10 +43,32 @@ import type { CompassEntry } from '@photographic/core';
 import { renderProfile } from '@photographic/agent';
 import type { Pool } from 'pg';
 
-import { execute, queryOne, queryRows } from '../pool.js';
+import { execute, queryOne, queryRows, type Db } from '../pool.js';
 import { mapItem, type ItemRow } from '../rows.js';
 import { canRead } from './permissions.js';
 import { personalRoomIdOf } from './identity.js';
+
+/**
+ * The durable half of `ProjectionPort.invalidate`, on whichever unit of work the caller
+ * is inside.
+ *
+ * Split out so a lifecycle transition can mark its own derived state stale inside the
+ * transaction that changed the state — the alternative is an item in the trash beside a
+ * brief that still quotes it, with nothing left to notice the gap.
+ */
+export async function invalidateProjections(
+  db: Db,
+  input: { personId?: PersonId; roomId?: RoomId },
+): Promise<void> {
+  if (input.roomId) {
+    await execute(db, `UPDATE app.brief SET stale = true WHERE room_id = $1`, [input.roomId]);
+  }
+  if (input.personId) {
+    // No explicit "stale" flag on `app.profile`; deleting the cached row is what makes
+    // the next read rebuild it, and it costs nothing extra to rebuild eagerly instead.
+    await execute(db, `DELETE FROM app.profile WHERE person_id = $1`, [input.personId]);
+  }
+}
 
 type SectionName = keyof ProfileSections;
 
@@ -356,15 +378,8 @@ export class PgProjection implements ProjectionPort {
   }
 
   async invalidate(input: { personId?: PersonId; roomId?: RoomId }): Promise<void> {
-    if (input.roomId) {
-      this.staleHeadlines.add(input.roomId);
-      await execute(this.pool, `UPDATE app.brief SET stale = true WHERE room_id = $1`, [input.roomId]);
-    }
-    if (input.personId) {
-      // No explicit "stale" flag on `app.profile`; deleting the cached row is what makes
-      // the next read rebuild it, and it costs nothing extra to rebuild eagerly instead.
-      await execute(this.pool, `DELETE FROM app.profile WHERE person_id = $1`, [input.personId]);
-    }
+    if (input.roomId) this.staleHeadlines.add(input.roomId);
+    await invalidateProjections(this.pool, input);
   }
 
   async activeRoomContext(actor: Actor, roomId: RoomId): Promise<ActiveRoomContext> {

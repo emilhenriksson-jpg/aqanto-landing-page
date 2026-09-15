@@ -23,6 +23,7 @@ import type {
   ItemKind,
   JobPort,
   LlmPort,
+  MemoryEvent,
   MemoryEventKind,
   MemorySource,
   PersonId,
@@ -46,6 +47,7 @@ import {
   COMPASS_PRINCIPLE_MAX_CHARS,
   ROUTING_SAMPLE_SIZE,
   canRemoveMemory,
+  canRepublishMemory,
   dedupeHash,
   deriveMotivation,
   deriveSource,
@@ -416,6 +418,9 @@ export class MemoryIngest implements IngestPort {
     const item = itemId ? this.store.items.get(itemId) : undefined;
     if (!item) throw new NotFoundError('Det finns inget att ta tillbaka.');
     if (!this.store.canWrite(actor.personId, item.roomId)) throw new NotPermittedError();
+    // Mirrors `PgIngest.undo`, where the token and the state are claimed by one `WHERE`: a
+    // token that no longer names something in the trash has nothing to take back.
+    if (item.status !== 'deleted') throw new NotFoundError('Det finns inget att ta tillbaka.');
 
     this.store.undoTokens.delete(undoToken);
     return this.restore(actor, item);
@@ -435,28 +440,26 @@ export class MemoryIngest implements IngestPort {
       shortId: ShortId;
       fromRoomId?: RoomId;
       toRoomId: RoomId;
-      confirmed?: boolean;
     } & WriteProvenance,
   ): Promise<PlacementDecision> {
     const { item, target } = this.resolvePlacement(actor, input);
 
-    if (!input.confirmed) {
-      return {
-        outcome: 'needs_approval',
-        proposal: this.queueProposal(actor, {
-          roomId: target.id,
-          intent: 'share',
-          kind: item.kind,
-          body: item.body,
-          reason: `delning till ${target.title} måste bekräftas av dig`,
-          conflictsWith: null,
-          sourceItemId: item.id,
-          ...(input.motivation ? { motivation: input.motivation } : {}),
-        }),
-      };
-    }
-
-    return this.placeShare(actor, item, target, input.motivation);
+    // Always a proposal. There is no argument that means "and place it now" — see
+    // `IngestPort.share` for why a caller-supplied `confirmed` was a hole rather than a
+    // convenience.
+    return {
+      outcome: 'needs_approval',
+      proposal: this.queueProposal(actor, {
+        roomId: target.id,
+        intent: 'share',
+        kind: item.kind,
+        body: item.body,
+        reason: `delning till ${target.title} måste bekräftas av dig`,
+        conflictsWith: null,
+        sourceItemId: item.id,
+        ...(input.motivation ? { motivation: input.motivation } : {}),
+      }),
+    };
   }
 
   async move(
@@ -465,7 +468,6 @@ export class MemoryIngest implements IngestPort {
       shortId: ShortId;
       fromRoomId?: RoomId;
       toRoomId: RoomId;
-      confirmed?: boolean;
     } & WriteProvenance,
   ): Promise<PlacementDecision> {
     const { item, target } = this.resolvePlacement(actor, input);
@@ -475,13 +477,15 @@ export class MemoryIngest implements IngestPort {
       throw new ValidationError(`${item.shortId} ligger redan i ${target.title}.`);
     }
 
-    // Moving *into* a shared room is a sharing act and needs the same yes.
-    if (target.kind === 'shared' && !input.confirmed) {
+    // Moving *into* a shared room is a sharing act and needs the same yes, so it queues.
+    // `intent: 'move'` rather than `'share'`, so approving it relocates the memory instead
+    // of leaving the original behind and adding a copy.
+    if (target.kind === 'shared') {
       return {
         outcome: 'needs_approval',
         proposal: this.queueProposal(actor, {
           roomId: target.id,
-          intent: 'share',
+          intent: 'move',
           kind: item.kind,
           body: item.body,
           reason: `flytt till det delade rummet ${target.title} måste bekräftas av dig`,
@@ -492,39 +496,7 @@ export class MemoryIngest implements IngestPort {
       };
     }
 
-    this.store.assertPlacementAllowed(target.id, true);
-
-    const motivation =
-      input.motivation ??
-      deriveMotivation({
-        kind: 'moved',
-        roomTitle: target.title,
-        roomKind: target.kind,
-        fromRoomTitle: origin.title,
-      });
-
-    item.roomId = target.id;
-
-    // Appended to the room it arrived in, so the receiving room's day shows it turning
-    // up. `from_room_id` is what makes it readable as a move rather than a save.
-    const event = this.store.append({
-      roomId: target.id,
-      eventType: 'item.moved',
-      payload: { item_id: item.id, short_id: item.shortId, kind: item.kind, body: item.body },
-      actorPersonId: actor.personId,
-      agentClient: actor.agentClient,
-      clientId: actor.clientId ?? null,
-      sessionRef: actor.sessionId,
-      fromRoomId: origin.id,
-      toRoomId: target.id,
-      explicit: true,
-      motivation,
-      source: this.sourceFor(actor, {}),
-    });
-
-    await this.markStale(origin.id, actor);
-    await this.markStale(target.id, actor);
-    return { outcome: 'placed', item, event };
+    return this.placeMove(actor, item, origin, target, input.motivation);
   }
 
   async listProposals(actor: Actor): Promise<Proposal[]> {
@@ -652,9 +624,19 @@ export class MemoryIngest implements IngestPort {
       return null;
     }
 
+    // Claimed before applying, so two overlapping approvals cannot both get past the
+    // pending check above — `applyProposal` awaits, and an await is an interleaving point
+    // here exactly as it is a commit boundary in `PgIngest`. Put back on failure, because an
+    // accepted proposal with no memory behind it is a queue entry nobody can answer again.
     proposal.status = 'accepted';
 
-    const resulting = await this.applyProposal(actor, proposal);
+    let resulting: Item;
+    try {
+      resulting = await this.applyProposal(actor, proposal);
+    } catch (error) {
+      proposal.status = 'pending';
+      throw error;
+    }
 
     this.store.append({
       roomId: proposal.roomId,
@@ -673,7 +655,7 @@ export class MemoryIngest implements IngestPort {
   /**
    * What accepting a proposal actually does, per intent.
    *
-   * Three outcomes, and the interesting one is a contradiction. Within one author it is a
+   * Four outcomes, and the interesting one is a contradiction. Within one author it is a
    * correction and the old value is superseded — the 15 oktober becoming 1 november case
    * the scope describes. Across two authors in a shared room it is a *disagreement*, and
    * superseding would mean anyone in the room can quietly overwrite anyone else, with the
@@ -688,6 +670,26 @@ export class MemoryIngest implements IngestPort {
       if (!target) throw new NotFoundError('Rummet finns inte.');
 
       const placed = await this.placeShare(actor, source, target, undefined, actor.personId);
+      return placed.item;
+    }
+
+    // Relocates, rather than copying. A move queued as `share` came back from the queue as
+    // a copy, leaving the memory the person asked to move exactly where it was.
+    if (proposal.intent === 'move') {
+      const source = proposal.sourceItemId ? this.store.items.get(proposal.sourceItemId) : undefined;
+      if (!source) throw new NotFoundError('Minnet som skulle flyttas finns inte längre.');
+      const origin = this.store.rooms.get(source.roomId);
+      const target = this.store.rooms.get(proposal.roomId);
+      if (!origin || !target) throw new NotFoundError('Rummet finns inte.');
+
+      const placed = await this.placeMove(
+        actor,
+        source,
+        origin,
+        target,
+        proposal.motivation ?? undefined,
+        actor.personId,
+      );
       return placed.item;
     }
 
@@ -1127,6 +1129,51 @@ export class MemoryIngest implements IngestPort {
     return { outcome: 'placed', item, event };
   }
 
+  /** The relocation itself, once it is either harmless or approved. */
+  private async placeMove(
+    actor: Actor,
+    item: Item,
+    origin: Room,
+    target: Room,
+    motivation?: string,
+    approvedBy?: PersonId,
+  ): Promise<{ outcome: 'placed'; item: Item; event: MemoryEvent }> {
+    this.store.assertPlacementAllowed(target.id, true);
+
+    const reason =
+      motivation ??
+      deriveMotivation({
+        kind: 'moved',
+        roomTitle: target.title,
+        roomKind: target.kind,
+        fromRoomTitle: origin.title,
+      });
+
+    item.roomId = target.id;
+
+    // Appended to the room it arrived in, so the receiving room's day shows it turning
+    // up. `from_room_id` is what makes it readable as a move rather than a save.
+    const event = this.store.append({
+      roomId: target.id,
+      eventType: 'item.moved',
+      payload: { item_id: item.id, short_id: item.shortId, kind: item.kind, body: item.body },
+      actorPersonId: actor.personId,
+      agentClient: actor.agentClient,
+      clientId: actor.clientId ?? null,
+      sessionRef: actor.sessionId,
+      fromRoomId: origin.id,
+      toRoomId: target.id,
+      ...(approvedBy ? { approvedBy } : {}),
+      explicit: true,
+      motivation: reason,
+      source: this.sourceFor(actor, {}),
+    });
+
+    await this.markStale(origin.id, actor);
+    await this.markStale(target.id, actor);
+    return { outcome: 'placed', item, event };
+  }
+
   /**
    * Resolves which memory and which room a placement is about, and refuses early.
    *
@@ -1145,7 +1192,7 @@ export class MemoryIngest implements IngestPort {
       throw new NotFoundError('Rummet finns inte.');
     }
 
-    this.assertMayRemove(actor, item, 'Bara den som skrev uppgiften kan flytta eller dela den.');
+    this.assertMayRepublish(actor, item);
     return { item, target };
   }
 
@@ -1156,15 +1203,31 @@ export class MemoryIngest implements IngestPort {
    * shared room `forget` removes something for all five members on one person's
    * judgement, and that is not a correction — it is deleting someone else's work.
    */
-  private assertMayRemove(actor: Actor, item: Item, message?: string): void {
+  private assertMayRemove(actor: Actor, item: Item): void {
     const role = this.store.roleIn(actor.personId, item.roomId);
     if (!role) throw new NotPermittedError();
 
     if (!canRemoveMemory({ role, isAuthor: item.authorPersonId === actor.personId })) {
       throw new NotPermittedError(
-        message ??
-          'Bara den som skrev uppgiften, eller rummets ägare, kan ta bort den. Du kan bestrida den i stället.',
+        'Bara den som skrev uppgiften, eller rummets ägare, kan ta bort den. Du kan bestrida den i stället.',
       );
+    }
+  }
+
+  /**
+   * Moving or sharing needs the author, and an owner is not enough. See
+   * `canRepublishMemory`.
+   *
+   * This called `assertMayRemove` while raising a message that said only the author could
+   * move or share — so the message was true and the check was not, and an owner could
+   * relocate a member's words into a room that member never chose.
+   */
+  private assertMayRepublish(actor: Actor, item: Item): void {
+    const role = this.store.roleIn(actor.personId, item.roomId);
+    if (!role) throw new NotPermittedError();
+
+    if (!canRepublishMemory({ isAuthor: item.authorPersonId === actor.personId })) {
+      throw new NotPermittedError('Bara den som skrev uppgiften kan flytta eller dela den.');
     }
   }
 

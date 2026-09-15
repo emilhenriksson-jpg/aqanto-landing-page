@@ -478,7 +478,16 @@ export interface MemoryEventDetail {
  * question rather than a write, and the question is the same queue the person already
  * clears for proposals.
  */
-export type ProposalIntent = 'remember' | 'share' | 'update';
+/**
+ * `move` is distinct from `share` because approving one must not do the other.
+ *
+ * A share leaves the original where it was and puts a copy in the target room; a move
+ * relocates the row and keeps its short id. While a move into a shared room was queued as
+ * `share`, approving it produced a copy — so the memory the person asked to move was
+ * still sitting in its old room afterwards, and "flytta p-7k2m" had quietly become
+ * "kopiera p-7k2m".
+ */
+export type ProposalIntent = 'remember' | 'share' | 'update' | 'move';
 
 export interface Proposal {
   id: ProposalId;
