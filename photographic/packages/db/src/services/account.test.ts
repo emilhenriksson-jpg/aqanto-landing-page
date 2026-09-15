@@ -72,8 +72,15 @@ afterAll(async () => {
 });
 
 /** Writes directly, bypassing the approval tiering, which is not what is under test. */
+// A write into a shared room always passes the Godkänn queue (`requiresApproval`,
+// build-plan decision 2), so getting a saved memory in one takes two steps rather than
+// one. These tests are about what account deletion does to a contribution that is
+// already there, not about the gate, so the approval happens here.
 async function remember(actor: Actor, roomId: RoomId, body: string): Promise<void> {
-  await wired.services.ingest.remember(actor, { roomId, body, explicit: true });
+  const decision = await wired.services.ingest.remember(actor, { roomId, body, explicit: true });
+  if (decision.outcome === 'needs_approval') {
+    await wired.services.ingest.resolveProposal(actor, decision.proposal.id, true);
+  }
 }
 
 async function upload(actor: Actor, roomId: RoomId, filename: string, body: string) {
