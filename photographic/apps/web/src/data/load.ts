@@ -16,6 +16,7 @@ import {
   getCalendarEvent,
   getInvite,
   getProfile,
+  getProvenance,
   getRoom,
   listClients,
   listProposals,
@@ -32,9 +33,11 @@ import type {
   CalendarEntryDto,
   ClientHealthDto,
   CompassEntryDto,
+  EmbeddingProvenanceDto,
   MemoryEventDetailDto,
   ProfileSectionsDto,
   ProposalDto,
+  ProvenanceDto,
   RoomDocumentDto,
   RoomItemDto,
   RoomMemberDto,
@@ -52,6 +55,7 @@ import type {
   DocumentLine,
   InvitePreviewData,
   MemoryLine,
+  ProvenanceAnswer,
   RoomCard,
   RoomDetail,
   HistoryLine,
@@ -216,6 +220,7 @@ export function mapClientHealth(dto: ClientHealthDto): DemoClient {
     deliveryMethod:
       method === 'mcp_instructions' || method === 'tool_call' ? method : method ? 'tool_call' : null,
     degraded: dto.degraded,
+    revoked: dto.revoked,
   };
 }
 
@@ -224,19 +229,177 @@ export async function loadClientsFromApi(): Promise<DemoClient[]> {
   return clients.map(mapClientHealth);
 }
 
-export function mapProposal(dto: ProposalDto): ApprovalItem {
+/**
+ * A proposal as a decision, not as a notification.
+ *
+ * `roomId` and `intent` used to be dropped here, which is how the queue ended up
+ * rendering "vill spara" over a request to put something in front of three other people.
+ * They are the two fields that decide what the card says, so they survive the mapping.
+ */
+interface ApprovalRoom {
+  title: string;
+  kind: 'personal' | 'shared';
+  audience: string[];
+  audienceCount: number;
+}
+
+export function mapProposal(
+  dto: ProposalDto,
+  rooms: Map<string, ApprovalRoom> = new Map(),
+): ApprovalItem {
+  const room = rooms.get(dto.roomId);
   return {
     id: dto.id,
     clientLabel: clientLabel(dto.proposedByClient),
+    intent: dto.intent ?? 'remember',
     kind: mapItemKind(dto.kind),
     body: dto.body,
     reason: dto.reason,
+    roomId: dto.roomId,
+    roomTitle: room?.title ?? null,
+    roomKind: room?.kind ?? null,
+    audience: room?.audience ?? [],
+    audienceCount: room?.audienceCount ?? 1,
+    createdAt: dto.createdAt,
   };
 }
 
+/**
+ * The queue, with enough context to answer it.
+ *
+ * Rooms are fetched alongside so a card can name where the memory lands, and the members
+ * of any shared room in the queue are fetched by name — "kan läsas av Anna och Jacob" is
+ * the one fact a person actually needs to answer a sharing request, and a room id is not
+ * it. Both lookups are allowed to fail: a card with less context still beats no card.
+ */
 export async function loadApprovalsFromApi(): Promise<ApprovalItem[]> {
   const { proposals } = await listProposals();
-  return proposals.map(mapProposal);
+  if (proposals.length === 0) return [];
+
+  const rooms = await approvalRoomContext(proposals);
+  return proposals.map((dto) => mapProposal(dto, rooms));
+}
+
+async function approvalRoomContext(proposals: ProposalDto[]): Promise<Map<string, ApprovalRoom>> {
+  const context = new Map<string, ApprovalRoom>();
+
+  let summaries: RoomSummaryDto[];
+  try {
+    summaries = (await listRooms()).rooms;
+  } catch {
+    return context;
+  }
+
+  const wanted = new Set(proposals.map((p) => p.roomId));
+  for (const summary of summaries) {
+    if (!wanted.has(summary.roomId)) continue;
+    context.set(summary.roomId, {
+      title: summary.kind === 'personal' ? summary.title || 'Ditt rum' : summary.title,
+      kind: summary.kind,
+      audience: [],
+      audienceCount: summary.memberCount,
+    });
+  }
+
+  const shared = [...context.entries()].filter(([, room]) => room.kind === 'shared');
+  await Promise.all(
+    shared.map(async ([roomId, room]) => {
+      try {
+        const { members } = await getRoom(roomId);
+        const names = members
+          .map((member) => memberDisplayName(member))
+          .filter((name): name is string => Boolean(name));
+        room.audienceCount = members.length;
+        // All of them or none. A list that quietly omits the two members who never
+        // entered a name would understate who can read it, which is the one direction
+        // this line must never be wrong in.
+        room.audience = names.length === members.length ? names : [];
+      } catch {
+        // Names are an improvement on the card, never a precondition for it.
+      }
+    }),
+  );
+
+  return context;
+}
+
+/**
+ * The provenance endpoint, turned into sentences a person reads.
+ *
+ * Formatting happens here rather than in the component for the same reason every other
+ * mapping does: the screen should not know that `savedByClient` is `"claude-desktop"`,
+ * and "Claude" is the only spelling the person should ever meet.
+ */
+export function mapProvenance(
+  dto: ProvenanceDto,
+  roomKind: RoomDetail['kind'] = 'personal',
+): ProvenanceAnswer {
+  return {
+    shortId: dto.shortId,
+    when: swedishMomentSwedish(dto.savedAt),
+    who: historyWho({ agentClient: dto.savedByClient, actorName: null }),
+    sourceLabel: dto.source?.label?.trim() || null,
+    roomTitle: dto.roomTitle,
+    roomKind,
+    motivation: dto.motivation?.trim() || null,
+    approvedByName: dto.approvedByName?.trim() || null,
+    changed: dto.changed,
+    modelReach: modelReachSentence(dto.embedding),
+    // The event that created it, which is where the zoom to the original source lives.
+    // `shared` counts: a memory that arrived in a room by being shared was created by
+    // that act as far as the person is concerned.
+    seq: dto.timeline.find((entry) => entry.action === 'saved' || entry.action === 'shared')?.seq ?? null,
+  };
+}
+
+export async function loadProvenanceFromApi(
+  shortId: string,
+  roomId?: string,
+  roomKind: RoomDetail['kind'] = 'personal',
+): Promise<ProvenanceAnswer> {
+  return mapProvenance(await getProvenance(shortId, roomId), roomKind);
+}
+
+/**
+ * "Har min text skickats någonstans?", answered about this memory.
+ *
+ * Part of the same question as the rest of the panel, and the part a person is least
+ * able to find out any other way. Only stated when the server recorded an answer:
+ * `undefined` is a server that predates the field and `null` is a memory with no vector,
+ * and neither of those is a "nej" we are entitled to print.
+ */
+export function modelReachSentence(embedding: EmbeddingProvenanceDto | null | undefined): string | null {
+  if (!embedding) return null;
+
+  const when = swedishDateSwedish(embedding.at);
+  if (!embedding.external) {
+    return `Nej — sökindexet räknades ut här (${embedding.model}).`;
+  }
+  return (
+    `Ja — skickad till ${providerName(embedding.provider)} (${embedding.model}) ${when}, ` +
+    'för att kunna hittas på betydelse. Modellen tränas inte på den.'
+  );
+}
+
+/** The company's own spelling, not the config value. */
+function providerName(provider: string): string {
+  return provider === 'openai' ? 'OpenAI' : provider;
+}
+
+/** "2 september 2026" — a day, without a time nobody asked for. */
+export function swedishDateSwedish(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+/** "2 september 2026 kl 09:14", the way a date is said out loud. */
+export function swedishMomentSwedish(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const day = date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
+  const time = date.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+  return `${day} kl ${time}`;
 }
 
 export function mapRoomDocument(dto: RoomDocumentDto): DocumentLine {

@@ -83,13 +83,19 @@ export class PgHistory implements HistoryPort {
   }
 
   async provenance(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<Provenance | null> {
-    const scope = roomId ? [roomId] : await accessibleRoomIds(this.pool, actor.personId);
-    if (scope.length === 0) return null;
+    // Two different sets. `readable` is every room this person may see and bounds the
+    // history; `lookup` is where the caller says the memory is, and only disambiguates
+    // a short id. Narrowing the history to `lookup` too would drop the event a move
+    // wrote in the room the memory came *from*, which is the half of "it used to live
+    // somewhere else" that matters.
+    const readable = await accessibleRoomIds(this.pool, actor.personId);
+    const lookup = roomId ? readable.filter((id) => id === roomId) : readable;
+    if (lookup.length === 0) return null;
 
     const itemRow = await queryOne<ItemRow>(
       this.pool,
       `SELECT ${ITEM_COLUMNS} FROM app.item WHERE short_id = $1 AND room_id = ANY($2::uuid[])`,
-      [shortId, scope],
+      [shortId, lookup],
     );
     if (!itemRow) return null;
     const item = mapItem(itemRow);
@@ -113,15 +119,28 @@ export class PgHistory implements HistoryPort {
       item.roomId,
     ]);
 
+    // Two conditions that look like belt-and-braces and are not.
+    //
+    // `room_id = ANY(readable)` is the permission filter every read owes. Without it the
+    // query trusted that an event mentioning this item is an event about a room this
+    // person may see, and a move writes one in a room they may have left.
+    //
+    // `payload @> ...` rather than `payload ->> 'item_id' = ...` because the only index
+    // on this column is `event_payload_idx`, a `jsonb_path_ops` GIN index, and it can
+    // only answer containment. The `->>` form ignored it and scanned every event on the
+    // platform — bearable when the only caller was a page nobody could reach, and not
+    // once there is a link on every memory row.
     const eventRows = await queryRows<EventRow & { room_title: string; actor_name: string | null }>(
       this.pool,
       `SELECT ${EVENT_COLUMNS_PREFIXED}, r.title AS room_title, p.display_name AS actor_name
        FROM app.event e
        JOIN app.room r ON r.id = e.room_id
        LEFT JOIN app.person p ON p.id = e.actor_person_id
-       WHERE e.event_type = ANY($1::text[]) AND (e.payload ->> 'item_id') = $2
+       WHERE e.event_type = ANY($1::text[])
+         AND e.payload @> jsonb_build_object('item_id', $2::text)
+         AND e.room_id = ANY($3::uuid[])
        ORDER BY e.seq ASC`,
-      [Object.keys(ACTION_OF), item.id],
+      [Object.keys(ACTION_OF), item.id, readable],
     );
 
     const timeline = eventRows.map((row) => toEntry(row));

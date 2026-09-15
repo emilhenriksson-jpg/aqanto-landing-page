@@ -16,7 +16,7 @@
     {
       "importer": "apps/rest/src/wiring.ts",
       "specifier": "@photographic/connect/testing",
-      "why": "MemorySessionIssuer and MemoryCodeStore. NOT acceptable, recorded so nothing else joins them. The issuer mints session-<personId>-<n> and wiring.ts:319 verifies it by regex, so any member of a shared room can sign in as any other member; PR #14 replaces the issuer with a signed one. MemoryCodeStore survives even after #14: login codes and their hourly rate limit live in one process's heap and there is no table for them in any migration. Delete both rows when there is a real issuer and a real code store."
+      "why": "MemoryCodeStore (wiring.ts:471). This row used to cover MemorySessionIssuer too -- the double that authenticated any member of a shared room as any other member, and the reason this check exists. PR #14 replaced it with SignedSessionIssuer from @photographic/connect, so what is left here is the code store: login codes and their hourly rate limit live in one process's heap, a restart invalidates a code someone already received, and no migration defines a table for them. Delete this row when there is a real code store."
     },
     {
       "importer": "apps/rest/src/wiring.ts",

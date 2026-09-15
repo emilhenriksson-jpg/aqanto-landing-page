@@ -51,9 +51,11 @@ export function historyRoutes(): Hono<AppEnv> {
       savedAt: provenance.savedAt.toISOString(),
       savedByClient: provenance.savedByClient,
       approvedByName: provenance.approvedByName,
-      // Three of scope §4's six questions were computed by `HistoryPort.provenance` and
-      // dropped on the way out of this route: why it was stored where it is, where the
-      // information came from, and whether it has changed since.
+      // Section 4 of the scope asks six questions, and a timeline answers four of them.
+      // These are the other two — where the information came from before it was a
+      // memory, and why it was stored where it was — and they were being computed and
+      // then dropped here, which is why nothing outside the calendar could show them.
+      // (Both this branch and main found this independently; main's wording kept.)
       motivation: provenance.motivation,
       source: provenance.source,
       changed: provenance.changed,
@@ -62,7 +64,7 @@ export function historyRoutes(): Hono<AppEnv> {
        *
        * `external: true` means the memory's own words were sent to a third party to make
        * it searchable by meaning. A person asking "hur vet du det om mig?" is entitled
-       * to reach that, and until `0020_embedding_provenance.sql` nothing recorded it.
+       * to reach that, and until `0021_embedding_provenance.sql` nothing recorded it.
        * `null` means no vector was ever computed for this memory.
        *
        * The screen that shows this is another track's; what is owned here is that the

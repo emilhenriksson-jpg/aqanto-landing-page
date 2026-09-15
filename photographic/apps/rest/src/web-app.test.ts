@@ -20,6 +20,7 @@ import type { AppEnv } from './context.js';
 import {
   AUTH_APP_ROUTES,
   isApiPath,
+  APEX_ROOT_ROUTES,
   mountWebApp,
   ownsPath,
   PRODUCT_APP_ROUTES,
@@ -144,6 +145,82 @@ describe('serving the browser app from the API origin', () => {
     expect(await product.text()).toContain('product-bundle');
 
     expect((await instance.request('/nonsense')).status).toBe(404);
+  });
+});
+
+/**
+ * The apex and `mcp.` disagree about `/` and about nothing else.
+ *
+ * Asserted on which bundle answered, not on the status code. A 200 was the evidence that
+ * hid the missing product app for a day: the onboarding catch-all answered every
+ * unclaimed path with its own shell, so a nonsense path looked served too.
+ */
+describe('one process, two hostnames', () => {
+  const APEX = 'photographic.space';
+
+  function bothHosts(): Hono<AppEnv> {
+    const instance = new Hono<AppEnv>();
+    mountWebApp(
+      instance,
+      { name: 'onboarding-apex', dist, routes: APEX_ROOT_ROUTES, hosts: [APEX] },
+      { name: 'onboarding', dist, routes: AUTH_APP_ROUTES },
+      { name: 'web', dist: productDist, routes: PRODUCT_APP_ROUTES },
+    );
+    instance.notFound((c) => c.json({ error: { code: 'not_found' } }, 404));
+    return instance;
+  }
+
+  async function get(path: string, host: string): Promise<Response> {
+    return bothHosts().request(path, { headers: { host } });
+  }
+
+  it('serves the auth bundle at / on the apex', async () => {
+    const response = await get('/', APEX);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('onboarding-bundle');
+  });
+
+  it('still serves the product at / on the mcp hostname', async () => {
+    const response = await get('/', 'mcp.photographic.space');
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('product-bundle');
+  });
+
+  it('serves the product screens on both hostnames', async () => {
+    for (const host of [APEX, 'mcp.photographic.space']) {
+      const response = await get('/kalender', host);
+      expect(await response.text()).toContain('product-bundle');
+    }
+  });
+
+  it('keeps /login on the auth bundle from either name, since OAuth depends on it', async () => {
+    for (const host of [APEX, 'mcp.photographic.space']) {
+      const response = await get('/login?auth_request=abc', host);
+      expect(await response.text()).toContain('onboarding-bundle');
+    }
+  });
+
+  it('still refuses a route nobody declares, on either name', async () => {
+    for (const host of [APEX, 'mcp.photographic.space']) {
+      expect((await get('/nonsense', host)).status).toBe(404);
+    }
+  });
+
+  // `Host` carries the port when it is non-default. Comparing it against a bare hostname
+  // without stripping that would mean the apex rule silently never fires locally.
+  it('matches the host regardless of port or case', async () => {
+    for (const host of [`${APEX}:8787`, APEX.toUpperCase()]) {
+      const response = await get('/', host);
+      expect(await response.text()).toContain('onboarding-bundle');
+    }
+  });
+
+  it('leaves a mount with no host filter answering on an unrelated name', async () => {
+    const response = await get('/kalender', 'photographic.fly.dev');
+
+    expect(await response.text()).toContain('product-bundle');
   });
 });
 

@@ -11,6 +11,7 @@
  */
 
 import { serve } from '@hono/node-server';
+import { startAlerting } from '@photographic/ops';
 
 import { loadConfigFromEnv } from './config.js';
 import { createLogger } from './logger.js';
@@ -34,6 +35,30 @@ if (process.env.DATABASE_URL) {
 }
 
 const wiring = await createWiring({ config, logger });
+
+/**
+ * The alarms, above the timers rather than inside them.
+ *
+ * Every failure this project has had so far was found by a person noticing that something
+ * looked wrong: the log line existed, and nobody was reading it. So this is deliberately
+ * not another log line — it sends to a webhook and an SMS when configured, and pings an
+ * external dead-man's switch on every healthy pass so that the one failure this process
+ * cannot report, its own absence, still reaches someone.
+ *
+ * Started here for the same reason the timers are here: `createWiring` has no side effects
+ * on purpose, and a watchdog is nothing but a side effect.
+ */
+const alerting = startAlerting({
+  env: process.env,
+  logger,
+  facts: {
+    environment: config.environment,
+    persistence: wiring.operations.persistence,
+    storageKind: wiring.operations.storageKind,
+  },
+  db: wiring.operations.db,
+  deliveryFailures: wiring.operations.deliveryFailures,
+});
 
 // Background work runs on a timer rather than a separate worker process, which is right
 // for development and is the first thing to split out when there is more than one
@@ -83,6 +108,51 @@ const accountTimer = setInterval(() => {
     });
 }, 10_000);
 
+/**
+ * The queue, said out loud on a cadence.
+ *
+ * `/v1/ops/queue` answers when someone asks, and the failure this is here for is exactly
+ * the one nobody thinks to ask about: a stalled queue does not error, it simply stops
+ * changing anything. A minute is often enough to notice within a deploy and rare enough
+ * to read.
+ *
+ * `warn` when it is unhealthy and nothing at all when it is idle and clean, so a line here
+ * always means something.
+ */
+const queueTimer = setInterval(() => {
+  if (!wiring.queue) return;
+  void wiring.queue
+    .jobStats()
+    .then(async (jobs) => {
+      const exports = await wiring.queue!.exportStats();
+      const unhealthy =
+        jobs.expiredLeases > 0 ||
+        jobs.failed > 0 ||
+        exports.expiredLeases > 0 ||
+        jobs.oldestPendingSeconds > 300;
+
+      if (unhealthy) {
+        logger.warn('queue_behind', {
+          due: jobs.due,
+          oldestPendingSeconds: jobs.oldestPendingSeconds,
+          expiredLeases: jobs.expiredLeases,
+          failed: jobs.failed,
+          exportsStuck: exports.expiredLeases,
+          exportsFailed: exports.failed,
+        });
+        return;
+      }
+      if (jobs.due > 0 || jobs.running > 0 || exports.pending > 0) {
+        logger.info('queue', { due: jobs.due, running: jobs.running, exports: exports.pending });
+      }
+    })
+    .catch((error: unknown) => {
+      logger.error('queue_stats_failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+}, 60_000);
+
 const server = serve(
   { fetch: wiring.app.fetch, hostname: config.host, port: config.port },
   (info) => {
@@ -107,7 +177,9 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
     clearInterval(jobTimer);
     clearInterval(purgeTimer);
-  clearInterval(accountTimer);
+    clearInterval(accountTimer);
+    clearInterval(queueTimer);
+    alerting.watchdog.stop();
     server.close(() => {
       void wiring.close().finally(() => process.exit(0));
     });
