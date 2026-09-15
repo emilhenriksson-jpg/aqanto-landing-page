@@ -11,7 +11,7 @@
  *     which is what makes keeping them defensible.
  */
 
-import { DELETION_FREEZE_DAYS } from '@photographic/core';
+import { DELETION_FREEZE_DAYS, isTrashedMemory, trashHandleFor } from '@photographic/core';
 import type { Actor, PersonId, RoomId } from '@photographic/core';
 import { MemoryBlobStore } from '@photographic/documents/testing';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
@@ -400,7 +400,7 @@ describe('deletion: what it removes and what it keeps', () => {
     // Visible to the room's owner, which is the whole of "ingen tyst massradering": the
     // other members see it left, and they can put it back.
     const trash = await wired.services.trash.list(elias, { roomId: sharedRoom });
-    const entry = trash.find((row) => row.body === 'Emils beslut om budgeten');
+    const entry = trash.filter(isTrashedMemory).find((row) => row.body === 'Emils beslut om budgeten');
 
     expect(entry).toBeDefined();
     expect(entry?.deleteReason).toContain('Kontot raderades');
@@ -416,10 +416,14 @@ describe('deletion: what it removes and what it keeps', () => {
     await accounts.executeDeletion(request.id);
 
     const entry = (await wired.services.trash.list(elias, { roomId: sharedRoom }))[0]!;
-    const restored = await wired.services.trash.restore(elias, entry.shortId, sharedRoom);
+    const restored = await wired.services.trash.restore(elias, trashHandleFor(entry), sharedRoom);
 
-    expect(restored.status).toBe('active');
-    expect(restored.body).toBe('Emils beslut om budgeten');
+    // A memory came back, so the union says `memory` — asserted rather than assumed, because
+    // the whole point of the discriminator is that a caller cannot skip the question.
+    expect(restored.type).toBe('memory');
+    if (restored.type !== 'memory') throw new Error('expected a memory');
+    expect(restored.item.status).toBe('active');
+    expect(restored.item.body).toBe('Emils beslut om budgeten');
     // And the room can read it again, which is the thing an owner actually wanted.
     expect(await wired.services.trash.list(elias, { roomId: sharedRoom })).toEqual([]);
   });

@@ -49,6 +49,7 @@ import type {
   ShortId,
   Transport,
   TrashEntry,
+  TrashHandle,
 } from './domain.js';
 import type { RoutingDecision } from './routing.js';
 
@@ -639,21 +640,46 @@ export interface DocumentPort {
  * model drives; this is the safety net a person reaches for, and it has to keep working
  * even when every other assumption about the write path turns out to be wrong.
  */
+/** What came back out of the trash, in the shape of whatever it was. */
+export type TrashRestored =
+  | { type: 'memory'; item: Item }
+  | { type: 'document'; document: DocumentSummary };
+
 export interface TrashPort {
+  /**
+   * Everything in this person's trash, memories and documents together, newest first.
+   *
+   * One list rather than two endpoints, because "where did the thing I deleted go" is one
+   * question. Both halves derive from the same lifecycle events in the log, so a
+   * delete-undo-delete sequence has one answer here for a file exactly as it does for a
+   * memory.
+   */
   list(actor: Actor, input?: { roomId?: RoomId; limit?: number }): Promise<TrashEntry[]>;
 
-  /** By short id rather than undo token, for restoring something deleted long ago. */
-  restore(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<Item>;
+  /**
+   * By handle rather than undo token, for restoring something deleted long ago.
+   *
+   * A `TrashHandle` and not a `ShortId`, because the trash now holds two kinds of thing and
+   * they are named differently. `trashHandleOf` reads one out of a path segment, which is
+   * what lets a caller restore what it is looking at without branching first.
+   */
+  restore(actor: Actor, handle: TrashHandle, roomId?: RoomId): Promise<TrashRestored>;
 
   /**
    * Permanently deletes whatever is past its deadline, and redacts the text from the
    * event log so the promise is actually kept. Called by the `purge_trash` job, never
    * from a request, and never with a person's id: expiry is not an action anyone takes.
+   *
+   * One shape covering both, with a document-only step inside it: a blob cannot be deleted
+   * by the SQL function that is the only code permitted to redact `app.event`, so the bytes
+   * go from TypeScript after the row does. That asymmetry is real rather than untidy —
+   * moving the purge out of that function, or leaving orphaned bytes in storage, are both
+   * worse than a step that only one kind of entry needs.
    */
   purgeExpired(limit?: number): Promise<number>;
 
   /** Lets a person empty it early, which some people will want before they trust us. */
-  purgeNow(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<void>;
+  purgeNow(actor: Actor, handle: TrashHandle, roomId?: RoomId): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
