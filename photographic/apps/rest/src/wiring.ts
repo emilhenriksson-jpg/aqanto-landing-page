@@ -37,7 +37,7 @@ import {
 import type { ConnectDeps } from '@photographic/connect';
 import { generateCode } from '@photographic/connect';
 import { MemoryCodeStore, MemorySessionIssuer } from '@photographic/connect/testing';
-import { createCodeSenderFromEnv } from '@photographic/delivery';
+import { createCodeSenderFromEnv, inertChannelDetail } from '@photographic/delivery';
 import type { Actor, PersonId, Services, SessionId } from '@photographic/core';
 import {
   createPool,
@@ -387,6 +387,18 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     mailProvider: delivery.email,
     smsProvider: delivery.sms,
   });
+
+  // `error`, on every boot, once per inert channel.
+  //
+  // This is what stands in for refusing to start. A channel with no provider in
+  // production does not deliver — it refuses at send time (see `RefusingCodeSender` for
+  // why that is preferred over taking the whole site down over a signup setting) — and
+  // the cost of that choice is that a broken channel could otherwise go unnoticed for
+  // weeks. So it is said at the loudest level available, with the fix in the line, every
+  // single boot, rather than once in a warning nobody reads twice.
+  for (const channel of delivery.inert) {
+    logger.error('code_delivery_inert', { channel, detail: inertChannelDetail(channel) });
+  }
 
   if (!process.env.CODE_SECRET) {
     // Codes are HMACed under this key, so a fresh one per boot invalidates every code in
