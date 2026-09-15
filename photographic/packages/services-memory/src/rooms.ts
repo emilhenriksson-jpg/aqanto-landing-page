@@ -20,7 +20,7 @@ import { MemoryStore, newId } from './store.js';
 export class MemoryRooms implements RoomPort {
   constructor(
     private readonly store: MemoryStore,
-    private readonly projection: Pick<ProjectionPort, 'headlinesFor'>,
+    private readonly projection: Pick<ProjectionPort, 'headlinesFor' | 'invalidate'>,
   ) {}
 
   async create(actor: Actor, input: { title: string; description?: string }): Promise<Room> {
@@ -87,6 +87,39 @@ export class MemoryRooms implements RoomPort {
       const bp = this.store.rooms.get(b.roomId)?.kind === 'personal' ? 0 : 1;
       return ap - bp || a.title.localeCompare(b.title, 'sv');
     });
+  }
+
+  /**
+   * Editors may describe a room, not only its owner.
+   *
+   * The room's sentence is the kind of thing whoever works in the room is best placed to
+   * get right, and a wrong one is visible to everyone and trivially corrected — unlike
+   * archiving, which is why that stays with the owner.
+   */
+  async describe(actor: Actor, roomId: RoomId, description: string | null): Promise<Room> {
+    const role = this.store.roleIn(actor.personId, roomId);
+    if (role !== 'owner' && role !== 'editor') throw new NotPermittedError();
+
+    const room = this.store.rooms.get(roomId);
+    if (!room) throw new NotPermittedError();
+
+    const trimmed = description?.trim() ?? '';
+    room.description = trimmed || null;
+
+    this.store.append({
+      roomId,
+      eventType: 'room.described',
+      payload: { description: room.description },
+      actorPersonId: actor.personId,
+      agentClient: actor.agentClient,
+    });
+
+    // The read path serves the owner's text straight from the room, so the overview is
+    // correct on the next session without waiting for a rebuild. The invalidation is for
+    // the cached copy, and for the summary this description now overrides.
+    await this.projection.invalidate({ roomId });
+
+    return room;
   }
 
   async archive(actor: Actor, roomId: RoomId): Promise<void> {

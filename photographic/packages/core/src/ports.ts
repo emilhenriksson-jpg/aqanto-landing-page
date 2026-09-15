@@ -86,6 +86,19 @@ export interface RoomPort {
   listForPerson(actor: Actor): Promise<RoomSummary[]>;
   archive(actor: Actor, roomId: RoomId): Promise<void>;
 
+  /**
+   * Sets the sentence every session reads about this room.
+   *
+   * A room's description is not documentation nobody opens: it is the headline the
+   * overview prefers over anything summarised, so this is how a person decides what
+   * every model they use understands a room to be. Which makes it worth being able to
+   * change — a room's purpose is clearest a month in, not at the moment it was named,
+   * and until this existed the only way to correct it was to create the room again.
+   *
+   * `null` hands the sentence back to the summariser.
+   */
+  describe(actor: Actor, roomId: RoomId, description: string | null): Promise<Room>;
+
   /** Resolves a name a person spoke ("Buyersclub Ledning") to a room they can reach. */
   resolveByName(actor: Actor, name: string): Promise<Room | null>;
 

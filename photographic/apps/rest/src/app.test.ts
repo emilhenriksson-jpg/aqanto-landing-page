@@ -420,6 +420,50 @@ describe('rooms and who can see them', () => {
     expect(res.status).toBe(404);
   });
 
+  it('lets a person write the sentence every model reads about a room', async () => {
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    const created = await (
+      await f.post('/v1/rooms', { title: 'Villan' }, emil.token)
+    ).json();
+
+    const res = await f.patch(
+      `/v1/rooms/${created.room.id}/description`,
+      { description: 'Renovering av villan: offerter, hantverkare och tidplan' },
+      emil.token,
+    );
+    expect(res.status).toBe(200);
+
+    // The point of writing it is that it reaches the models, not that it is stored.
+    const context = await (await f.get('/v1/context', emil.token)).json();
+    expect(context.rendered).toContain('Renovering av villan');
+
+    // A room's purpose is clearest a month in, so it has to be correctable.
+    await f.patch(
+      `/v1/rooms/${created.room.id}/description`,
+      { description: 'Allt kring huset i Saltsjöbaden' },
+      emil.token,
+    );
+    const updated = await (await f.get('/v1/context', emil.token)).json();
+    expect(updated.rendered).toContain('Saltsjöbaden');
+    expect(updated.rendered).not.toContain('Renovering av villan');
+  });
+
+  it('will not let someone describe a room they cannot reach', async () => {
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    const created = await (
+      await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)
+    ).json();
+
+    const jacob = await register(f, 'jacob@example.com', 'Jacob');
+    const res = await f.patch(
+      `/v1/rooms/${created.room.id}/description`,
+      { description: 'Mitt rum nu' },
+      jacob.token,
+    );
+
+    expect(res.status).toBe(404);
+  });
+
   it('keeps search inside the rooms the caller can reach', async () => {
     const emil = await register(f, 'emil@example.com', 'Emil');
     await f.post('/v1/memory', { body: 'Allergisk mot ketchup' }, emil.token);

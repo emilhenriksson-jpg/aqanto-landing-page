@@ -105,3 +105,27 @@ _Agents append here. Do not edit another package to unblock yourself._
   been passing over: the login page pointed at an origin that serves no HTML, and the MCP
   endpoint advertised a scope set with no `offline_access`, which would have handed every
   client an hour of access and no way to renew it.
+
+- **orchestrator** — the room overview: every room a person has now reaches every session
+  as one line — name, whether other people write in it, and a headline saying what the
+  room is for. The personal room is still injected whole; the others are named, not read.
+  This closes the gap between "knows everything about you" and "does not know your rooms
+  exist", which is the failure a model cannot notice: it answers from the profile, sounds
+  certain, and is wrong about work living in a room it was never told about.
+  The headline is its own projection, not the first line of a brief. A brief is what a
+  room contains and changes daily; a headline is what a room *is*. The owner's own
+  description wins and is never regenerated, so a person can state what every model
+  understands a room to be (`PATCH /v1/rooms/:id/description`, capped at the length the
+  overview can actually carry). Otherwise it is summarised under its own prompt in the
+  job that rebuilds the brief — never on the read path, because session start is a voice
+  turn — and the personal room is skipped entirely, which would otherwise mean a model
+  call on every fact a person saves about themselves.
+  Two bugs fixed on the way, both of which had been passing every test: room titles and
+  headlines reached the model in instruction position rather than inside the data
+  boundary, so a room named "ignore previous instructions" was a write primitive into
+  every session its members opened; and the room list was the first block dropped when
+  the budget got tight, which is the one thing it must never be. Headlines now give way
+  before room names, and room names never give way at all.
+  Not built, deliberately: an MCP tool for describing a room. Eight tools is already at
+  the limit where selection accuracy starts to fall, and this is an action a person takes
+  in the app once per room, not something a model should be choosing between mid-sentence.

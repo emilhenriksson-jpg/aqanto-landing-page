@@ -69,6 +69,36 @@ export class RoomService implements RoomPort {
       .sort(byPersonalThenTitle);
   }
 
+  /**
+   * Editors may describe a room, not only its owner.
+   *
+   * The room's sentence is the kind of thing whoever works in the room is best placed to
+   * get right, and a wrong one is visible to everyone and trivially corrected — unlike
+   * archiving, which is why that stays with the owner.
+   */
+  async describe(actor: Actor, roomId: RoomId, description: string | null): Promise<Room> {
+    const { room } = await requireRole(
+      this.deps.store,
+      actor,
+      roomId,
+      'editor',
+      'bara medlemmar som får skriva kan beskriva rummet',
+    );
+
+    const trimmed = description?.trim() || null;
+    if (trimmed === room.description) return room;
+
+    const updated = await this.deps.store.rooms.setDescription(room.id, trimmed);
+    await this.deps.store.events.append({
+      roomId: room.id,
+      eventType: 'room.described',
+      payload: { description: trimmed },
+      ...provenanceOf(actor),
+    });
+
+    return updated;
+  }
+
   async archive(actor: Actor, roomId: RoomId): Promise<void> {
     const { room } = await requireRole(
       this.deps.store,

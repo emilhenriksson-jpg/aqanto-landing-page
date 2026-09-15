@@ -10,7 +10,7 @@ import type { InviteId, RoomId } from '@photographic/core';
 import { Hono } from 'hono';
 
 import type { AppEnv } from '../context.js';
-import { createRoomSchema, inviteSchema, roomIdParam } from '../schemas.js';
+import { createRoomSchema, describeRoomSchema, inviteSchema, roomIdParam } from '../schemas.js';
 import {
   serialiseBrief,
   serialiseInvite,
@@ -58,6 +58,21 @@ export function roomRoutes(): Hono<AppEnv> {
         role: m.role,
       })),
     });
+  });
+
+  /**
+   * The room's short context, which is the sentence every connected model reads about
+   * this room. Kept as its own endpoint rather than a general room update: this is the
+   * one field a person edits after naming a room, and the only one that changes what
+   * every AI they use understands the room to be.
+   */
+  routes.patch('/rooms/:roomId/description', async (c) => {
+    const actor = getActor(c);
+    const { roomId } = parseParams(c, roomIdParam);
+    const { description } = await parseJsonBody(c, describeRoomSchema);
+
+    const room = await getServices(c).rooms.describe(actor, roomId as RoomId, description ?? null);
+    return c.json({ room: serialiseRoom(room) });
   });
 
   routes.post('/rooms/:roomId/seen', async (c) => {

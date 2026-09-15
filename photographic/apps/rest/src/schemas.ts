@@ -8,6 +8,7 @@
  * making it name a room for that would be friction paid on every single write.
  */
 
+import { ROOM_HEADLINE_TOKEN_BUDGET } from '@photographic/core';
 import { z } from 'zod';
 
 const ITEM_KINDS = [
@@ -84,9 +85,25 @@ export const roomIdParam = z.object({ roomId: uuid });
 
 export const undoSchema = z.object({ undoToken: z.string().min(8).max(200) });
 
+/**
+ * A room's description is capped shorter than it looks like it should be, because it is
+ * not documentation: it is the line every model reads about this room at the start of
+ * every session, alongside every other room. A sentence or two is the whole of it.
+ *
+ * Derived from the headline budget rather than picked, because the overview clamps at
+ * that length regardless — and a field that accepts text it will never show is a field
+ * that lies to whoever fills it in.
+ */
+const ROOM_DESCRIPTION_MAX = ROOM_HEADLINE_TOKEN_BUDGET * 4;
+
 export const createRoomSchema = z.object({
   title: z.string().trim().min(1).max(120),
-  description: z.string().trim().max(500).optional(),
+  description: z.string().trim().max(ROOM_DESCRIPTION_MAX).optional(),
+});
+
+export const describeRoomSchema = z.object({
+  /** Empty or absent hands the sentence back to the summariser. */
+  description: z.string().trim().max(ROOM_DESCRIPTION_MAX).nullable().optional(),
 });
 
 export const inviteSchema = z.object({

@@ -21,6 +21,32 @@ context_bundle(actor, activeRoom?, budgetTokens) -> deterministic, cached, versi
 
 Everything else — items, documents, chunks, retrieval — exists to feed it.
 
+### What the bundle contains, and why not more
+
+Two parts, at two depths, because "know everything immediately" does not fit in a
+context window and "search when you need it" does not happen:
+
+- **The personal room, whole.** Identity, facts, preferences and standing instructions,
+  under a hard ceiling, never searched.
+- **Every other room, one line each.** Its name, whether other people write in it, and
+  a headline saying what it is *for* — not what it contains.
+
+The second part is the one that is easy to leave out and expensive to. A model that was
+never told a room exists does not go looking for it: it answers from the profile, sounds
+certain, and is wrong about work that lives somewhere it never saw. Room names are cheap.
+
+The headline is therefore its own projection rather than the first line of a brief. A
+brief is what a room contains, which changes daily; a headline is what a room is, which
+rarely changes and is what a model needs in order to decide whether to spend a tool call
+opening it. The owner's own description wins and is never regenerated; otherwise it is
+summarised in the same job that rebuilds the brief, because session start is a voice turn
+and cannot wait on the model.
+
+Under budget pressure, things give way in the order of what losing them costs: headlines
+first, then the active room's brief, then profile items by salience. The rules and the
+list of room names never give way — a model missing a rule acts against the person's
+standing wishes, and a model missing a room does not know there is anything to ask about.
+
 ## Delivery channels, ranked by determinism
 
 | # | Mechanism | Determinism | Available in |

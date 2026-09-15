@@ -81,6 +81,9 @@ export interface RoomStore {
 
   personalRoomOf(personId: PersonId): Promise<Room | null>;
 
+  /** Replaces the room's description, `null` clearing it. Returns the updated row. */
+  setDescription(id: RoomId, description: string | null): Promise<Room>;
+
   archive(id: RoomId, at: Date): Promise<void>;
 
   /** Mirrors `app.accessible_room_ids`: active membership, room not archived. */
