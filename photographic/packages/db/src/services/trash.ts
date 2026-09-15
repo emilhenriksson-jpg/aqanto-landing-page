@@ -171,9 +171,8 @@ export class PgTrash implements TrashPort {
         `SELECT room_id FROM app.trash WHERE document_id = $1`,
         [handle.documentId],
       );
-      if (!room || !(await canWrite(this.pool, actor.personId, room.room_id as RoomId))) {
-        throw new NotPermittedError();
-      }
+      if (!room) throw new NotFoundError('Det finns inget att radera.');
+      await assertCanWrite(this.pool, actor.personId, room.room_id as RoomId);
 
       await this.pool.query(`UPDATE app.document SET purge_after = now() WHERE id = $1`, [
         handle.documentId,
