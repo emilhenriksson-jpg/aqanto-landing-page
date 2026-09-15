@@ -228,3 +228,7 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
 - **orchestrator** — design round 4: Klienter is a quiet stacked list (not a 3-card
   status grid). Soft-delete live path race-safe; `@photographic/design-tokens` shared;
   `LIVE_MCP=1` optional e2e smoke; morning `./scripts/mcp-smoke.sh` green.
+
+- **orchestrator** — Godkänn + Klienter load from REST when `VITE_USE_DEMO=0`
+  (`listProposals` / `listClients`). `scripts/demo-web.md` documents session
+  token + live web. Voice placeholder landing shipped earlier.
