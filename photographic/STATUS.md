@@ -113,9 +113,29 @@ think about.
   null until Track 3 moves the client store to Postgres — an honest gap rather than a
   confident guess.
 
-Green: monorepo typecheck clean; core 37, agent 54, auth 34, connect 89, llm 9, web 45,
+Green: monorepo typecheck clean; core 38, agent 54, auth 34, connect 89, llm 9, web 45,
 services-memory 7, db 3, onboarding 24, mcp 40, rest 55; e2e 39 memory + 39 postgres
-(22 journey + 17 calendar, 1 skipped live-MCP).
+(22 journey + 17 calendar), and the gated `LIVE_MCP=1` smoke.
+
+### Verified against a running system, not only by tests
+
+- **The session chain, which was the point of the `session_ref` fix.** A real MCP client
+  over the full OAuth dance calls `remember`; the resulting `item.created` carries
+  `session_ref`, and it joins to an `app.client_session` row with `transport = mcp` and
+  `profile_delivered = true`. `source_ref = session_ref`, so `GET /v1/calendar/events/:seq`
+  opens the conversation it came out of. Script: `/tmp/mcp-write.mjs` in that run — not
+  committed, it is twenty lines of OAuth and a tool call.
+  Note: the e2e harness's actors carry no session, so `session_ref` is null in that
+  database. That is honest rather than broken — no session, no ref.
+- **Both database triggers refuse raw SQL** that bypasses every application path: a
+  non-explicit insert into a shared room, and a second member in a personal room.
+- **`pg_policies` in schema `app` is empty** and `relrowsecurity` is false on `item`,
+  `document`, `chunk`, `brief` and `event`.
+- **Running `src/calendar.test.ts` alone against Postgres** leaves `item.disputed`,
+  `item.dispute_resolved`, `item.superseded` and `member.left` rows in the log, one
+  `membership.left_at` written, `disputed` present in `app.memory_event`, and two authors
+  recorded per shared room. Worth knowing: the two e2e files each reset the schema, so
+  inspecting the database after a full run only shows whichever ran last.
 
 ## Completed
 
