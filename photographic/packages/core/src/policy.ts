@@ -278,12 +278,34 @@ export function canInvite(role: MemberRole): boolean {
  *
  * The personal room has one member who is also the author of everything in it, so this
  * only ever bites in a shared one.
+ *
+ * Removal only. Moving or sharing someone else's words is `canRepublishMemory`, and the
+ * two are deliberately not the same function.
  */
 export function canRemoveMemory(input: {
   role: MemberRole;
   isAuthor: boolean;
 }): boolean {
   return input.isAuthor || input.role === 'owner';
+}
+
+/**
+ * Who may move or share a memory into a room it is not in yet.
+ *
+ * The author, and nobody else. Not even an owner.
+ *
+ * This used to be `canRemoveMemory`, which reads as the same question and is not: taking
+ * something out of a room is reversible for thirty days and visible to everyone who was
+ * reading it, while putting it somewhere new hands the text to an audience that could not
+ * see it before, and no trash takes a disclosure back. Tidying a room is what owning it
+ * buys; deciding who else gets to read a sentence stays with whoever wrote it.
+ *
+ * An owner who wants a member's contribution out of the room still has `forget`, which is
+ * the visible, restorable act. What they do not have is a way to relocate it, which would
+ * be publishing someone else's words to a new audience on their own judgement.
+ */
+export function canRepublishMemory(input: { isAuthor: boolean }): boolean {
+  return input.isAuthor;
 }
 
 /** Cheap, stable token estimate. Good enough for packing; never used for billing. */
@@ -297,11 +319,45 @@ const SHORT_ID_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz';
  * Short handles are speakable and unambiguous: no 0/O or 1/l. A model addresses an
  * item by `p-7k2m` so deletion is exact rather than fuzzy text matching.
  */
+/**
+ * Six characters, not four, and why the change was worth making.
+ *
+ * Four gave 31⁴ = 923,521 handles per room. That sounds ample and is not: the per-save
+ * collision risk in a room of a thousand memories is 0.1%, but the chance that a room
+ * *reaching* a thousand has had at least one collision on the way is 42%, and 88% by two
+ * thousand. A collision is not a near-miss — the insert violates `UNIQUE (room_id,
+ * short_id)` and the person's memory is not saved. The personal room is where every
+ * memory lands by default and the product promises decades.
+ *
+ * Six gives 31⁶ ≈ 887 million, which takes the same cumulative figure at two thousand
+ * memories from 88% to 0.2%. Retrying (see the callers) is what actually makes a save
+ * safe; the extra two characters are what stop the retry from being a routine event.
+ *
+ * Existing four-character ids keep working: nothing derives meaning from the length, and
+ * the one place that asserted it — the REST parameter regex — now accepts four to six.
+ * Anything storing or displaying an id treats it as opaque.
+ */
+const SHORT_ID_LENGTH = 6;
+
 export function generateShortId(prefix = 'p'): string {
+  const alphabet = SHORT_ID_ALPHABET;
+  // Rejection sampling rather than `byte % 31`. With 256 not a multiple of 31, the modulo
+  // hands the first eight symbols nine byte-values each and the rest eight — making them
+  // 12.5% more likely and quietly costing entropy in the one place entropy is the whole
+  // mechanism. `limit` is the largest multiple of the alphabet that fits in a byte.
+  const limit = Math.floor(256 / alphabet.length) * alphabet.length;
+
   let out = '';
-  const bytes = new Uint8Array(4);
-  globalThis.crypto.getRandomValues(bytes);
-  for (const b of bytes) out += SHORT_ID_ALPHABET[b % SHORT_ID_ALPHABET.length];
+  const buffer = new Uint8Array(SHORT_ID_LENGTH * 2);
+  while (out.length < SHORT_ID_LENGTH) {
+    globalThis.crypto.getRandomValues(buffer);
+    for (const b of buffer) {
+      if (b >= limit) continue;
+      out += alphabet[b % alphabet.length];
+      if (out.length === SHORT_ID_LENGTH) break;
+    }
+  }
+
   return `${prefix}-${out}`;
 }
 

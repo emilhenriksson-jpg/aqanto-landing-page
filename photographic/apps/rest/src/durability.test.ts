@@ -136,7 +136,7 @@ function fixture(options: { queue?: QueueSource | null } = {}): Fixture {
   const claim = (personId: PersonId, clientId: string): TokenClaims => ({
     personId,
     sessionId: null,
-    agentClient: clientId === FIRST_PARTY_CLIENT_ID ? 'web' : 'claude',
+    agentClient: clientId === FIRST_PARTY_CLIENT_ID ? 'web' : 'claude-desktop',
     clientId,
     scopes: [
       'profile.read',
@@ -167,7 +167,7 @@ function fixture(options: { queue?: QueueSource | null } = {}): Fixture {
       tokens.set(token, { ...claim(personId, 'claude-desktop'), scopes });
       return token;
     },
-    request: (path, init) => app.request(`https://photographic.test${path}`, init),
+    request: async (path, init) => app.request(`https://photographic.test${path}`, init),
   };
 }
 

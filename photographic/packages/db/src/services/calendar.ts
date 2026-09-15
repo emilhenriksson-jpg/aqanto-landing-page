@@ -38,6 +38,7 @@ import {
   calendarDayRange,
   daysRemaining,
   deriveSource,
+  NotFoundError,
 } from '@photographic/core';
 import type { Pool } from 'pg';
 
@@ -102,6 +103,7 @@ export class PgCalendar implements CalendarPort {
     input: { date: string; timeZone?: string; roomId?: RoomId },
   ): Promise<CalendarDay> {
     const timeZone = input.timeZone ?? DEFAULT_TIME_ZONE;
+    // Throws for a room this person may not read, before anything reads its title.
     const scope = await this.scopeFor(actor, input.roomId);
     // The range is computed in one place, in `@photographic/core`, and passed in as
     // absolute time. Doing timezone arithmetic in SQL as well would be a second
@@ -198,9 +200,26 @@ export class PgCalendar implements CalendarPort {
     };
   }
 
+  /**
+   * The rooms this reader may see, and a refusal rather than an empty answer.
+   *
+   * A named room the person cannot read used to come back as an empty scope, and the caller
+   * carried on — `day()` then looked the title up with an unscoped
+   * `SELECT title FROM app.room`, so a protected room answered 200 with its own name while a
+   * fictional id answered 200 with `null`. Room names are frequently the sensitive part
+   * ("Vårdplan", "Uppsägningar"), and the two different answers also made the id space
+   * enumerable.
+   *
+   * `NotFoundError` for both cases, which is the rule the rest of the product already
+   * follows: denied access is indistinguishable from nonexistence, down to the timing floor
+   * `handleError` pads 404s to.
+   */
   private async scopeFor(actor: Actor, roomId?: RoomId): Promise<RoomId[]> {
     if (roomId) {
-      return (await canRead(this.pool, actor.personId, roomId)) ? [roomId] : [];
+      if (!(await canRead(this.pool, actor.personId, roomId))) {
+        throw new NotFoundError('Rummet finns inte.');
+      }
+      return [roomId];
     }
     return accessibleRoomIds(this.pool, actor.personId);
   }

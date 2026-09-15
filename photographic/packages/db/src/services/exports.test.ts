@@ -50,10 +50,11 @@ beforeAll(async () => {
   personalRoom = registered.personalRoom.id;
   exports = new PgExports(pool, blobs, { worker: 'test-worker' });
 
+  // Straight into the personal room, which needs no approval: nobody new can read it, so
+  // there is no audience for a person to consent to.
   await wired.services.ingest.remember(emil, {
     roomId: personalRoom,
     body: 'allergisk mot ketchup',
-    confirmed: true,
   });
 });
 

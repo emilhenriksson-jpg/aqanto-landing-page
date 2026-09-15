@@ -109,7 +109,48 @@ describe('who may do what in a shared room', () => {
 describe('short ids', () => {
   it('avoids characters that are ambiguous when spoken', () => {
     for (let i = 0; i < 200; i += 1) {
-      expect(generateShortId()).toMatch(/^p-[23456789abcdefghjkmnpqrstuvwxyz]{4}$/);
+      expect(generateShortId()).toMatch(/^p-[23456789abcdefghjkmnpqrstuvwxyz]{6}$/);
+    }
+  });
+
+  /**
+   * Six characters rather than four, because four was not a safety margin.
+   *
+   * 31⁴ is 923,521 handles per room. The per-save collision risk at a thousand memories
+   * is only 0.1%, but the chance a room *reaching* a thousand has lost at least one save
+   * is 42%, and 88% by two thousand — and a collision meant the insert violated
+   * `UNIQUE (room_id, short_id)` and the memory was simply not saved.
+   */
+  it('draws from enough of the space that a room of memories is not a coin flip', () => {
+    const drawn = new Set<string>();
+    for (let i = 0; i < 2000; i += 1) drawn.add(generateShortId());
+
+    // 31⁶ ≈ 887M, so two thousand draws colliding at all is a ~0.2% event. A duplicate
+    // here means the generator lost entropy, not that we were unlucky.
+    expect(drawn.size).toBe(2000);
+  });
+
+  /**
+   * `byte % 31` gave the first eight symbols nine byte-values each and the rest eight,
+   * making them 12.5% more likely — losing entropy in the one place entropy is the whole
+   * mechanism. Rejection sampling removes it.
+   */
+  it('does not favour the start of the alphabet', () => {
+    const alphabet = '23456789abcdefghjkmnpqrstuvwxyz';
+    const counts = new Map<string, number>();
+    for (let i = 0; i < 12_000; i += 1) {
+      for (const ch of generateShortId().slice(2)) {
+        counts.set(ch, (counts.get(ch) ?? 0) + 1);
+      }
+    }
+
+    // Every symbol appears, and none of the formerly-favoured first eight runs away from
+    // the mean. Expected count per symbol is 72000/31 ≈ 2323; a biased generator put the
+    // first eight ~12.5% above it, far outside this bound.
+    expect(counts.size).toBe(alphabet.length);
+    const expected = (12_000 * 6) / alphabet.length;
+    for (const [symbol, count] of counts) {
+      expect(Math.abs(count - expected) / expected, symbol).toBeLessThan(0.08);
     }
   });
 });

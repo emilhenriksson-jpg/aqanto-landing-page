@@ -11,8 +11,12 @@ Kort: API + MCP går att köra lokalt **mot Postgres** eller in-memory. Riktig O
 - **`createPostgresServices`** — hela `Services`-ytan mot lokal Postgres
 - Sätt `DATABASE_URL` → servern kör Postgres; utan den → in-memory + FakeLlm
 - `pnpm db:seed` — Emil + Buyersclub Ledning i Postgres
-- e2e: samma 22-testresa grön mot memory **och** Postgres
-  (`cd photographic/e2e && HARNESS=memory pnpm test` / `HARNESS=postgres pnpm test`)
+- e2e: samma resa körs mot båda drivrutinerna
+  (`cd photographic/e2e && HARNESS=memory pnpm test` / `HARNESS=postgres pnpm test`).
+  Antalet tester står inte här — `vitest` skriver ut det, och siffran i den här raden var
+  fel. Utan `HARNESS` går `journey` och `calendar` mot Postgres oavsett, eftersom de
+  skickar in en databas-URL själva; `HARNESS=memory` är enda vägen att köra hela sviten
+  mot minnesimplementationen
 - Schema + `pnpm db:migrate` / `pnpm db:reset`; migreringar är idempotenta
 - Web-rum-UI på `:5173` — rum, **Kalender** (dagsvy + zoom till källan), **Godkänn**
   (approvals), **Klienter** (client health); demo-data som default. Live API:
@@ -76,6 +80,37 @@ Utan databas (fortfarande OK):
 ```bash
 cd photographic && pnpm install && pnpm dev
 ```
+
+## Tester
+
+```bash
+cd photographic && pnpm test
+```
+
+Kör alla sviter, i grupper, och fortsätter till nästa grupp även när en fallerar — du får
+hela bilden av en körning i stället för första fjärdedelen. Förr var `pnpm test` ett
+`pnpm -r run test` som avbröt vid första felet, vilket på en maskin utan lokal Postgres
+betydde att `packages/db` dog på `ECONNREFUSED` och att `apps/rest`, `apps/web`,
+`apps/onboarding`, `apps/mcp` och `e2e` aldrig kördes alls.
+
+Finns ingen databas skriver körningen ut vilka sviter som hoppades över och kommandot som
+ger dig en (`pgvector/pgvector:pg16` i Docker, eller `postgresql-16-pgvector` via apt) —
+och avslutar med fel, för en körning som inte kunde testa SQL:et är inte en grön körning.
+
+Enskilda grupper: `pnpm test:unit` (inget databasbehov), `pnpm test:e2e:memory` (inget
+databasbehov), `pnpm test:db` (`packages/db` + `apps/rest`), `pnpm test:e2e`
+(acceptanssviten mot riktigt schema). `pnpm typecheck` och `pnpm check:test-doubles`
+behöver ingen databas.
+
+Samma grupper körs i CI (`.github/workflows/ci.yml`) på varje PR och varje push till
+`main`, mot en Postgres-servicecontainer — definitionen bor i `scripts/run-suites.mjs`, så
+laptop och CI kan inte glida ifrån varandra.
+
+`pnpm check:test-doubles` läser importgrafen från de processer som faktiskt kör i
+produktion och vägrar en ny `*/testing`-import. De sex som finns i dag står i
+`scripts/test-doubles-baseline.json` med skäl; listan kan bara krympa. Den finns för att
+`MemorySessionIssuer` autentiserade riktiga människor på den levande deployen i tre veckor
+utan att någon maskin sa något.
 
 ## Publik MCP (så Claude kan ansluta)
 

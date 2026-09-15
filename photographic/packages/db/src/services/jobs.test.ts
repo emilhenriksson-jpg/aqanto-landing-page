@@ -57,8 +57,16 @@ describe('a claim is a lease', () => {
     await jobs.enqueue({ kind });
 
     // A handler that never returns, so the claim is held while this is inspected.
-    let release: (() => void) | null = null;
-    jobs.work(kind, () => new Promise<void>((resolve) => (release = resolve)));
+    // The handler is held open through a deferred rather than by assigning inside the
+    // executor, which reads as never-assigned to the type checker.
+    const held: { release: () => void } = { release: () => {} };
+    jobs.work(
+      kind,
+      () =>
+        new Promise<void>((resolve) => {
+          held.release = resolve;
+        }),
+    );
     const running = jobs.runOnce();
 
     // Wait for the claim rather than for a duration: the row is the thing being asserted.
@@ -73,7 +81,7 @@ describe('a claim is a lease', () => {
     expect(row!.lease_expires_at!.getTime()).toBeGreaterThan(Date.now());
     expect(row?.heartbeat_at).not.toBeNull();
 
-    release?.();
+    held.release();
     await running;
     expect(await rowOf()).toBeUndefined();
   });

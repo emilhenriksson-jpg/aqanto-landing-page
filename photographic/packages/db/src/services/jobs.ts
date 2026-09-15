@@ -22,6 +22,46 @@ import { hostname } from 'node:os';
 import type { JobPort } from '@photographic/core';
 import type { Pool, PoolClient } from 'pg';
 
+import type { Db } from '../pool.js';
+
+export interface JobRequest {
+  kind: string;
+  payload?: Record<string, unknown>;
+  dedupeKey?: string;
+  runAfter?: Date;
+}
+
+/**
+ * Enqueues on whichever unit of work the caller is already inside.
+ *
+ * A free function and not only a method, because a lifecycle transition wants the job row
+ * to commit or roll back with the state change it follows from: an item that is now in the
+ * trash and a `rebuild_projections` job that never got written is a stale brief nobody
+ * asked for again.
+ */
+export async function enqueueJob(db: Db, input: JobRequest): Promise<void> {
+  const dedupeKey = input.dedupeKey ?? null;
+  const payload = JSON.stringify(input.payload ?? {});
+  const runAfter = input.runAfter ?? new Date();
+
+  if (dedupeKey) {
+    // Mirrors the partial unique index: only one *unclaimed, unfailed* row per
+    // dedupe key may exist, so replacing it is an update when one is there and an
+    // insert when it is not.
+    const updated = await db.query(
+      `UPDATE app.job SET kind = $1, payload = $2, run_after = $3
+       WHERE dedupe_key = $4 AND locked_at IS NULL AND failed_at IS NULL`,
+      [input.kind, payload, runAfter, dedupeKey],
+    );
+    if (updated.rowCount && updated.rowCount > 0) return;
+  }
+
+  await db.query(
+    `INSERT INTO app.job (kind, payload, dedupe_key, run_after) VALUES ($1, $2, $3, $4)`,
+    [input.kind, payload, dedupeKey, runAfter],
+  );
+}
+
 /**
  * How long a claim is believed.
  *
@@ -80,32 +120,8 @@ export class PgJobs implements JobPort {
     return this.worker;
   }
 
-  async enqueue(input: {
-    kind: string;
-    payload?: Record<string, unknown>;
-    dedupeKey?: string;
-    runAfter?: Date;
-  }): Promise<void> {
-    const dedupeKey = input.dedupeKey ?? null;
-    const payload = JSON.stringify(input.payload ?? {});
-    const runAfter = input.runAfter ?? new Date();
-
-    if (dedupeKey) {
-      // Mirrors the partial unique index: only one *unclaimed, unfailed* row per
-      // dedupe key may exist, so replacing it is an update when one is there and an
-      // insert when it is not.
-      const updated = await this.pool.query(
-        `UPDATE app.job SET kind = $1, payload = $2, run_after = $3
-         WHERE dedupe_key = $4 AND locked_at IS NULL AND failed_at IS NULL`,
-        [input.kind, payload, runAfter, dedupeKey],
-      );
-      if (updated.rowCount && updated.rowCount > 0) return;
-    }
-
-    await this.pool.query(
-      `INSERT INTO app.job (kind, payload, dedupe_key, run_after) VALUES ($1, $2, $3, $4)`,
-      [input.kind, payload, dedupeKey, runAfter],
-    );
+  async enqueue(input: JobRequest): Promise<void> {
+    await enqueueJob(this.pool, input);
   }
 
   /**

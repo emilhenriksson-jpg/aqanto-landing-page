@@ -17,6 +17,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 
 import { serve } from '@hono/node-server';
+import { BREAK_GLASS_SECRET_MIN_LENGTH, mintBreakGlassToken } from '@photographic/connect';
+import type { PersonId } from '@photographic/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { resolveConfig } from './config.js';
@@ -47,9 +49,17 @@ const pkce = () => {
  * silently truncates it, which would make this suite prove less than it looks like it
  * does.
  */
-async function harness() {
+async function harness(options: { breakGlassSecret?: string } = {}) {
   const codes: string[] = [];
   const logger = createLogger({ level: 'error' });
+
+  // Read by `createWiring` at construction time, so it is set around that call rather than
+  // passed in: break-glass is deliberately configured by the machine's environment and
+  // nothing else, and a test that could inject it another way would not be testing the
+  // same thing the deploy does.
+  const priorSecret = process.env.BREAK_GLASS_SECRET;
+  if (options.breakGlassSecret) process.env.BREAK_GLASS_SECRET = options.breakGlassSecret;
+  else delete process.env.BREAK_GLASS_SECRET;
 
   const wiring = await createWiring({
     config: resolveConfig({ publicUrl: API, webUrl: WEB, environment: 'test' }),
@@ -64,6 +74,9 @@ async function harness() {
       },
     },
   });
+
+  if (priorSecret === undefined) delete process.env.BREAK_GLASS_SECRET;
+  else process.env.BREAK_GLASS_SECRET = priorSecret;
 
   // Port 0: the OS picks one, so a suite running in parallel with the dev server or with
   // itself cannot collide.
@@ -100,16 +113,26 @@ async function harness() {
       body: new URLSearchParams(fields),
     });
 
-  /** Signs a person up and returns the session token the browser keeps. */
-  const signIn = async () => {
-    const requested = await postJson('/v1/signup/request', { phone: randomMobile() });
+  /**
+   * Signs a person up and returns both who they are and the session the browser keeps.
+   *
+   * Takes the number because the break-glass tests need to sign in *as a known account*
+   * — the whole point of that path is reaching one specific person — while every other
+   * caller only wants some account and lets it default.
+   */
+  const signInAsPerson = async (phone = randomMobile()) => {
+    const requested = await postJson('/v1/signup/request', { phone });
     const verified = await postJson('/v1/signup/verify', {
       requestId: requested.body['requestId'],
       code: codes.at(-1),
     });
     const session = verified.body['session'] as { token: string };
-    return session.token;
+    const person = verified.body['person'] as { id: string };
+    return { token: session.token, personId: person.id };
   };
+
+  /** Signs a person up and returns the session token the browser keeps. */
+  const signIn = async (phone?: string) => (await signInAsPerson(phone)).token;
 
   const registerClient = (overrides: Record<string, unknown> = {}) =>
     postJson('/oauth/register', {
@@ -138,8 +161,10 @@ async function harness() {
     postJson,
     postForm,
     signIn,
+    signInAsPerson,
     registerClient,
     startAuthorization,
+    origin,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
@@ -389,6 +414,44 @@ describe('connecting an AI with nobody reading instructions', () => {
       expect(cursor).toHaveProperty('degraded');
     });
 
+    it('refuses a session token that was made up rather than issued', async () => {
+      // The bug this pins down: sessions used to be `session-<personId>-<n>`, checked on
+      // shape alone with no signature and no store, so anyone holding a `personId` could
+      // mint that person's session. `personId` is not a secret — a shared room hands out
+      // its members' ids — so room-mates could authenticate as each other, and because
+      // `/oauth/authorize/approve` reads the person from this same token, a forged session
+      // could also mint a lasting MCP grant over someone else's whole memory.
+      const { personId, token } = await h.signInAsPerson();
+
+      // The real token still works, so this is a test about forgery and not about the
+      // endpoint being closed to everyone.
+      const genuine = await h.json('/v1/profile', {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(genuine.response.status).toBe(200);
+
+      // Two different forgeries, because they are refused for two different reasons and
+      // only the second one tests the signature. The old shape never reaches the session
+      // verifier at all now — it fails to look like a session and is offered to OAuth
+      // instead — so a test using only that would pass even with signing removed.
+      const legacy = [`session-${personId}-1`, `session-${personId}-7`, `session-${personId}-999`];
+
+      // Shaped like a session, carrying the right person, signed with nothing that matches.
+      const encodedPerson = Buffer.from(personId, 'utf8').toString('base64url');
+      const unsigned = [
+        `ps1.${encodedPerson}.nonce.not-a-real-signature`,
+        `ps1.${encodedPerson}.nonce.`,
+        `ps1.${encodedPerson}..`,
+      ];
+
+      for (const forged of [...legacy, ...unsigned]) {
+        const attempt = await h.json('/v1/profile', {
+          headers: { authorization: `Bearer ${forged}` },
+        });
+        expect(attempt.response.status, `forged token accepted: ${forged}`).toBe(401);
+      }
+    });
+
     it('serves the rendered profile for the paste-it-yourself path', async () => {
       const sessionToken = await h.signIn();
       const { response, body } = await h.json('/v1/profile', {
@@ -437,6 +500,172 @@ describe('connecting an AI with nobody reading instructions', () => {
     });
 
     expect(after.status).toBe(401);
+  });
+});
+
+/**
+ * The way in when SMS is not working, driven end to end.
+ *
+ * Production refuses to deliver a code it can only write to a log, which is right and
+ * which would otherwise leave the owner with no door at all. This is the other door, and
+ * the reason it is tested here rather than beside the token itself is that everything
+ * interesting about it is a seam: the script mints on the machine, the process verifies
+ * with the same secret out of the same environment, and what comes back has to be an
+ * ordinary session that the ordinary authenticated routes accept. Each half passes its own
+ * tests while the credential is useless.
+ */
+describe('nödinloggning: signing in without SMS and without the log', () => {
+  const secret = 'f'.repeat(BREAK_GLASS_SECRET_MIN_LENGTH);
+  let h: Harness;
+  let phone: string;
+  let personId: PersonId;
+
+  beforeAll(async () => {
+    h = await harness({ breakGlassSecret: secret });
+
+    // An account that exists, because break-glass is a way back into one and not a way to
+    // create one. Signed up through the ordinary flow so nothing here is privileged setup.
+    phone = randomMobile();
+    await h.signIn(phone);
+    const person = await h.wiring.services.identity.findByPhone(phone);
+    personId = person?.id as PersonId;
+  });
+
+  afterAll(async () => {
+    await h.close();
+  });
+
+  /** What the script prints, minted the way the script mints it. */
+  const mint = () => mintBreakGlassToken({ personId, secret }).token;
+
+  const exchange = (token: string) =>
+    h.json('/v1/signup/break-glass', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: h.origin },
+      body: JSON.stringify({ token }),
+    });
+
+  it('turns a token minted on the machine into a session the product accepts', async () => {
+    const { response, body } = await exchange(mint());
+
+    expect(response.status).toBe(200);
+    expect(body['ok']).toBe(true);
+    // Not in the body. The cookie is httpOnly for a reason and a second copy within reach
+    // of page script would undo it.
+    expect(JSON.stringify(body)).not.toContain('session-');
+
+    const cookie = response.headers.get('set-cookie') ?? '';
+    expect(cookie).toContain('HttpOnly');
+
+    // The actual claim: this is a sign-in, not a 200. A first-party-only route, because
+    // being signed in as yourself is exactly what break-glass has to restore.
+    const me = await h.json('/v1/clients', {
+      headers: { cookie: cookie.split(';')[0] as string },
+    });
+    expect(me.response.status).toBe(200);
+  });
+
+  it('spends the token, so a link left in a scrollback is not a standing credential', async () => {
+    const token = mint();
+
+    expect((await exchange(token)).response.status).toBe(200);
+
+    const again = await exchange(token);
+    expect(again.response.status).toBe(401);
+    expect(again.response.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('refuses a token that has expired, judged by the endpoint', async () => {
+    const expired = mintBreakGlassToken({
+      personId,
+      secret,
+      now: new Date(Date.now() - 60 * 60 * 1000),
+    }).token;
+
+    expect((await exchange(expired)).response.status).toBe(401);
+  });
+
+  it('refuses a token signed with anything but the machine secret', async () => {
+    const forged = mintBreakGlassToken({
+      personId,
+      secret: 'g'.repeat(BREAK_GLASS_SECRET_MIN_LENGTH),
+    }).token;
+
+    const { response, body } = await exchange(forged);
+
+    expect(response.status).toBe(401);
+    // The same sentence a spent or expired token gets: the endpoint is public, and telling
+    // the difference apart is how someone learns whether they guessed the key.
+    expect((body['error'] as { message: string }).message).toMatch(/Nödkoden gäller inte/);
+  });
+
+  it('refuses a session token presented as a break-glass token', async () => {
+    // The shapes must not be interchangeable in either direction. This is the one that
+    // would matter if a session token ever leaked: it must not also be a way to mint one.
+    const sessionToken = await h.signIn();
+
+    expect((await exchange(sessionToken)).response.status).toBe(401);
+  });
+
+  it('records every use in the person’s own event log', async () => {
+    const before = await h.wiring.services.events.replay({ limit: 1000 });
+    await exchange(mint());
+    const after = await h.wiring.services.events.replay({ limit: 1000 });
+
+    const added = after.filter(
+      (event) => !before.some((earlier) => earlier.seq === event.seq),
+    );
+    const recorded = added.find((event) => event.eventType === 'session.break_glass_used');
+
+    // In their own room and under their own name, so it sits beside everything else that
+    // happened to their memory rather than in an audit file only we can read.
+    expect(recorded).toBeDefined();
+    expect(recorded?.actorPersonId).toBe(personId);
+    // And the record names the token without being the token.
+    expect(JSON.stringify(recorded?.payload)).toMatch(/jti/);
+  });
+
+  it('serves the page that spends the token, with no bundle to build first', async () => {
+    const response = await h.call('/nodlage');
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toMatch(/text\/html/);
+
+    const html = await response.text();
+    // Reads the token out of the fragment and posts it: the fragment is the one part of a
+    // URL that never reaches a server log, a browser history entry, or a Referer header.
+    expect(html).toContain('location.hash');
+    expect(html).toContain('/v1/signup/break-glass');
+  });
+});
+
+describe('with no BREAK_GLASS_SECRET set, which is every deployment by default', () => {
+  let h: Harness;
+
+  beforeAll(async () => {
+    h = await harness();
+  });
+
+  afterAll(async () => {
+    await h.close();
+  });
+
+  it('accepts nothing, and says the same thing to every attempt', async () => {
+    // A token that is valid in every other respect. Without a secret on this side there is
+    // no second front door, which is what makes shipping this endpoint everywhere safe.
+    const token = mintBreakGlassToken({
+      personId: '0f1d4a9c-3f9b-4a1f-9c0e-2b7c6d5e4f30',
+      secret: 'h'.repeat(BREAK_GLASS_SECRET_MIN_LENGTH),
+    }).token;
+
+    const { response } = await h.json('/v1/signup/break-glass', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: h.origin },
+      body: JSON.stringify({ token }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get('set-cookie')).toBeNull();
   });
 });
 

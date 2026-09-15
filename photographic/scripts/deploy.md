@@ -15,6 +15,115 @@ or be torn down. That is what "always connected" actually requires, and a tunnel
 does not provide it: a stable hostname fixes *what a client calls*, not *whether
 anything answers when it calls*.
 
+## Nödinloggning — så tar du dig in i ditt konto när SMS inte fungerar
+
+Den här sidan är på svenska och står först, för den läses av någon som är utelåst och
+har ont om tålamod. Allt annat i dokumentet är på engelska som resten av koden.
+
+Koden du loggar in med kommer med SMS. Fungerar inte SMS — ingen leverantör inlagd,
+tomt konto hos 46elks, ett avbrott — så skickas ingen kod, och den skrivs medvetet
+**inte** till serverloggen. Då finns en annan väg in, och nyckeln till den är maskinen
+själv: ett skript som körs inne på servern skapar en engångslänk till *ett* konto.
+
+### Gör det här en gång, i förväg
+
+Nödinloggningen fungerar bara om nyckeln finns på maskinen. Sätt den nu, medan
+ingenting är trasigt — den behövs aldrig igen och den går inte att sätta i efterhand
+när du redan är utelåst från allt utom Fly:
+
+```bash
+fly secrets set BREAK_GLASS_SECRET=$(openssl rand -hex 32) -a photographic
+```
+
+Maskinen startar om av sig själv. Kontrollera i loggen att den syns:
+
+```bash
+fly logs -a photographic | grep break_glass
+```
+
+`break_glass_armed` betyder att den är på plats. `break_glass_unavailable` betyder att
+den inte är det, och då är den här sidan bara text.
+
+### När du är utelåst: tre steg
+
+**1. Öppna en terminal på servern.**
+
+```bash
+fly ssh console -a photographic
+```
+
+**2. Kör skriptet med ditt eget mobilnummer.** Skriv numret precis som du brukar —
+`070-123 45 67`, `+46 70 123 45 67` eller `0701234567`, det spelar ingen roll:
+
+```bash
+cd /app && node --import tsx scripts/break-glass-signin.ts 070-123 45 67
+```
+
+Det svarar med en länk:
+
+```
+Nödinloggning för +46701234567 (konto 3f2b….).
+Öppna den här länken i din webbläsare inom 10 minuter:
+
+  https://mcp.photographic.space/nodlage#bg1.…
+
+Länken gäller en gång. Efter det, eller när tiden gått ut, kör skriptet igen.
+```
+
+**3. Kopiera hela länken och öppna den i din webbläsare.** Sidan säger "Loggar in dig"
+och skickar dig vidare till ditt minne. Du är inloggad som vanligt, precis som om koden
+hade kommit med SMS.
+
+Skriv `exit` för att lämna serverterminalen. Länken behövs inte längre.
+
+### Tre saker att veta
+
+- **Länken loggar in som du.** Klistra inte in den i en chatt, mejla den inte till dig
+  själv, spara den inte. Den gäller i tio minuter och slutar gälla i samma stund som
+  den används en gång — men under de tio minuterna är den hela din inloggning.
+- **Hela länken måste med, inklusive allt efter `#`.** Det är själva nödkoden. Den
+  delen skickas aldrig till servern och hamnar därför aldrig i någon logg; det är
+  därför den ligger just där. Klipps den bort säger sidan att koden saknas.
+- **Det lämnar spår.** Varje nödinloggning skrivs som två rader i händelseloggen, den
+  som inte går att ändra i efterhand: `session.break_glass_minted` när länken skapas och
+  `session.break_glass_used` när den används, båda i ditt eget rum och med samma `jti`.
+  Serverloggen får en rad till, `break_glass_signin`, som säger vem och när men aldrig
+  vad:
+
+  ```bash
+  fly logs -a photographic | grep break_glass_signin
+  ```
+
+  Notera: skärmen **Historik** visar de här raderna ännu inte — den filtrerar på en
+  bestämd lista händelsetyper, och att lägga till de två kräver en ändring i
+  `packages/core`. Raderna finns i loggen; de syns bara inte i gränssnittet än.
+
+### Om något går fel
+
+| Det står | Vad det betyder | Gör så här |
+| --- | --- | --- |
+| `BREAK_GLASS_SECRET är inte satt` | Nyckeln finns inte på maskinen. | Kör `fly secrets set BREAK_GLASS_SECRET=$(openssl rand -hex 32) -a photographic`, vänta på omstarten, kör skriptet igen. |
+| `DATABASE_URL är inte satt` | Du kör skriptet på fel maskin — troligen din egen dator. | Kör det inne i `fly ssh console`, inte lokalt. |
+| `Det finns inget konto för +46…` | Numret har inget konto, eller ett annat nummer än du tror. | Nödinloggningen tar dig tillbaka in i ett konto som finns, den skapar inga. Prova numret du registrerade dig med. |
+| `Vi kan bara skicka koden till ett svenskt mobilnummer` | Numret lästes inte som ett svenskt mobilnummer. | Skriv det som `070-123 45 67`. |
+| Sidan säger `Nödkoden gäller inte` | Länken är använd, äldre än tio minuter, eller avklippt. | Kör skriptet igen och använd den nya länken direkt. |
+| Sidan säger `Länken saknar nödkod` | Delen efter `#` följde inte med. | Kopiera länken igen, hela raden. |
+| `fly ssh console` svarar inte | Maskinen är nere, och då finns inget att logga in på. | Titta på `fly status -a photographic` först — det här är ett annat problem. |
+
+### Varför den här vägen finns
+
+Tidigare stod inloggningskoden i klartext i serverloggen. Det var praktiskt, och det
+betydde att var och en som kunde läsa loggen kunde logga in som vem som helst — även en
+nyckel som bara får *läsa*. Att bara ta bort loggraden hade låst ut dig ur ditt eget
+minne till dess att SMS fungerar, så båda sakerna gjordes samtidigt.
+
+Nödinloggningen är inte samma slags nyckel. Den kräver ett skal på den körande
+maskinen, alltså samma åtkomst som en deploy, inte läsrättighet. Den går inte att
+starta med någon förfrågan över nätet — det finns ingen väg dit, ingen flagga och ingen
+adress. Den gäller ett nummer i taget, i tio minuter, en gång, och den lämnar spår i
+din historik. Den kan inte skapa konton, inte läsa minnen och inte ändra någonting
+annat.
+
 ## Production: `mcp.photographic.space` on Fly
 
 **A tunnel is not the production answer.** `cloudflared` on a laptop dies when the lid
@@ -78,6 +187,8 @@ app's shape.
    only, never as something to paste into Claude.
 3. **Secrets** (not in `fly.toml` — anything reaching here is a secret, not config):
    ```bash
+   fly secrets set CODE_SECRET=$(openssl rand -hex 32)      # see the table below
+   fly secrets set SESSION_SECRET=$(openssl rand -hex 32)   # separate on purpose
    fly secrets set DATABASE_URL=postgres://...   # Supabase connection string, PR #2
    fly secrets set SUPABASE_URL=https://<ref>.supabase.co \
                    SUPABASE_SERVICE_ROLE_KEY=eyJ...   # document originals, see below
@@ -86,6 +197,28 @@ app's shape.
    Without `DATABASE_URL` the deployed process runs the in-memory reference
    implementation — fine for proving the deploy boots, wrong for anything meant to
    persist or for Claude to actually use.
+
+   **The three secrets sign-in depends on**, none of which used to be listed here — and
+   the deploy that followed this document therefore produced an installation where the
+   only way in was reading a code out of the log:
+   ```bash
+   fly secrets set CODE_SECRET=$(openssl rand -hex 32)          # HMAC over sign-in codes
+   fly secrets set BREAK_GLASS_SECRET=$(openssl rand -hex 32)   # Nödinloggning, above
+   fly secrets set PHOTOGRAPHIC_SMS=46elks \
+                   ELKS_API_USERNAME=... ELKS_API_PASSWORD=... \
+                   SMS_FROM=Photografic                         # SMS delivery
+   ```
+   Each one fails differently when it is missing, and each failure is quiet:
+
+   | Missing | What happens | How you notice |
+   | --- | --- | --- |
+   | `CODE_SECRET` | A new key per boot, so every code in flight stops working at a restart. | `code_secret_ephemeral` at `warn`, every boot. |
+   | `BREAK_GLASS_SECRET` | Nödinloggning accepts nothing, so with SMS also unconfigured nobody can sign in at all. | `break_glass_unavailable` at `warn`, every boot. |
+   | The 46elks three | The SMS channel refuses at send: a person trying to sign up gets a visible, retryable failure rather than a code that went to a log. | `code_delivery_inert` at `error`, every boot, naming the channel and the fix. |
+
+   `SMS_FROM` is `Photografic` with one `f`: eleven characters is the limit for an
+   alphanumeric sender and `Photographic` is one over, so a phone would show something
+   truncated by the operator instead.
 
    **`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are not optional in production**, even
    though the process boots happily without them. They are what `resolveBlobStore` needs
@@ -106,6 +239,66 @@ app's shape.
    ```
    The key is readable headlessly from the Management API — no dashboard visit needed:
    `GET /v1/projects/{ref}/api-keys?reveal=true`, the entry with `name: service_role`.
+
+   ### The signing secrets, and what breaks if each one changes
+
+   Both were missing from this runbook, and the code fell back to a fresh `randomUUID()`
+   per boot behind a warning nobody reads. In production both are now a hard boot failure
+   instead, because a key that changes on every restart is not a degraded key — it silently
+   invalidates everything it ever signed.
+
+   | Secret | Signs | If it changes |
+   | --- | --- | --- |
+   | `CODE_SECRET` | the HMAC over `destination:code` for signup codes | every login code in flight stops verifying; a person mid-signup has to request a new one |
+   | `SESSION_SECRET` | browser session tokens | everyone signed out of the web app; MCP clients are unaffected, since they hold OAuth tokens rather than sessions |
+
+   **They are deliberately two variables.** One key doing both jobs cannot be rotated for
+   either: rotating to invalidate leaked sessions would void every login code in flight,
+   and rotating over a code concern would sign everyone out. It also concentrated blast
+   radius — login codes pass through the application log, and anyone who obtained the key
+   that signs them could mint a valid session for any `personId` they could see.
+   `SESSION_SECRET` falls back to `CODE_SECRET` when unset, so an existing deploy keeps
+   working until it is set.
+
+   ### Two database roles
+
+   The application has connected as the schema owner, which means an injection or mistake
+   in application code reaches `DROP TABLE` — and the append-only guarantee is enforced by
+   triggers the owner can disable, so "the log is the truth" has been resting on the
+   application not making a mistake rather than on the database refusing one.
+
+   Migrations need DDL; the application needs none. So:
+
+   | Variable | Role | Needs |
+   | --- | --- | --- |
+   | `MIGRATION_DATABASE_URL` | the owner (`postgres` on Supabase) | DDL across `app`. Used only by `pnpm db:migrate`, including the boot migration |
+   | `DATABASE_URL` | `photographic_app` | `SELECT/INSERT/UPDATE/DELETE`, sequences, `EXECUTE`. No DDL, no `TRUNCATE`, no writes to `app.schema_migrations` |
+
+   Migration `0016_app_role_grants.sql` grants all of that, and sets default privileges so
+   a table added later is covered without anyone remembering. It does **not** create the
+   role, because a login role needs a password and that does not belong in the repository.
+   One operator step, once:
+
+   ```bash
+   # 1. Create the role with a generated password, as the owner.
+   psql "$MIGRATION_DATABASE_URL" -c "CREATE ROLE photographic_app LOGIN PASSWORD '<generated>'"
+
+   # 2. Apply the grants. Before this the role can reach nothing.
+   MIGRATION_DATABASE_URL=... pnpm db:migrate
+
+   # 3. Keep the owner for migrations, point the app at the restricted role.
+   fly secrets set MIGRATION_DATABASE_URL='<owner URL>' \
+                   DATABASE_URL='<same URL with photographic_app and its password>'
+   ```
+
+   Order matters: set `MIGRATION_DATABASE_URL` in the same command as the new
+   `DATABASE_URL`, or the next boot migration runs as the restricted role and fails.
+   **Rollback** is one command — set `DATABASE_URL` back to the owner URL — because the
+   grants migration is additive and changes nothing about the owner's own access.
+
+   The grants block is guarded on the role existing, so it is a no-op on a database where
+   it does not: local development, CI, and every deploy before step 1. That is what makes
+   it safe to ship ahead of the switch rather than as part of it.
 4. **Attach the custom domain and request a certificate:**
    ```bash
    fly certs add mcp.photographic.space
@@ -407,12 +600,17 @@ stay connected, that URL should be the Production one (`https://mcp.photographic
 once Fly is deployed) — a quick or named tunnel is fine for trying this out, but both are
 tied to a machine staying up in a way production is not meant to be.
 
-The sign-up code is not emailed yet — it is written to the API log as `signup_code`, so
+**In local development** the sign-up code is written to the API log as `signup_code`, so
 have that log open while you connect:
 
 ```bash
 grep signup_code /tmp/photographic-rest.log
 ```
+
+**In production that log line no longer carries the code**, and `fly logs` is not a way
+in. Codes go by SMS; when no SMS provider is configured the channel refuses to send rather
+than writing a credential to a file. If you are locked out, use **Nödinloggning** below —
+that is what it is for.
 
 **Reconnecting after a restart.** Two separate things determine whether Claude survives a
 restart, not one. A stable hostname — a named tunnel in development, Fly in production —

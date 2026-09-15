@@ -502,6 +502,160 @@ describe('searching memory — "Fråga mitt minne"', () => {
   });
 });
 
+/**
+ * The calendar, and what it says about a room the caller may not read.
+ *
+ * Two real people over HTTP rather than a service call, because the leak was in the seam:
+ * `scopeFor()` returned an empty scope for an inaccessible room and `day()` carried on to a
+ * completely unscoped `SELECT title FROM app.room`. So a protected room answered 200 with
+ * its own title and a fictional id answered 200 with `null` — which both hands out a name
+ * that is frequently the sensitive part ("Vårdplan", "Uppsägningar") and makes the id space
+ * enumerable by the difference between the two answers.
+ *
+ * The assertions are the status *and* the absence of the title, because either one alone
+ * passes for the wrong reason: a 404 whose body still carried `roomTitle` would satisfy the
+ * first, and the fictional-room case satisfies the second while telling the caller the room
+ * does not exist.
+ */
+describe('a room the caller cannot read looks like a room that does not exist', () => {
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  it('answers a protected room and a fictional one identically', async () => {
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    const created = await f.post('/v1/rooms', { title: 'Vårdplan' }, emil.token);
+    const { room } = await created.json();
+
+    const jacob = await register(f, 'jacob@example.com', 'Jacob');
+
+    const protectedRoom = await f.get(
+      `/v1/calendar/day?date=${today()}&room=${room.id}`,
+      jacob.token,
+    );
+    const fictional = await f.get(
+      `/v1/calendar/day?date=${today()}&room=00000000-0000-4000-8000-000000000000`,
+      jacob.token,
+    );
+
+    expect(protectedRoom.status).toBe(404);
+    expect(fictional.status).toBe(404);
+
+    const leaked = await protectedRoom.text();
+    expect(leaked).not.toContain('Vårdplan');
+    expect(leaked).toBe(await fictional.text());
+  });
+
+  it('still answers the person’s own room, with its title', async () => {
+    // The other half: the fix has to be a permission check and not a removed feature.
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    const created = await f.post('/v1/rooms', { title: 'Vårdplan' }, emil.token);
+    const { room } = await created.json();
+
+    const own = await f.get(`/v1/calendar/day?date=${today()}&room=${room.id}`, emil.token);
+
+    expect(own.status).toBe(200);
+    expect((await own.json()).roomTitle).toBe('Vårdplan');
+  });
+
+  it('does not name it in the whole-calendar view either', async () => {
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    await f.post('/v1/rooms', { title: 'Uppsägningar' }, emil.token);
+
+    const jacob = await register(f, 'jacob@example.com', 'Jacob');
+    const day = await f.get(`/v1/calendar/day?date=${today()}`, jacob.token);
+
+    expect(day.status).toBe(200);
+    expect(await day.text()).not.toContain('Uppsägningar');
+  });
+});
+
+/**
+ * The approval gate, from the side an attacker is actually on.
+ *
+ * The realistic threat here is not prompt injection: there is no MCP tool for `share` or
+ * `move`, so a model that read a hostile document cannot reach either through its declared
+ * tool surface. It is a stolen or over-scoped bearer token talking to this API directly,
+ * which is why these tests are about what a token can do rather than about what a model can
+ * be talked into.
+ */
+describe('a token cannot confirm a share on a person’s behalf', () => {
+  async function roomAndMemory() {
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    const created = await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token);
+    const { room } = await created.json();
+
+    const saved = await f.post('/v1/memory', { body: 'Allergisk mot ketchup' }, emil.token);
+    const { item } = await saved.json();
+
+    return { emil, roomId: room.id as string, shortId: item.shortId as string };
+  }
+
+  it('refuses the request outright when it carries confirmed', async () => {
+    const { emil, roomId, shortId } = await roomAndMemory();
+
+    // `confirmed: true` used to place the memory immediately. The schema is strict rather
+    // than silently dropping the field, so an old client is told the endpoint will not do
+    // that instead of being answered as though it had asked for something else.
+    const res = await f.post(
+      `/v1/memory/${shortId}/share`,
+      { toRoomId: roomId, confirmed: true },
+      emil.token,
+    );
+
+    expect(res.status).toBe(400);
+  });
+
+  it('queues a proposal instead, and shares nothing', async () => {
+    const { emil, roomId, shortId } = await roomAndMemory();
+
+    const res = await f.post(`/v1/memory/${shortId}/share`, { toRoomId: roomId }, emil.token);
+    expect(res.status).toBe(202);
+    expect((await res.json()).outcome).toBe('needs_approval');
+
+    // Nothing is in the room until a person answers the queue.
+    const items = await (await f.get(`/v1/rooms/${roomId}/items`, emil.token)).json();
+    expect(items.items).toEqual([]);
+  });
+
+  it('refuses a move that carries confirmed the same way', async () => {
+    const { emil, roomId, shortId } = await roomAndMemory();
+
+    const res = await f.post(
+      `/v1/memory/${shortId}/move`,
+      { toRoomId: roomId, confirmed: true },
+      emil.token,
+    );
+
+    expect(res.status).toBe(400);
+  });
+
+  it('places it only once the person answers the queue from their own browser', async () => {
+    const { emil, roomId, shortId } = await roomAndMemory();
+
+    const queued = await f.post(`/v1/memory/${shortId}/share`, { toRoomId: roomId }, emil.token);
+    const { proposal } = await queued.json();
+
+    // The client that asked cannot answer: `firstPartyOnly` is the whole point.
+    const byClient = await f.post(
+      `/v1/memory/proposals/${proposal.id}`,
+      { accept: true },
+      emil.token,
+    );
+    expect(byClient.status).toBe(403);
+
+    const byPerson = await f.post(
+      `/v1/memory/proposals/${proposal.id}`,
+      { accept: true },
+      await f.signInFirstParty(emil.person.id),
+    );
+    expect(byPerson.status).toBe(200);
+
+    const items = await (await f.get(`/v1/rooms/${roomId}/items`, emil.token)).json();
+    expect(items.items.map((item: { body: string }) => item.body)).toContain(
+      'Allergisk mot ketchup',
+    );
+  });
+});
+
 describe('context, which is the whole point', () => {
   it('hands over a rendered profile and records that it was delivered', async () => {
     const { token } = await register(f, 'emil@example.com', 'Emil');
@@ -647,12 +801,12 @@ describe('rooms and who can see them', () => {
         expect.objectContaining({
           kind: 'decision',
           body: 'Vi beslutade att skjuta förvärvet till Q3',
-          shortId: expect.stringMatching(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4}$/),
+          shortId: expect.stringMatching(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4,6}$/),
         }),
         expect.objectContaining({
           kind: 'fact',
           body: 'Anna äger due diligence',
-          shortId: expect.stringMatching(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4}$/),
+          shortId: expect.stringMatching(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4,6}$/),
         }),
       ]),
     );
@@ -916,6 +1070,76 @@ describe('importing what another system remembers', () => {
     await f.wired.runJobsToCompletion();
     const context = await (await f.get('/v1/context', token)).json();
     expect(context.rendered).toContain('ketchup');
+  });
+
+  /**
+   * The takeover chain, end to end, asserted refused.
+   *
+   * This would have passed — in the sense of completing the takeover — on `main` at
+   * `10179fa`, and it is written as the chain rather than as a unit test of the verifier
+   * because each link was individually defensible and only the composition was fatal:
+   *
+   *   1. `GET /v1/rooms/:id` discloses every member's `personId`
+   *   2. session tokens were verified by shape (`session-<personId>-<n>`), so the id was
+   *      the credential
+   *   3. the resulting session was stamped `FIRST_PARTY_CLIENT_ID` with every scope, so
+   *      it satisfied `firstPartyOnly` — export, account deletion, the approval queue
+   *
+   * Verified against production before the fix: forged tokens returned 200 on
+   * `/v1/export`, `/v1/account/deletion` and `/v1/clients`, and one completed an OAuth
+   * authorization that minted a durable grant with a refresh token — a credential that
+   * would have survived the session fix entirely.
+   *
+   * The assertion is deliberately the whole chain and not just "the verifier rejects a
+   * bad token": what made this reachable was a disclosed id meeting a shape check, and a
+   * future change could reintroduce either half without touching `readSignedSession`.
+   */
+  describe('a co-member cannot become you (regression)', () => {
+    it('refuses a session forged from a personId disclosed by the room', async () => {
+      const emil = await register(f, 'emil@example.com', 'Emil');
+
+      // A room, and a private memory that must not travel.
+      const created = await (await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)).json();
+      await f.post('/v1/memory', { body: 'Kodordet är 4711' }, emil.token);
+
+      // Step 1: `GET /v1/rooms/:id` discloses every member's `personId`. Asserted on the
+      // owner's own room rather than through an invite dance, because the disclosure is
+      // the same endpoint and the same field whoever reads it — the vulnerability never
+      // depended on *which* member fetched it, only on the id being handed out at all.
+      // This assertion is here so that removing the disclosure does not silently remove
+      // the reason the rest of this test exists.
+      const room = await (await f.get(`/v1/rooms/${created.room.id}`, emil.token)).json();
+      const emilsId = (room.members as Array<{ personId: string }>)[0]?.personId;
+      expect(emilsId).toBe(emil.person.id);
+
+      // Step 2: the id is not a credential. Every shape the old verifier accepted.
+      for (const forged of [
+        `session-${emilsId}-1`,
+        `session-${emilsId}-42`,
+        `session-${emilsId}--99999`,
+        `ps1.${Buffer.from(String(emilsId), 'utf8').toString('base64url')}.nonce.sig`,
+      ]) {
+        const asHeader = await f.get('/v1/context', forged);
+        expect(asHeader.status, forged).toBe(401);
+
+        // And as a cookie, which is the same credential by another door.
+        const asCookie = await f.app.request('https://photographic.test/v1/context', {
+          headers: { cookie: `photographic_sid=${forged}` },
+        });
+        expect(asCookie.status, forged).toBe(401);
+      }
+
+      // Step 3: the first-party surface stays closed to it, which is what made the
+      // forgery worth attempting rather than merely a read of someone's room.
+      for (const path of ['/v1/export', '/v1/account/deletion', '/v1/clients']) {
+        const res = await f.get(path, `session-${emilsId}-1`);
+        expect(res.status, path).toBe(401);
+      }
+
+      // And the private memory never left.
+      const leaked = await f.get('/v1/context', `session-${emilsId}-1`);
+      expect(await leaked.text()).not.toContain('4711');
+    });
   });
 
   /**
