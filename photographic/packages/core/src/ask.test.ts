@@ -47,6 +47,7 @@ function hit(overrides: Partial<SearchHit> = {}): SearchHit {
     text: 'Allergisk mot ketchup',
     score: 0.03,
     documentId: null,
+    disputed: false,
     createdAt: new Date('2026-09-10T09:00:00Z'),
     ...overrides,
   };

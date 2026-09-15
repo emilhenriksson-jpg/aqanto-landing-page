@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { Pool } from 'pg';
 
-import { databaseUrl } from './pool.js';
+import { createPool } from './pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS_DIR = path.resolve(__dirname, '../migrations');
@@ -78,8 +78,12 @@ export async function migrate(pool: Pool, dir = MIGRATIONS_DIR): Promise<string[
   return ran;
 }
 
+// `createPool`, not a bare `new Pool`: this is the process the Dockerfile runs at boot,
+// so it is the one path that must not connect in plaintext. `pg` defaults to no TLS and
+// Supabase's pooler accepts that, so a bare pool here migrates a database of private
+// memory over an unencrypted socket without erroring. Measured, not assumed.
 async function main(): Promise<void> {
-  const pool = new Pool({ connectionString: databaseUrl() });
+  const pool = createPool();
   try {
     const ran = await migrate(pool);
     if (ran.length === 0) {
