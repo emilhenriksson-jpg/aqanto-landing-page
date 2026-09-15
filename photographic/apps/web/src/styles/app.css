@@ -1,0 +1,1168 @@
+/*
+ * App chrome for the consumer surface. Tokens come from @photographic/design-tokens;
+ * type and colour follow DESIGN.md and match apps/onboarding so the two apps share
+ * one language.
+ */
+
+@import '@photographic/design-tokens/tokens.css';
+
+/* ------------------------------------------------------------------ layout */
+
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+}
+
+.shell__main {
+  min-width: 0;
+  max-width: var(--page-max);
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6) calc(var(--space-20) + var(--tabbar-height));
+}
+
+.rail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) 0;
+  border-right: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--canvas) 88%, var(--surface));
+}
+
+.rail__link {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  display: grid;
+  place-items: center;
+  color: var(--ink-muted);
+  transition:
+    color var(--dur-base) var(--ease-spring),
+    background var(--dur-base) var(--ease-spring);
+}
+
+.rail__link:hover {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+/* Brand-soft fill, ink glyph — calm wayfinding, not a loud accent. */
+.rail__link--active {
+  color: var(--ink);
+  background: var(--brand-soft);
+}
+
+.rail__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.rail__glyph {
+  font-size: 1rem;
+  line-height: 1;
+  color: currentColor;
+}
+
+/* ---------------------------------------------------------------- wordmark */
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font: 500 1.0625rem/1 var(--font-sans);
+  letter-spacing: var(--track-heading);
+  color: var(--ink);
+}
+
+/* Hero-level brand: disc + name must read before the room title. */
+.wordmark--large {
+  font: 500 clamp(1.625rem, 4vw, 2rem) / 1 var(--font-sans);
+  letter-spacing: var(--track-display);
+  margin-bottom: 0;
+  gap: 14px;
+}
+
+.wordmark__dot {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  box-shadow: var(--brand-shadow);
+  flex: none;
+}
+
+.wordmark--large .wordmark__dot {
+  width: clamp(32px, 4.5vw, 40px);
+  height: clamp(32px, 4.5vw, 40px);
+}
+
+.wordmark__name {
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------------ pages */
+
+.page {
+  animation: rise var(--dur-slow) var(--ease-spring) both;
+}
+
+.page-head {
+  margin-bottom: var(--space-12);
+}
+
+.page-head .wordmark {
+  margin-bottom: var(--space-8);
+}
+
+.page-head__title {
+  font: var(--type-display);
+  letter-spacing: var(--track-display);
+  margin: 0 0 var(--space-3);
+}
+
+.page-head__lede {
+  color: var(--ink-muted);
+  max-width: 36rem;
+}
+
+/* ---------------------------------------------------------- personal hero */
+
+.hero {
+  margin-bottom: var(--space-16);
+}
+
+.hero--personal {
+  position: relative;
+  margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-16);
+  padding: var(--space-10) var(--space-6) var(--space-12);
+  /* Standing inside the room: a soft violet wash that fades into the canvas, not a
+     dashboard banner. Brand stays atmospheric — the wordmark disc carries the accent. */
+  background:
+    radial-gradient(90% 70% at 8% -10%, color-mix(in srgb, var(--brand-soft) 90%, white) 0%, transparent 60%),
+    radial-gradient(70% 50% at 92% 10%, color-mix(in srgb, var(--brand-soft) 45%, transparent) 0%, transparent 55%),
+    linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 40%, var(--canvas)) 0%, var(--canvas) 72%);
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 55%, transparent);
+  min-height: min(78dvh, 620px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-12);
+  animation: room-enter var(--dur-slow) var(--ease-spring) both;
+}
+
+/* Brand sits high; identity rests at the floor — one composition, no secondary chrome. */
+.hero__identity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 36rem;
+}
+
+.hero--personal .hero__lede {
+  margin-bottom: var(--space-6);
+}
+
+@keyframes room-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero--personal,
+  .hero--shared {
+    animation: none;
+  }
+}
+
+/* Shared rooms get a quieter wash — you are still *inside*, just not in your own room.
+   No brand tint: violet stays on the wordmark disc only. */
+.hero--shared {
+  position: relative;
+  margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-12);
+  padding: var(--space-10) var(--space-6) var(--space-10);
+  background:
+    radial-gradient(
+      85% 55% at 10% -5%,
+      color-mix(in srgb, var(--surface) 92%, var(--canvas)) 0%,
+      transparent 58%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--canvas) 58%, var(--surface)) 0%,
+      var(--canvas) 100%
+    );
+  border-bottom: 1px solid var(--hairline);
+  min-height: min(48dvh, 420px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  animation: room-enter var(--dur-slow) var(--ease-spring) both;
+}
+
+.hero--shared .hero__lede {
+  margin-bottom: var(--space-4);
+}
+
+.hero--shared .meta {
+  margin: 0;
+}
+
+.hero__crumb {
+  font: var(--type-meta);
+  color: var(--ink-muted);
+  margin-bottom: var(--space-4);
+}
+
+.hero__crumb a:hover {
+  color: var(--ink);
+}
+
+.hero__title {
+  font: var(--type-display);
+  letter-spacing: var(--track-display);
+  margin: 0 0 var(--space-3);
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  font-weight: 600;
+}
+
+/* Personal room: title must not overpower the brand mark above it. */
+.hero--personal .hero__title {
+  font-size: clamp(1.625rem, 3.6vw, 2rem);
+}
+
+.hero__lede {
+  color: var(--ink-muted);
+  max-width: 34rem;
+  margin: 0 0 var(--space-8);
+}
+
+/* -------------------------------------------------------------- sections */
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.section-block__title {
+  font: var(--type-heading);
+  letter-spacing: var(--track-heading);
+  margin: 0 0 var(--space-4);
+}
+
+/* Soften personal-room sections: less “settings panel”, more quiet shelves. */
+.page--personal .section-block__title {
+  color: color-mix(in srgb, var(--ink) 78%, var(--ink-muted));
+  font-weight: 500;
+  margin-bottom: var(--space-3);
+}
+
+.page--personal .card--group {
+  border-radius: var(--radius-xxl);
+  box-shadow: 0 1px 2px -1px rgba(0, 0, 0, 0.04), 0 6px 20px -10px rgba(0, 0, 0, 0.08);
+}
+
+.page--personal .memory {
+  padding: var(--space-6);
+  border-bottom-color: color-mix(in srgb, var(--hairline) 70%, transparent);
+}
+
+.section-block__empty {
+  color: var(--ink-muted);
+  font: var(--type-meta);
+}
+
+.section-block + .section-block {
+  margin-top: var(--space-16);
+}
+
+.page .section-block + .section-block {
+  margin-top: var(--space-16);
+}
+
+.page > .section-block {
+  margin-bottom: 0;
+}
+
+.page > .section-block + .section-block {
+  margin-top: var(--space-16);
+}
+
+/* ----------------------------------------------------------------- cards */
+
+.card {
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-2) var(--space-5);
+  transition:
+    box-shadow var(--dur-base) var(--ease-spring),
+    transform var(--dur-base) var(--ease-spring);
+}
+
+.card--group {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* --------------------------------------------------------------- memory */
+
+.memory {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.memory:last-child {
+  border-bottom: 0;
+}
+
+.memory--gone {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  background: color-mix(in srgb, var(--canvas) 70%, var(--surface));
+}
+
+.memory__kind {
+  font: var(--type-label);
+  color: var(--ink-muted);
+}
+
+.memory__body {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
+.memory__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.memory__forget {
+  margin-left: auto;
+}
+
+.chip {
+  font: var(--type-meta);
+  font-family: var(--font-mono);
+  border-radius: var(--radius-pill);
+  padding: 5px 10px;
+  background: var(--canvas);
+  color: var(--ink-muted);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.meta {
+  font: var(--type-meta);
+  color: var(--ink-muted);
+}
+
+/* ----------------------------------------------------------------- buttons */
+
+.btn {
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 10px 16px;
+  font: var(--type-label);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  transition:
+    transform var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur-fast) var(--ease-spring);
+}
+
+.btn--quiet {
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-muted);
+  padding: 4px 0;
+}
+
+.btn--quiet:hover {
+  color: var(--ink);
+}
+
+.btn--brand {
+  background: var(--brand);
+  color: #fff;
+  box-shadow: var(--brand-shadow);
+}
+
+.btn--brand:hover {
+  transform: translateY(-1px);
+}
+
+/* ----------------------------------------------------------- approvals */
+
+.approval-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 36rem;
+}
+
+.approval-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  animation: rise var(--dur-base) var(--ease-spring) both;
+}
+
+.approval-card__lead {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  margin: 0;
+}
+
+.approval-card__quote {
+  font-style: italic;
+  font-weight: 500;
+}
+
+.approval-card__why {
+  margin: 0;
+}
+
+.approval-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* --------------------------------------------------------- client health */
+
+/*
+ * Quiet stacked rows — one column, generous vertical rhythm. Status lives in the
+ * dots only; no card grid, no violet beyond the wordmark.
+ */
+.page-head--health {
+  margin-bottom: var(--space-16);
+  max-width: 36rem;
+}
+
+.health {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 36rem;
+}
+
+.health__row {
+  padding: var(--space-8) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.health__row:first-child {
+  padding-top: 0;
+}
+
+.health__row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.health__name {
+  font: var(--type-heading);
+  letter-spacing: var(--track-heading);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.health__detail {
+  font: var(--type-meta);
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 28rem;
+  padding-left: 19px; /* align under the name, past the status dot */
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-pill);
+  display: inline-block;
+  margin-right: 10px;
+  flex: none;
+}
+
+.dot--ok {
+  background: var(--ok);
+}
+
+.dot--warn {
+  background: var(--warn);
+}
+
+.dot--bad {
+  background: var(--bad);
+}
+
+/* ----------------------------------------------------------- token meter */
+
+.token-meter {
+  max-width: 280px;
+}
+
+.token-meter__track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--brand-soft) 70%, var(--surface));
+  overflow: hidden;
+}
+
+.token-meter__fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  /* Meter reassurance without shouting brand: soft fill, brand only at the tip. */
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--brand) 55%, var(--brand-soft)) 0%,
+    var(--brand) 100%
+  );
+  transition: width var(--dur-base) var(--ease-spring);
+}
+
+.token-meter__label {
+  margin-top: var(--space-2);
+  font: var(--type-meta);
+  color: var(--ink-muted);
+}
+
+/* ------------------------------------------------------------- room grid */
+
+.room-grid {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-items: stretch;
+}
+
+.room-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: var(--surface);
+  border-radius: var(--radius-xxl);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-6);
+  min-height: 180px;
+  transition:
+    box-shadow var(--dur-base) var(--ease-spring),
+    transform var(--dur-base) var(--ease-spring);
+}
+
+.room-card:hover {
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-3px);
+}
+
+.room-card--personal {
+  background: var(--brand-soft);
+  box-shadow: none;
+  grid-column: 1 / -1;
+  min-height: 228px;
+  padding: var(--space-10) var(--space-8);
+  gap: var(--space-5);
+}
+
+.room-card--personal:hover {
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-3px);
+}
+
+.room-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.room-card__title {
+  font: var(--type-heading);
+  letter-spacing: var(--track-heading);
+  margin: 0;
+}
+
+.room-card--personal .room-card__title {
+  font: var(--type-display);
+  letter-spacing: var(--track-display);
+}
+
+.room-card__brief {
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 36rem;
+}
+
+.room-card--personal .room-card__brief {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  max-width: 40rem;
+}
+
+.pill {
+  font: var(--type-label);
+  border-radius: var(--radius-pill);
+  padding: 5px 10px;
+  background: var(--canvas);
+  color: var(--ink-muted);
+}
+
+.pill--brand {
+  background: var(--brand);
+  color: #fff;
+  box-shadow: var(--brand-shadow);
+}
+
+/* --------------------------------------------------------------- avatars */
+
+.avatars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  margin-top: auto;
+}
+
+.avatars--hero {
+  margin: 0 0 var(--space-5);
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--canvas);
+  color: var(--ink-muted);
+  font: var(--type-meta);
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  flex: none;
+}
+
+.avatars--hero .avatar {
+  width: 32px;
+  height: 32px;
+}
+
+.room-card .avatars {
+  margin-top: auto;
+}
+
+.room-card--personal .avatar {
+  background: var(--surface);
+}
+
+/* ------------------------------------------------------------- documents */
+
+.documents {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.documents__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
+.documents__row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.documents__row:first-child {
+  padding-top: 0;
+}
+
+.documents__title {
+  color: var(--ink);
+}
+
+.documents__row .meta {
+  flex: none;
+}
+
+/* --------------------------------------------------------------- trash */
+
+.trash-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.trash-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: var(--space-5) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
+}
+
+.trash-row:last-child {
+  border-bottom: none;
+}
+
+.trash-row__body {
+  margin: 0 0 var(--space-2);
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
+.trash-row__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+}
+
+.page-foot {
+  margin-top: var(--space-16);
+  padding-top: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.page-foot__link {
+  font: var(--type-meta);
+  color: var(--ink-muted);
+  text-decoration: none;
+  letter-spacing: var(--track-body);
+}
+
+.page-foot__link:hover {
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------- historik */
+
+.historik-list {
+  margin-top: var(--space-4);
+}
+
+/* -------------------------------------------------------------- activity */
+
+.activity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.activity__row {
+  display: flex;
+  gap: var(--space-4);
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
+.activity__row .meta {
+  flex: none;
+  min-width: 4.5rem;
+}
+
+/* --------------------------------------------------------------- mobile */
+
+@media (max-width: 720px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .rail {
+    position: fixed;
+    z-index: 20;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    height: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
+    flex-direction: row;
+    justify-content: space-around;
+    padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-right: 0;
+    border-top: 1px solid var(--hairline);
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .rail__link {
+    flex: 1;
+    height: 48px;
+    gap: 2px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .rail__label {
+    position: static;
+    width: auto;
+    height: auto;
+    clip: auto;
+    overflow: visible;
+    font: 500 0.6875rem/1 var(--font-sans);
+  }
+
+  .shell__main {
+    /* Keep Historik/Papperskorg (and all page-foot links) clear of the fixed tab bar. */
+    padding: var(--space-6) var(--space-4)
+      calc(var(--space-16) + var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .hero--personal {
+    margin: calc(var(--space-6) * -1) calc(var(--space-4) * -1) var(--space-12);
+    padding: var(--space-8) var(--space-4) var(--space-8);
+    min-height: min(72dvh, 520px);
+    gap: var(--space-10);
+  }
+
+  .hero--shared {
+    margin: calc(var(--space-6) * -1) calc(var(--space-4) * -1) var(--space-10);
+    padding: var(--space-8) var(--space-4) var(--space-8);
+    min-height: min(42dvh, 340px);
+  }
+
+  .room-card--personal {
+    grid-column: auto;
+    min-height: 200px;
+    padding: var(--space-8) var(--space-6);
+  }
+}
+
+/* Narrow phones — primary mobile case. */
+@media (max-width: 480px) {
+  .shell__main {
+    padding-bottom: calc(
+      var(--space-20) + var(--tabbar-height) + env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  .page-foot {
+    /* Extra air so stacked Historik / Papperskorg never sit under the tab bar. */
+    padding-bottom: var(--space-4);
+  }
+
+  /* Brand-first: wordmark must stay readable before the room title. */
+  .hero--personal .wordmark--large {
+    font-size: 1.75rem;
+    gap: 12px;
+  }
+
+  .hero--personal .wordmark--large .wordmark__dot {
+    width: 36px;
+    height: 36px;
+  }
+
+  .hero--personal .hero__title {
+    font-size: 1.5rem;
+  }
+
+  .hero--personal {
+    min-height: min(68dvh, 480px);
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-4) var(--space-6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page,
+  .approval-card {
+    animation: none;
+  }
+
+  .room-card:hover,
+  .room-card--personal:hover,
+  .btn--brand:hover,
+  .card {
+    transform: none;
+  }
+
+  .token-meter__fill,
+  .rail__link,
+  .card,
+  .room-card,
+  .btn {
+    transition: none;
+  }
+}
+
+/* --------------------------------------------------------------- invite */
+
+/*
+ * Recipient landing — outside the shell rail. Full-bleed calm surface.
+ * First viewport (invite__stage): Wordmark, title, brief, one violet CTA.
+ * Memories sit below the fold so a 900px-tall desktop needs no scroll for join.
+ */
+.invite {
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  background:
+    radial-gradient(
+      90% 55% at 12% -8%,
+      color-mix(in srgb, var(--brand-soft) 70%, transparent) 0%,
+      transparent 58%
+    ),
+    radial-gradient(
+      60% 40% at 88% 8%,
+      color-mix(in srgb, var(--surface) 80%, var(--canvas)) 0%,
+      transparent 50%
+    ),
+    var(--canvas);
+}
+
+.invite__page {
+  width: 100%;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 0 var(--space-6) var(--space-20);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  animation: rise var(--dur-slow) var(--ease-spring) both;
+}
+
+.invite__page--joined {
+  min-height: 100dvh;
+  justify-content: center;
+  padding-top: var(--space-12);
+  padding-bottom: var(--space-20);
+  gap: var(--space-8);
+}
+
+/* One composition for the first viewport — brand, title, brief, CTA. */
+.invite__stage {
+  box-sizing: border-box;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-10);
+  padding: var(--space-12) 0 var(--space-16);
+}
+
+.invite__hero {
+  animation: room-enter var(--dur-slow) var(--ease-spring) both;
+}
+
+.invite__hero .wordmark {
+  margin-bottom: var(--space-8);
+}
+
+.invite__from {
+  margin: 0 0 var(--space-3);
+}
+
+.invite__title {
+  font: var(--type-display);
+  letter-spacing: var(--track-display);
+  font-size: clamp(1.625rem, 4vw, 2.125rem);
+  font-weight: 600;
+  margin: 0 0 var(--space-4);
+}
+
+.invite__brief {
+  color: var(--ink-muted);
+  max-width: 34rem;
+  margin: 0;
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  line-height: 1.5;
+}
+
+.invite__content,
+.invite__empty {
+  margin-top: var(--space-4);
+  padding-bottom: var(--space-8);
+  animation: rise var(--dur-base) var(--ease-spring) both;
+  animation-delay: 40ms;
+}
+
+.invite__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--surface);
+  border-radius: var(--radius-xxl);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.invite__line {
+  padding: var(--space-6);
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
+}
+
+.invite__line:last-child {
+  border-bottom: 0;
+}
+
+.invite__line-body {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  margin: 0;
+}
+
+.invite__empty {
+  margin-top: var(--space-4);
+}
+
+.invite__cta {
+  display: flex;
+  justify-content: flex-start;
+  padding: 0;
+  animation: rise var(--dur-slow) var(--ease-spring) both;
+  animation-delay: 80ms;
+}
+
+.invite__join {
+  min-width: 12rem;
+  padding: 14px 28px;
+  font-size: 0.9375rem;
+}
+
+.invite__join:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--brand-shadow), var(--shadow-lift);
+}
+
+.invite__confirm {
+  font: var(--type-heading);
+  letter-spacing: var(--track-heading);
+  color: var(--ink);
+  margin: 0;
+  animation: rise var(--dur-base) var(--ease-spring) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invite__page,
+  .invite__hero,
+  .invite__content,
+  .invite__cta,
+  .invite__confirm {
+    animation: none;
+    animation-delay: 0ms;
+  }
+
+  .invite__join:hover {
+    transform: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .invite__page {
+    padding: 0 var(--space-4) var(--space-16);
+  }
+
+  .invite__stage {
+    gap: var(--space-8);
+    padding: var(--space-8) 0 var(--space-12);
+  }
+
+  .invite__hero .wordmark {
+    margin-bottom: var(--space-6);
+  }
+}
+
+/* Keep Gå med in the first viewport on narrow phones (browser chrome, short svh). */
+@media (max-width: 480px) {
+  .invite__page {
+    padding: 0 var(--space-4) var(--space-12);
+  }
+
+  .invite__stage {
+    /* svh = visible viewport while chrome is showing; CTA stays on-screen. */
+    min-height: 100vh;
+    min-height: 100svh;
+    justify-content: space-between;
+    gap: var(--space-6);
+    padding: max(var(--space-6), env(safe-area-inset-top, 0px)) 0
+      max(var(--space-8), env(safe-area-inset-bottom, 0px));
+  }
+
+  .invite__hero .wordmark {
+    margin-bottom: var(--space-4);
+  }
+
+  .invite__hero .wordmark--large {
+    font-size: 1.75rem;
+  }
+
+  .invite__hero .wordmark--large .wordmark__dot {
+    width: 36px;
+    height: 36px;
+  }
+
+  .invite__title {
+    font-size: 1.5rem;
+  }
+
+  .invite__cta {
+    flex-shrink: 0;
+  }
+
+  .invite__join {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .invite__page--joined {
+    min-height: 100vh;
+    min-height: 100svh;
+    padding-bottom: max(var(--space-12), env(safe-area-inset-bottom, 0px));
+  }
+}

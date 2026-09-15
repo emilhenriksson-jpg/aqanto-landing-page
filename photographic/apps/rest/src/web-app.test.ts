@@ -1,0 +1,178 @@
+/**
+ * The browser app served from the API origin.
+ *
+ * The cases worth writing are the boundary, not the happy path: a single-page app
+ * answers every unknown path with its shell, and mounting one over an API is how
+ * `GET /v1/typo` quietly becomes 200 and a page instead of a JSON 404. A client that
+ * gets HTML where it expected an error does not fail — it parses nothing, finds
+ * nothing, and reports that the room is empty.
+ */
+
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+import { Hono } from 'hono';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { loadConfigFromEnv } from './config.js';
+import type { AppEnv } from './context.js';
+import { isApiPath, mountWebApp, resolveAsset, resolveWebDist } from './web-app.js';
+
+let dist: string;
+
+beforeAll(() => {
+  dist = mkdtempSync(join(tmpdir(), 'photographic-web-'));
+  mkdirSync(join(dist, 'assets'), { recursive: true });
+  writeFileSync(join(dist, 'index.html'), '<!doctype html><div id="root"></div>');
+  writeFileSync(join(dist, 'assets', 'app-abc123.js'), 'export const x = 1;\n');
+  writeFileSync(join(dist, 'secret-sibling.txt'), 'not under dist in spirit');
+});
+
+afterAll(() => {
+  rmSync(dist, { recursive: true, force: true });
+});
+
+function app(): Hono<AppEnv> {
+  const instance = new Hono<AppEnv>();
+  instance.get('/health', (c) => c.json({ ok: true }));
+  instance.get('/v1/rooms', (c) => c.json({ rooms: [] }));
+  mountWebApp(instance, { dist });
+  instance.notFound((c) => c.json({ error: { code: 'not_found' } }, 404));
+  return instance;
+}
+
+describe('serving the browser app from the API origin', () => {
+  it('answers a page route with the shell', async () => {
+    const response = await app().request('/login?auth_request=abc');
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(await response.text()).toContain('id="root"');
+  });
+
+  it('serves a hashed asset as immutable', async () => {
+    const response = await app().request('/assets/app-abc123.js');
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/javascript');
+    expect(response.headers.get('cache-control')).toContain('immutable');
+  });
+
+  it('never caches the shell, which names the bundle of the moment', async () => {
+    const response = await app().request('/login');
+
+    expect(response.headers.get('cache-control')).toBe('no-cache');
+  });
+
+  it('leaves API routes alone', async () => {
+    const response = await app().request('/v1/rooms');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ rooms: [] });
+  });
+
+  it('keeps an unknown API path a JSON 404 rather than the shell', async () => {
+    for (const path of ['/v1/typo', '/oauth/typo', '/mcp/typo', '/.well-known/typo']) {
+      const response = await app().request(path);
+
+      expect(response.status, path).toBe(404);
+      expect(response.headers.get('content-type'), path).toContain('application/json');
+    }
+  });
+
+  it('does not shadow a prefix that merely starts with an API path', async () => {
+    // `/v1x` is not `/v1`, and a person following a link to one should get the app.
+    const response = await app().request('/v1x');
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('id="root"');
+  });
+});
+
+describe('resolveAsset', () => {
+  it('resolves a path inside the build directory', () => {
+    expect(resolveAsset('/srv/dist', '/assets/app.js')).toBe(resolve('/srv/dist/assets/app.js'));
+  });
+
+  it('keeps traversal inside the build directory', () => {
+    // A request path is always absolute, so `normalize` clamps leading `..` rather than
+    // walking above the root — and the containment check catches anything it does not.
+    // Asserted on the decoded path, because `%2e%2e%2f` is already `../` by the time it
+    // reaches us and a rule written against the raw URL would miss it.
+    for (const path of ['/../secret', '/assets/../../etc/passwd', '/a/b/../../../..', '/%2e%2e/x']) {
+      const resolved = resolveAsset('/srv/dist', path);
+
+      expect(resolved, path).not.toBeNull();
+      expect(
+        resolved === resolve('/srv/dist') || resolved?.startsWith(`${resolve('/srv/dist')}/`),
+        path,
+      ).toBe(true);
+    }
+  });
+
+  it('refuses a path with a null byte', () => {
+    expect(resolveAsset('/srv/dist', '/assets/app.js\0.png')).toBeNull();
+  });
+
+  it('refuses a path that cannot be decoded', () => {
+    expect(resolveAsset('/srv/dist', '/%')).toBeNull();
+  });
+});
+
+describe('reading outside the build directory', () => {
+  it('answers with the shell rather than a file from the host', async () => {
+    const response = await app().request('/../../../../../../etc/passwd');
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('id="root"');
+  });
+});
+
+describe('isApiPath', () => {
+  it('claims the API surfaces and nothing that merely looks like them', () => {
+    expect(isApiPath('/v1')).toBe(true);
+    expect(isApiPath('/v1/rooms')).toBe(true);
+    expect(isApiPath('/mcp')).toBe(true);
+    expect(isApiPath('/.well-known/oauth-authorization-server')).toBe(true);
+    expect(isApiPath('/login')).toBe(false);
+    expect(isApiPath('/v1x')).toBe(false);
+  });
+});
+
+describe('config', () => {
+  it('puts the login page on the API origin when we serve the app ourselves', () => {
+    const config = loadConfigFromEnv({
+      PUBLIC_URL: 'https://example.trycloudflare.com',
+      WEB_DIST: dist,
+    });
+
+    expect(config.webDist).toBe(resolve(dist));
+    expect(config.webUrl).toBe('https://example.trycloudflare.com');
+  });
+
+  it('keeps WEB_ORIGIN authoritative when the pages really are published elsewhere', () => {
+    const config = loadConfigFromEnv({
+      PUBLIC_URL: 'https://api.example.com',
+      WEB_DIST: dist,
+      WEB_ORIGIN: 'https://app.example.com',
+    });
+
+    expect(config.webUrl).toBe('https://app.example.com');
+  });
+
+  it('serves no app, and points elsewhere, when there is no build', () => {
+    const config = loadConfigFromEnv({
+      PUBLIC_URL: 'https://api.example.com',
+      WEB_DIST: join(dist, 'nope'),
+    });
+
+    expect(config.webDist).toBeNull();
+    expect(config.webUrl).toBe('http://localhost:5174');
+  });
+
+  it('can be told to serve nothing even where a build exists', () => {
+    expect(resolveWebDist({ WEB_DIST: dist })).toBe(resolve(dist));
+    expect(loadConfigFromEnv({ WEB_DIST: '' }).webDist).toBeNull();
+  });
+});
