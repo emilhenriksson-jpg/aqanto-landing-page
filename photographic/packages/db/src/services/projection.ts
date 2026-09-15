@@ -31,12 +31,14 @@ import type {
 import { NotFoundError, NotPermittedError } from '@photographic/core';
 import {
   BRIEF_TOKEN_BUDGET,
+  compassEntriesFrom,
   PROFILE_TOKEN_BUDGET,
   ROOM_HEADLINE_TOKEN_BUDGET,
   SECTION_BUDGETS,
   SINCE_LAST_SEEN_TOKEN_BUDGET,
   estimateTokens,
 } from '@photographic/core';
+import type { CompassEntry } from '@photographic/core';
 import { renderProfile } from '@photographic/agent';
 import type { Pool } from 'pg';
 
@@ -47,7 +49,8 @@ import { personalRoomIdOf } from './identity.js';
 
 type SectionName = keyof ProfileSections;
 
-const SECTION_OF: Record<ItemKind, SectionName> = {
+/** See the matching constant in `MemoryProjection` for why `compass` is absent here. */
+const SECTION_OF: Partial<Record<ItemKind, SectionName>> = {
   identity: 'identity',
   fact: 'hardFacts',
   preference: 'preferences',
@@ -103,7 +106,11 @@ export class PgProjection implements ProjectionPort {
     let included = 0;
 
     for (const item of active) {
+      // See `MemoryProjection.buildProfile` for why `compass` items skip this loop
+      // entirely and are gathered separately below.
       const name = SECTION_OF[item.kind];
+      if (!name) continue;
+
       const cost = item.tokenEstimate;
       const sectionUsed = perSection.get(name) ?? 0;
 
@@ -116,6 +123,12 @@ export class PgProjection implements ProjectionPort {
       included += 1;
     }
 
+    const compass = compassEntriesFrom(
+      active
+        .filter((item) => item.kind === 'compass')
+        .map((item) => ({ shortId: item.shortId, body: item.body, structured: item.structured })),
+    );
+
     const builtFromSeq = await this.latestSeq();
     const version = await this.nextProfileVersion(personId);
 
@@ -123,6 +136,7 @@ export class PgProjection implements ProjectionPort {
       personId,
       rendered: '',
       sections,
+      compass,
       tokenCount: 0,
       itemCount: included,
       builtFromSeq,
@@ -134,18 +148,29 @@ export class PgProjection implements ProjectionPort {
 
     await execute(
       this.pool,
-      `INSERT INTO app.profile (person_id, rendered, sections, token_count, item_count, built_from_seq, version, built_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO app.profile (person_id, rendered, sections, compass, token_count, item_count, built_from_seq, version, built_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (person_id) DO UPDATE SET
-         rendered = $2, sections = $3, token_count = $4, item_count = $5,
-         built_from_seq = $6, version = $7, built_at = $8`,
-      [personId, rendered, JSON.stringify(sections), tokenCount, included, builtFromSeq, version, builtAt],
+         rendered = $2, sections = $3, compass = $4, token_count = $5, item_count = $6,
+         built_from_seq = $7, version = $8, built_at = $9`,
+      [
+        personId,
+        rendered,
+        JSON.stringify(sections),
+        JSON.stringify(compass),
+        tokenCount,
+        included,
+        builtFromSeq,
+        version,
+        builtAt,
+      ],
     );
 
     return {
       personId,
       rendered,
       sections,
+      compass,
       tokenCount,
       itemCount: included,
       builtFromSeq,
@@ -159,6 +184,7 @@ export class PgProjection implements ProjectionPort {
       person_id: string;
       rendered: string;
       sections: ProfileSections;
+      compass: CompassEntry[];
       token_count: number;
       item_count: number;
       built_from_seq: string;
@@ -166,7 +192,7 @@ export class PgProjection implements ProjectionPort {
       built_at: Date;
     }>(
       this.pool,
-      `SELECT person_id, rendered, sections, token_count, item_count, built_from_seq, version, built_at
+      `SELECT person_id, rendered, sections, compass, token_count, item_count, built_from_seq, version, built_at
        FROM app.profile WHERE person_id = $1`,
       [personId],
     );
@@ -176,6 +202,7 @@ export class PgProjection implements ProjectionPort {
       personId,
       rendered: row.rendered,
       sections: row.sections,
+      compass: row.compass,
       tokenCount: row.token_count,
       itemCount: row.item_count,
       builtFromSeq: Number(row.built_from_seq) as EventSeq,

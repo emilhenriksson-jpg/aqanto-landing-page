@@ -315,10 +315,11 @@ export interface ProposalRow {
   proposed_by_client: AgentClient | null;
   status: ProposalStatus;
   created_at: Date;
+  structured: Record<string, unknown>;
 }
 
 export const PROPOSAL_COLUMNS = `id, room_id, person_id, intent, kind, body, reason, motivation,
-  conflicts_with, source_item, proposed_by_client, status, created_at`;
+  conflicts_with, source_item, proposed_by_client, status, created_at, structured`;
 
 export function mapProposal(row: ProposalRow): Proposal {
   return {
@@ -335,6 +336,7 @@ export function mapProposal(row: ProposalRow): Proposal {
     proposedByClient: row.proposed_by_client,
     status: row.status,
     createdAt: row.created_at,
+    structured: row.structured ?? {},
   };
 }
 
