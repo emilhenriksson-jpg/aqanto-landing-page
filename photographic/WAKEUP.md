@@ -64,3 +64,7 @@ Lägg till `/mcp` på https-URL:en. Claude: Customize → Connectors → custom 
 ## Om du bara ska veta en sak
 
 Persistensen är på plats lokalt. Det som saknas för “Claude svarar om dig” är en publik HTTPS-URL. Riktig LLM: `PHOTOGRAPHIC_LLM=openai` + `OPENAI_API_KEY`.
+
+## MCP-rök (ketchup i instructions)
+
+Morgonkoll att OAuth → `/mcp` initialize + `tools/list` funkar, och att profilen nämner den seedade ketchup-allergin: se `scripts/mcp-smoke.md` (helst `connect-flow.test.ts` + `e2e` med `HARNESS=postgres`, eller `./scripts/mcp-smoke.sh`). Session-token från signup räcker **inte** till MCP — bara OAuth access token.

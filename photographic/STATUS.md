@@ -208,3 +208,7 @@ _Agents append here. Do not edit another package to unblock yourself._
 - **orchestrator** — calm **Dokument** shelf on personal + shared rooms (demo rows,
   empty copy when none). Room interior now matches DESIGN.md: memories, documents,
   activity.
+
+- **orchestrator** — `scripts/demo-api.md`: curl journey proving web→REST against local
+  Postgres (`db:migrate`/`db:seed`, signup code from `signup_code` log, session,
+  `/v1/rooms`, `/v1/profile`). Web client paths already match; no client fixes needed.
