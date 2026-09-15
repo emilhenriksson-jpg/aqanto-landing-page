@@ -104,7 +104,10 @@ export async function createPostgresServices(
   const audit = new PgAudit(pool);
 
   const identity = new PgIdentity(pool);
-  const projection = new PgProjection(pool, llm);
+  // `jobs` is handed in so a cold headline cache can ask for a rebuild instead of
+  // serving "Inget sparat än" to every session until somebody writes to the room. See
+  // `PgProjection.headlinesFor`.
+  const projection = new PgProjection(pool, llm, (input) => jobs.enqueue(input));
   // Ingest before rooms: leaving a room can take the author's own contributions with it,
   // and it does that through the ordinary trash rather than a second deletion path.
   const ingest = new PgIngest(pool, llm, projection, jobs, clock);

@@ -19,7 +19,13 @@
  * product.
  */
 
-import { FALLBACK_INSTRUCTIONS, renderInstructions, TOOLS, toolWireFormat } from '@photographic/agent';
+import {
+  FALLBACK_INSTRUCTIONS,
+  INSTRUCTIONS_TOKEN_BUDGET,
+  renderInstructions,
+  TOOLS,
+  toolWireFormat,
+} from '@photographic/agent';
 import type { ToolDefinition } from '@photographic/agent';
 import type { Actor, Services } from '@photographic/core';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -58,7 +64,14 @@ export async function buildInstructions(deps: {
   const log = deps.log ?? SILENT_LOG;
 
   try {
-    const bundle = await deps.services.bundle.build(deps.actor);
+    // Built against the ceiling it will be rendered against. `InitializeResult.instructions`
+    // has a tighter one than the REST bundle — some clients truncate a long instruction
+    // string without saying so — and building against 2000 only to render against 1400
+    // meant the assembly's own retention order (headlines, then the active room, then
+    // profile items) was solved for a package nobody received.
+    const bundle = await deps.services.bundle.build(deps.actor, {
+      budgetTokens: INSTRUCTIONS_TOKEN_BUDGET,
+    });
 
     if (deps.actor.sessionId) {
       await deps.services.sessions.recordDelivery(

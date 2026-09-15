@@ -33,16 +33,21 @@ export class PgBundle implements BundlePort {
       rooms,
       recent,
       activeRoom,
+      budgetTokens: input.budgetTokens ?? BUNDLE_TOKEN_BUDGET,
       tokenCount: 0,
       bundleVersion: `${profile.version}.${rooms.length}.${activeRoom ? 1 : 0}.${recent.length}`,
       builtAt: new Date(),
     };
 
-    bundle.tokenCount = estimateTokens(this.render(bundle, input.budgetTokens ?? BUNDLE_TOKEN_BUDGET));
+    bundle.tokenCount = estimateTokens(this.render(bundle));
     return bundle;
   }
 
-  render(bundle: ContextBundle, budgetTokens = BUNDLE_TOKEN_BUDGET): string {
+  /**
+   * Defaults to the budget the bundle was built against, not to a constant. See
+   * `ContextBundle.budgetTokens`.
+   */
+  render(bundle: ContextBundle, budgetTokens = bundle.budgetTokens): string {
     return renderInstructions(bundle, { budgetTokens });
   }
 }

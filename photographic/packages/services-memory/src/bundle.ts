@@ -54,6 +54,7 @@ export class MemoryBundle implements BundlePort {
       rooms,
       recent,
       activeRoom,
+      budgetTokens: input.budgetTokens ?? BUNDLE_TOKEN_BUDGET,
       tokenCount: 0,
       bundleVersion: `${profile.version}.${rooms.length}.${activeRoom ? 1 : 0}.${recent.length}`,
       builtAt: this.store.now(),
@@ -62,14 +63,17 @@ export class MemoryBundle implements BundlePort {
     // Measured from the string that actually reaches the model, not summed from the
     // parts: the parts do not include the scaffolding, and the scaffolding is what
     // makes a budget overrun show up as a silently truncated profile.
-    bundle.tokenCount = estimateTokens(
-      this.render(bundle, input.budgetTokens ?? BUNDLE_TOKEN_BUDGET),
-    );
+    bundle.tokenCount = estimateTokens(this.render(bundle));
 
     return bundle;
   }
 
-  render(bundle: ContextBundle, budgetTokens = BUNDLE_TOKEN_BUDGET): string {
+  /**
+   * Defaults to the budget the bundle was built against, not to a constant, so
+   * `tokenCount` always describes the string a caller is handed. See
+   * `ContextBundle.budgetTokens`.
+   */
+  render(bundle: ContextBundle, budgetTokens = bundle.budgetTokens): string {
     return renderInstructions(bundle, { budgetTokens });
   }
 }

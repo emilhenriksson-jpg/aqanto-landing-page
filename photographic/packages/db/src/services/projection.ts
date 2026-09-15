@@ -31,11 +31,12 @@ import type {
 import { NotFoundError, NotPermittedError } from '@photographic/core';
 import {
   BRIEF_TOKEN_BUDGET,
-  COMPASS_PRINCIPLES,
   compassEntriesFrom,
+  compassEntriesFromCache,
   PROFILE_TOKEN_BUDGET,
   ROOM_HEADLINE_TOKEN_BUDGET,
   SECTION_BUDGETS,
+  SINCE_LAST_SEEN_SCAN_LIMIT,
   SINCE_LAST_SEEN_TOKEN_BUDGET,
   estimateTokens,
 } from '@photographic/core';
@@ -79,9 +80,18 @@ export class PgProjection implements ProjectionPort {
   private readonly headlines = new Map<RoomId, RoomHeadline>();
   private readonly staleHeadlines = new Set<RoomId>();
 
+  /**
+   * `enqueue` is optional so a caller that wires no job queue still works — it just
+   * never improves a cold headline. `createPostgresServices` passes it.
+   */
   constructor(
     private readonly pool: Pool,
     private readonly llm: Pick<LlmPort, 'summarise'>,
+    private readonly enqueue?: (input: {
+      kind: string;
+      payload?: Record<string, unknown>;
+      dedupeKey?: string;
+    }) => Promise<void>,
   ) {}
 
   async buildProfile(personId: PersonId): Promise<Profile> {
@@ -199,24 +209,18 @@ export class PgProjection implements ProjectionPort {
     );
     if (!row) return this.buildProfile(personId);
 
-    // A profile cached before `0015_personal_compass.sql` has `compass = '[]'`, the
-    // column default, and returning it would deliver a person no compass at all until
-    // something else happened to rebuild their profile. Treated as a cache miss rather
-    // than as an answer: the six principles are not optional and their absence is not a
-    // state the person chose. Rebuilding also refreshes the cached text, so a later edit
-    // to a default in `packages/core/src/compass.ts` reaches an existing account instead
-    // of stopping at whatever was cached the day they signed up.
-    //
-    // Bounded: the rebuild writes the full set, so this happens once per stale profile.
-    if (!Array.isArray(row.compass) || row.compass.length !== COMPASS_PRINCIPLES.length) {
-      return this.buildProfile(personId);
-    }
-
     return {
       personId,
       rendered: row.rendered,
       sections: row.sections,
-      compass: row.compass,
+      // Never the cached array as-is. A profile written before
+      // `0015_personal_compass.sql` holds `'[]'` — the column default — and handing that
+      // back delivered a person no compass at all, which made whether the block arrived
+      // a function of when the account was created. `compassEntriesFromCache` fills every
+      // slot nobody has personalised from the code defaults, on every read, so the six
+      // are a property of the code rather than of a rebuild having happened to run. See
+      // the comment on that function for why a cached `default` entry is ignored.
+      compass: compassEntriesFromCache(row.compass),
       tokenCount: row.token_count,
       itemCount: row.item_count,
       builtFromSeq: Number(row.built_from_seq) as EventSeq,
@@ -342,14 +346,43 @@ export class PgProjection implements ProjectionPort {
       const description = descriptions.get(roomId);
       if (description === undefined) continue;
 
+      const owner = ownerHeadline(description);
+
       out.set(roomId, {
         roomId,
-        rendered: ownerHeadline(description) || cached?.rendered || EMPTY_HEADLINE,
+        rendered: owner || cached?.rendered || EMPTY_HEADLINE,
         source: description ? 'owner' : cached?.source ?? 'empty',
         builtFromSeq: cached?.builtFromSeq ?? (0 as EventSeq),
         stale: true,
         builtAt: cached?.builtAt ?? new Date(),
       });
+
+      /**
+       * Ask for a real headline rather than returning the placeholder forever.
+       *
+       * The cache is process-local (see the file comment), so every restart empties it —
+       * and nothing else queued a rebuild, because `invalidate` only runs on a write.
+       * The result was that a shared room nobody had written to since the last deploy
+       * reached every session as "Inget sparat än", which is a statement about the room
+       * and it was false. A model told a room is empty stops trying to answer from it.
+       *
+       * Deliberately still returning the placeholder *now*: session start cannot wait on
+       * a summariser. This only means the next session gets the real sentence.
+       *
+       * `dedupeKey` is what keeps this from being a model call per room per session — a
+       * pending rebuild for the same room collapses into one regardless of how many
+       * sessions ask. Rooms whose owner wrote a description need nothing: that text wins
+       * outright and is never regenerated.
+       */
+      if (this.enqueue && !owner) {
+        await this.enqueue({
+          kind: 'rebuild_projections',
+          payload: { roomId },
+          dedupeKey: `rebuild_projections:headline:${roomId}`,
+        }).catch(() => {
+          // A queue that will not take the job is not a reason to fail session start.
+        });
+      }
     }
 
     return out;
@@ -384,6 +417,11 @@ export class PgProjection implements ProjectionPort {
     );
     const seen = readState ? Number(readState.last_seen_seq) : 0;
 
+    // Newest `SINCE_LAST_SEEN_SCAN_LIMIT` first, then back into log order. The bound is
+    // the point: this runs at session start and the list is cut to a token budget a few
+    // lines later, so reading every event since the person last looked was a scan whose
+    // result was mostly discarded. Ordering inside the subquery and re-ordering outside
+    // keeps `packSince` seeing exactly what it saw before.
     const rows = await queryRows<{
       event_type: string;
       payload: Record<string, unknown>;
@@ -391,13 +429,17 @@ export class PgProjection implements ProjectionPort {
       actor_name: string | null;
     }>(
       this.pool,
-      `SELECT e.event_type, e.payload, e.actor_person_id, p.display_name AS actor_name
-       FROM app.event e
-       LEFT JOIN app.person p ON p.id = e.actor_person_id
-       WHERE e.room_id = $1 AND e.seq > $2
-         AND (e.actor_person_id IS NULL OR e.actor_person_id <> $3)
-       ORDER BY e.seq ASC`,
-      [roomId, seen, actor.personId],
+      `SELECT event_type, payload, actor_person_id, actor_name FROM (
+         SELECT e.seq, e.event_type, e.payload, e.actor_person_id, p.display_name AS actor_name
+         FROM app.event e
+         LEFT JOIN app.person p ON p.id = e.actor_person_id
+         WHERE e.room_id = $1 AND e.seq > $2
+           AND (e.actor_person_id IS NULL OR e.actor_person_id <> $3)
+         ORDER BY e.seq DESC
+         LIMIT $4
+       ) recent
+       ORDER BY recent.seq ASC`,
+      [roomId, seen, actor.personId, SINCE_LAST_SEEN_SCAN_LIMIT],
     );
 
     const lines = rows

@@ -13,6 +13,7 @@
  */
 
 import type {
+  ActiveRoomContext,
   CompassEntry,
   ContextBundle,
   HistoryAction,
@@ -387,6 +388,36 @@ function renderRecent(recent: HistoryEntry[]): string | null {
 ${wrapRoomContent(lines.join('\n'), { label: 'senaste', notice: false })}`;
 }
 
+const SINCE_LAST_SEEN_PREAMBLE = (roomTitle: string) =>
+  `Det här hände i ${roomTitle} medan personen var borta. Ta upp det om det är relevant, men berätta inte att du fick en lista:`;
+
+/**
+ * "While you were away", for the room the model asked for.
+ *
+ * `ActiveRoomContext.sinceLastSeen` has been computed on both implementations since the
+ * bundle existed — with its own token budget and its own query over every event past
+ * `room_read_state.last_seen_seq` — and had **no consumer anywhere in the repo**: this
+ * renderer printed `activeRoom.title` and `activeRoom.brief` and dropped the third
+ * field on the floor. So the one line in the whole package that sounds like a memory
+ * developing over time rather than a static dossier was being paid for and thrown away.
+ *
+ * Rendered inside `wrapRoomContent` for the same reason the brief is: in a shared room
+ * these lines describe what *other people* did, in text they wrote.
+ *
+ * Newest first, matching `recent`. The projection already packs the list to
+ * `SINCE_LAST_SEEN_TOKEN_BUDGET`; this trusts that rather than imposing a second
+ * ceiling, and the whole block gives way as a unit in `assembleBlocks` if the package
+ * does not fit — a catch-up missing the one thing that mattered, with no way to tell,
+ * is worse than no catch-up.
+ */
+function renderSinceLastSeen(activeRoom: ActiveRoomContext): string | null {
+  const lines = activeRoom.sinceLastSeen.filter((line) => line.trim() !== '');
+  if (lines.length === 0) return null;
+
+  return `${SINCE_LAST_SEEN_PREAMBLE(activeRoom.title)}
+${wrapRoomContent(lines.join('\n'), { label: `${activeRoom.title} — nytt`, notice: false })}`;
+}
+
 export interface RenderOptions {
   /** Set false for clients that receive the rules another way, e.g. our own voice app. */
   includeRules?: boolean;
@@ -433,7 +464,8 @@ på något om personen, och nämn inte det här för dem.`,
  * So things give way in the order of what it costs the person to lose them:
  *
  *   1. the room headlines, leaving the room names. One tool call to recover.
- *   2. the active room's brief, which the model asked for and can ask for again.
+ *   2. the active room's "while you were away", then its brief — in that order, because
+ *      a model that named a room asked for its contents. Both are one tool call away.
  *   3. profile items, by salience, down to a floor of one.
  *
  * The rules and the list of room names are never given up. A model missing a rule acts
@@ -462,6 +494,11 @@ function assembleBlocks(
   const compass = renderCompass(bundle.profile.compass);
   const compassBlock = compass ? [compass] : [];
 
+  // Two parts, in retention order: the brief first, the catch-up second, because `keep`
+  // below drops from the end. The brief is what the room is *about*, and a model that
+  // asked for this room by name asked for its contents; the catch-up is what changed
+  // while the person was away, which is the more evocative line and the more expendable
+  // one. Both are one `list_history` call away if they fall off.
   const active: string[] = [];
   if (bundle.activeRoom) {
     // No per-payload notice here: `DATA_BOUNDARY` is a few hundred tokens below in the
@@ -474,6 +511,9 @@ function assembleBlocks(
           notice: false,
         }),
     );
+
+    const catchUp = renderSinceLastSeen(bundle.activeRoom);
+    if (catchUp) active.push(catchUp);
   }
 
   let tightest: string[] | null = null;
@@ -507,7 +547,11 @@ function assembleBlocks(
 
 export function renderInstructions(bundle: ContextBundle, options: RenderOptions = {}): string {
   const includeRules = options.includeRules ?? true;
-  const budget = options.budgetTokens ?? INSTRUCTIONS_TOKEN_BUDGET;
+  // The bundle's own budget before the constant. A bundle assembled against one ceiling
+  // and rendered against another is how `?budget=` came to be validated, documented and
+  // ignored, and how the same person got a different package through MCP than through
+  // REST. The constant stays as the floor for a caller that has neither.
+  const budget = options.budgetTokens ?? bundle.budgetTokens ?? INSTRUCTIONS_TOKEN_BUDGET;
   const rules = includeRules ? [HOW_TO_CONFIRM, DATA_BOUNDARY, LANGUAGE] : [];
 
   const { blocks, fits } = assembleBlocks(bundle, budget, rules);
