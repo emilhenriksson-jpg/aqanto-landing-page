@@ -1,17 +1,42 @@
 import { useState } from 'react';
 
+import { isDemoMode, resolveProposal } from '../api/index.js';
+import { CalmState, LoadingState } from '../components/CalmState.js';
 import { Wordmark } from '../components/Wordmark.js';
 import { DEMO_APPROVALS, type ApprovalItem } from '../data/demo.js';
+import { loadApprovalsFromApi } from '../data/load.js';
+import { useRoomData } from '../hooks/useRoomData.js';
 
 /**
  * A calm feed of approval cards — light and fast to clear, never an inbox to dread.
- * Accept and dismiss both remove the card from local state (demo until REST lands).
+ * Accept and dismiss remove the card locally; live mode also POSTs the resolve.
  */
 export function Approvals() {
-  const [items, setItems] = useState<ApprovalItem[]>(DEMO_APPROVALS);
+  const state = useRoomData(
+    'approvals',
+    () => DEMO_APPROVALS,
+    () => loadApprovalsFromApi(),
+  );
 
-  function remove(id: string) {
+  if (state.status === 'loading') return <LoadingState label="Hämtar förslag…" />;
+  if (state.status === 'error') {
+    return <CalmState title="Godkänn" message={state.message} />;
+  }
+
+  return <ApprovalsReady initial={state.data} />;
+}
+
+function ApprovalsReady({ initial }: { initial: ApprovalItem[] }) {
+  const [items, setItems] = useState<ApprovalItem[]>(initial);
+
+  async function resolve(id: string, accept: boolean) {
     setItems((current) => current.filter((item) => item.id !== id));
+    if (isDemoMode()) return;
+    try {
+      await resolveProposal(id, accept);
+    } catch {
+      // Card already cleared locally; network resolve is best-effort.
+    }
   }
 
   return (
@@ -41,11 +66,11 @@ export function Approvals() {
                 <button
                   type="button"
                   className="btn btn--brand"
-                  onClick={() => remove(item.id)}
+                  onClick={() => void resolve(item.id, true)}
                 >
                   Godkänn
                 </button>
-                <button type="button" className="btn" onClick={() => remove(item.id)}>
+                <button type="button" className="btn" onClick={() => void resolve(item.id, false)}>
                   Avfärda
                 </button>
               </div>

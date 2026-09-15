@@ -1,3 +1,4 @@
+import { CalmState, LoadingState } from '../components/CalmState.js';
 import { Wordmark } from '../components/Wordmark.js';
 import {
   DEMO_CLIENTS,
@@ -5,6 +6,8 @@ import {
   type ClientHealthTone,
   type DemoClient,
 } from '../data/demo.js';
+import { loadClientsFromApi } from '../data/load.js';
+import { useRoomData } from '../hooks/useRoomData.js';
 
 /**
  * Honesty feature: which connected AIs actually received the personal profile.
@@ -12,6 +15,17 @@ import {
  * Swedish; violet only on the wordmark.
  */
 export function ClientHealth() {
+  const state = useRoomData(
+    'clients',
+    () => DEMO_CLIENTS,
+    () => loadClientsFromApi(),
+  );
+
+  if (state.status === 'loading') return <LoadingState label="Hämtar klienter…" />;
+  if (state.status === 'error') {
+    return <CalmState title="Klienter" message={state.message} />;
+  }
+
   return (
     <article className="page page--health">
       <header className="page-head page-head--health">
@@ -23,11 +37,15 @@ export function ClientHealth() {
         </p>
       </header>
 
-      <ul className="health">
-        {DEMO_CLIENTS.map((client) => (
-          <ClientRow key={client.id} client={client} />
-        ))}
-      </ul>
+      {state.data.length === 0 ? (
+        <p className="section-block__empty">Inga kopplade AI:er ännu.</p>
+      ) : (
+        <ul className="health">
+          {state.data.map((client) => (
+            <ClientRow key={client.id} client={client} />
+          ))}
+        </ul>
+      )}
     </article>
   );
 }

@@ -107,6 +107,8 @@ curl -sS "http://127.0.0.1:8787/v1/rooms/<roomId>" \
 
 ## Web app against the same API
 
+See `scripts/demo-web.md` for the short Vite path. In brief:
+
 ```bash
 # apps/web — live API, not demo fixtures
 VITE_USE_DEMO=0 VITE_API_BASE=http://127.0.0.1:8787 pnpm --filter @photographic/web dev
@@ -126,6 +128,9 @@ Put the session token in the browser (DevTools → Application → Local Storage
 | `listRooms` → `/v1/rooms` | `GET /v1/rooms` |
 | `getRoom` → `/v1/rooms/:id` | `GET /v1/rooms/:roomId` |
 | `getInvite` → `/v1/invites/:token` | `GET /v1/invites/:token` |
+| `listClients` → `/v1/clients` | `GET /v1/clients` |
+| `listProposals` → `/v1/memory/proposals` | `GET /v1/memory/proposals` |
+| `resolveProposal` → `POST /v1/memory/proposals/:id` | `POST /v1/memory/proposals/:id` |
 | `forgetMemory` → `DELETE /v1/memory/:shortId` | `DELETE /v1/memory/:shortId` |
 | `undoMemory` → `POST /v1/memory/undo` | `POST /v1/memory/undo` |
 

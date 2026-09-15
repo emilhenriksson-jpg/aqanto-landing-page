@@ -228,7 +228,7 @@ export function clientHealthTone(client: DemoClient): ClientHealthTone {
 
 /**
  * Pending proposals waiting for a tap. Designed as a calm feed to clear, not an inbox.
- * When REST proposals land, only the loader changes.
+ * Live path: `loadApprovalsFromApi` maps GET /v1/memory/proposals onto this shape.
  */
 export interface ApprovalItem {
   id: string;

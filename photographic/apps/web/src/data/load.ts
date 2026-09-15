@@ -9,9 +9,30 @@
 
 import { PROFILE_TOKEN_BUDGET } from '@photographic/core';
 
-import { ApiError, getInvite, getProfile, getRoom, listRooms } from '../api/index.js';
-import type { ProfileSectionsDto, RoomMemberDto, RoomSummaryDto } from '../api/index.js';
-import type { InvitePreviewData, MemoryLine, RoomCard, RoomDetail } from './demo.js';
+import {
+  ApiError,
+  getInvite,
+  getProfile,
+  getRoom,
+  listClients,
+  listProposals,
+  listRooms,
+} from '../api/index.js';
+import type {
+  ClientHealthDto,
+  ProfileSectionsDto,
+  ProposalDto,
+  RoomMemberDto,
+  RoomSummaryDto,
+} from '../api/index.js';
+import type {
+  ApprovalItem,
+  DemoClient,
+  InvitePreviewData,
+  MemoryLine,
+  RoomCard,
+  RoomDetail,
+} from './demo.js';
 
 export function mapRoomSummary(summary: RoomSummaryDto): RoomCard {
   return {
@@ -148,6 +169,64 @@ function previewLines(preview: string | null): MemoryLine[] {
       kind: 'note' as const,
       body,
     }));
+}
+
+export function mapClientHealth(dto: ClientHealthDto): DemoClient {
+  const method = dto.deliveryMethod;
+  return {
+    id: dto.agentClient,
+    displayName: dto.displayName,
+    lastSeenAt: dto.lastSeenAt,
+    profileDelivered: dto.profileDelivered,
+    deliveryMethod:
+      method === 'mcp_instructions' || method === 'tool_call' ? method : method ? 'tool_call' : null,
+    degraded: dto.degraded,
+  };
+}
+
+export async function loadClientsFromApi(): Promise<DemoClient[]> {
+  const { clients } = await listClients();
+  return clients.map(mapClientHealth);
+}
+
+export function mapProposal(dto: ProposalDto): ApprovalItem {
+  return {
+    id: dto.id,
+    clientLabel: clientLabel(dto.proposedByClient),
+    kind: mapItemKind(dto.kind),
+    body: dto.body,
+    reason: dto.reason,
+  };
+}
+
+export async function loadApprovalsFromApi(): Promise<ApprovalItem[]> {
+  const { proposals } = await listProposals();
+  return proposals.map(mapProposal);
+}
+
+function clientLabel(agentClient: string | null): string {
+  if (!agentClient) return 'En modell';
+  if (agentClient.startsWith('claude')) return 'Claude';
+  if (agentClient.startsWith('chatgpt')) return 'ChatGPT';
+  if (agentClient === 'codex') return 'Codex';
+  if (agentClient === 'cursor') return 'Cursor';
+  if (agentClient === 'voice') return 'Röst';
+  return agentClient;
+}
+
+function mapItemKind(kind: string): MemoryLine['kind'] {
+  switch (kind) {
+    case 'identity':
+    case 'fact':
+    case 'preference':
+    case 'instruction':
+    case 'never':
+    case 'decision':
+    case 'note':
+      return kind;
+    default:
+      return 'note';
+  }
 }
 
 export function calmErrorMessage(error: unknown): string {

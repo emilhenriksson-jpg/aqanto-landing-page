@@ -81,3 +81,24 @@ export interface InvitePreviewDto {
   role: string;
   expiresAt: string;
 }
+
+/** GET /v1/clients — per-AI delivery lights. */
+export interface ClientHealthDto {
+  agentClient: string;
+  displayName: string;
+  lastSeenAt: string;
+  profileDelivered: boolean;
+  deliveryMethod: string | null;
+  degraded: boolean;
+}
+
+/** GET /v1/memory/proposals — pending approval cards. */
+export interface ProposalDto {
+  id: string;
+  roomId: string;
+  kind: string;
+  body: string;
+  reason: string;
+  proposedByClient: string | null;
+  createdAt: string;
+}
