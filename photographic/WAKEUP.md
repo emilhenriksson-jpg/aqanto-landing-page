@@ -7,6 +7,7 @@ Kort: API + MCP går att köra lokalt **mot Postgres** eller in-memory. Riktig O
 - REST + MCP på samma origin (OAuth/PKCE, verktyg, onboarding-flöden)
 - **`createPostgresServices`** — hela `Services`-ytan mot lokal Postgres
 - Sätt `DATABASE_URL` → servern kör Postgres; utan den → in-memory + FakeLlm
+- `pnpm db:seed` — Emil + Buyersclub Ledning i Postgres
 - e2e: samma 22-testresa grön mot memory **och** Postgres
   (`cd photographic/e2e && HARNESS=memory pnpm test` / `HARNESS=postgres pnpm test`)
 - Schema + `pnpm db:migrate` / `pnpm db:reset`; migreringar är idempotenta
@@ -34,7 +35,7 @@ fly secrets set OPENAI_API_KEY=sk-... PHOTOGRAPHIC_LLM=openai
 ## Ett kommando
 
 ```bash
-cd photographic && pnpm install && pnpm db:migrate && DATABASE_URL=postgres://photographic:photographic@127.0.0.1:5432/photographic pnpm dev
+cd photographic && pnpm install && pnpm db:migrate && pnpm db:seed && DATABASE_URL=postgres://photographic:photographic@127.0.0.1:5432/photographic pnpm dev
 ```
 
 → `http://localhost:8787` — health `/health`, MCP `/mcp`.  

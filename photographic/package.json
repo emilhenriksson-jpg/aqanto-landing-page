@@ -14,6 +14,7 @@
     "lint": "pnpm -r run lint",
     "db:migrate": "pnpm --filter @photographic/db run migrate",
     "db:reset": "pnpm --filter @photographic/db run reset",
+    "db:seed": "pnpm --filter @photographic/db run seed",
     "dev": "pnpm --filter @photographic/rest run dev"
   },
   "devDependencies": {

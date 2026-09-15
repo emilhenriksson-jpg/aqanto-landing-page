@@ -172,6 +172,28 @@
   }
 }
 
+/* Shared rooms get a quieter wash — you are still *inside*, just not in your own room. */
+.hero--shared {
+  position: relative;
+  margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-12);
+  padding: var(--space-10) var(--space-6) var(--space-10);
+  background:
+    radial-gradient(80% 55% at 12% -5%, color-mix(in srgb, var(--surface) 80%, var(--canvas)) 0%, transparent 55%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--canvas) 55%, var(--surface)) 0%,
+      var(--canvas) 100%
+    );
+  border-bottom: 1px solid var(--hairline);
+  animation: room-enter var(--dur-slow) var(--ease-spring) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero--shared {
+    animation: none;
+  }
+}
+
 .hero__crumb {
   font: var(--type-meta);
   color: var(--ink-muted);

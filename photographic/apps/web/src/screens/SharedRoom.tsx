@@ -24,7 +24,7 @@ export function SharedRoom() {
 
   return (
     <article className="page">
-      <header className="hero">
+      <header className="hero hero--shared">
         <Wordmark />
         <p className="hero__crumb">
           <Link to="/rum">Rum</Link>
@@ -36,13 +36,21 @@ export function SharedRoom() {
           {room.brief ??
             'Inget sparat än. Säg till Claude eller ChatGPT att lägga något här.'}
         </p>
+        {room.memberNames.length > 0 ? (
+          <div className="avatars avatars--hero" aria-label="Medlemmar">
+            {room.memberNames.map((name) => (
+              <span key={name} className="avatar" title={name}>
+                {initials(name)}
+              </span>
+            ))}
+          </div>
+        ) : null}
         <p className="meta">
           {others === 0
             ? 'Bara du'
             : others === 1
               ? 'Delad med 1 person'
               : `Delad med ${others} personer`}
-          {room.memberNames.length > 1 ? ` · ${room.memberNames.join(', ')}` : null}
         </p>
       </header>
 
@@ -69,6 +77,13 @@ export function SharedRoom() {
       )}
     </article>
   );
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0]!.slice(0, 1).toUpperCase();
+  return `${parts[0]!.slice(0, 1)}${parts[parts.length - 1]!.slice(0, 1)}`.toUpperCase();
 }
 
 function groupByKind(
