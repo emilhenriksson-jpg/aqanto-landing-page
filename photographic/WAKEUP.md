@@ -12,7 +12,7 @@ Kort: API + MCP går att köra lokalt **mot Postgres** eller in-memory. Riktig O
   (`cd photographic/e2e && HARNESS=memory pnpm test` / `HARNESS=postgres pnpm test`)
 - Schema + `pnpm db:migrate` / `pnpm db:reset`; migreringar är idempotenta
 - Web-rum-UI på `:5173` — rum, **Godkänn** (approvals), **Klienter** (client health);
-  demo-data som default (`VITE_USE_DEMO` omått = demo). Live API: `VITE_USE_DEMO=0`
+  demo-data som default. Live API: `VITE_USE_DEMO=0`
 
 ## Riktig LLM (valfritt)
 
