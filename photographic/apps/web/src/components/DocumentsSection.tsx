@@ -33,13 +33,31 @@ function DocumentsSectionLoader({ roomId }: { roomId: string }) {
   // something different from the truth for as long as the screen stays open.
   const [reloadKey, setReloadKey] = useState(0);
 
+  /**
+   * The upload result lives here, above the shelf.
+   *
+   * It used to live inside the upload control, which sits below the loading/ready
+   * branch — so the reload that follows a successful upload remounted the control and
+   * the confirmation disappeared in the same frame it appeared. That is worst in the
+   * case most worth reading: "sparad, men vi kunde inte läsa ut text ur den" is how a
+   * person finds out a scanned PDF will not be searchable.
+   */
+  const [result, setResult] = useState<string | null>(null);
+
   const state = useRoomData(
     `documents:${roomId}:${reloadKey}`,
     () => DEMO_DOCUMENTS[roomId] ?? [],
     () => loadDocumentsFromApi(roomId),
   );
 
-  const uploader = <DocumentUpload roomId={roomId} onUploaded={() => setReloadKey((n) => n + 1)} />;
+  const uploader = (
+    <DocumentUpload
+      roomId={roomId}
+      message={result}
+      onResult={setResult}
+      onUploaded={() => setReloadKey((n) => n + 1)}
+    />
+  );
 
   if (state.status === 'loading') {
     return <DocumentsShelfFrame empty="Hämtar dokument…" footer={uploader} />;
@@ -59,16 +77,25 @@ function DocumentsSectionLoader({ roomId }: { roomId: string }) {
  * be unmistakable about *which room* the file lands in — that is the whole decision
  * being made here.
  */
-function DocumentUpload({ roomId, onUploaded }: { roomId: string; onUploaded: () => void }) {
+function DocumentUpload({
+  roomId,
+  message,
+  onResult,
+  onUploaded,
+}: {
+  roomId: string;
+  message: string | null;
+  onResult: (message: string | null) => void;
+  onUploaded: () => void;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
 
   if (isDemoMode()) return null;
 
   const send = async (file: File) => {
     setBusy(true);
-    setMessage(null);
+    onResult(null);
 
     try {
       const result = await uploadRoomDocument(roomId, file);
@@ -76,14 +103,14 @@ function DocumentUpload({ roomId, onUploaded }: { roomId: string; onUploaded: ()
       // Three outcomes worth telling apart. A stored and searchable file, a stored file
       // we could not read — which is a normal thing to be handed and not a failure —
       // and an actual refusal.
-      setMessage(
+      onResult(
         result.document.searchable
           ? `"${result.document.filename}" är sparad och sökbar.`
           : `"${result.document.filename}" är sparad, men vi kunde inte läsa ut text ur den.`,
       );
       onUploaded();
     } catch (error) {
-      setMessage(calmErrorMessage(error));
+      onResult(calmErrorMessage(error));
     } finally {
       setBusy(false);
       // Cleared so choosing the same file again re-fires `change`, which it otherwise

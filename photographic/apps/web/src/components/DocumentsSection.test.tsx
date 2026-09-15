@@ -160,6 +160,42 @@ describe('uploading a document into a room', () => {
     expect((post[1]?.headers as Record<string, string>)['content-type']).toBeUndefined();
   });
 
+  it('keeps the confirmation visible after the shelf reloads', async () => {
+    // The message and the reloaded shelf have to coexist. When the message lived inside
+    // the shelf, the reload remounted it and the confirmation vanished within a frame —
+    // which matters most in the one case worth reading: "saved, but we could not read
+    // any text out of it".
+    vi.stubEnv('VITE_USE_DEMO', '0');
+    vi.stubGlobal(
+      'fetch',
+      liveFetch(() =>
+        Response.json(
+          {
+            document: { id: 'doc-new', filename: 'protokoll.pdf', searchable: true },
+            extraction: 'extracted',
+            chunkCount: 1,
+          },
+          { status: 201 },
+        ),
+      ),
+    );
+
+    render(<DocumentsSection roomId="room-1" />);
+    await waitFor(() => expect(screen.getByText('Inga dokument ännu.')).toBeInTheDocument());
+
+    await userEvent.upload(
+      screen.getByLabelText('Välj en fil att lägga i rummet') as HTMLInputElement,
+      pdf(),
+    );
+
+    // Still there once the reloaded shelf has landed. The reload passes through a
+    // loading render, and the message used to live inside the shelf — so that render
+    // remounted it and the confirmation was gone. A mocked fetch resolves too fast to
+    // catch the intermediate frame, so this asserts the outcome rather than the timing.
+    await waitFor(() => expect(screen.getByText('protokoll.pdf')).toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveTextContent('sparad och sökbar');
+  });
+
   it('reloads the shelf from the server after an upload', async () => {
     // Rather than pushing the new row in locally: whether a document is searchable is
     // decided by extraction on the server, and guessing it here would show a row that

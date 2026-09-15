@@ -292,6 +292,24 @@ table on Track 2's list.
   PDF and `.docx` fixtures built byte by byte.
 - **Invite consent text.** `SHARED_ROOM_CONSENT` in core, shown in the invite's first
   viewport next to "Gå med", with a test. Emil confirmed this as a requirement.
+- **Documents end to end.** `DocumentPort` widened (`download`, `originalText`,
+  `storageUsage`); both implementations call the same `ingestDocument` pipeline. REST:
+  `POST /v1/documents` with `room: "Buyersclub Ledning"` or nothing for private memory,
+  plus `/text`, `/file`, `/chunks` and `GET /v1/storage`. Chunk search is real Postgres
+  FTS through `app.search_chunks`. 11 new e2e tests against both backends.
+- **Swedish upload UI + storage meter.** Upload into a room from the Dokument shelf, with
+  three distinguishable outcomes. `StorageMeter` hides itself below a fifth of the limit.
+- **`@photographic/supabase`.** Postgres re-point (TLS, transaction-pooler detection),
+  Supabase Storage as a `BlobStore`, Auth as identity only. 35 tests, offline.
+  See `SUPABASE.md`.
+
+### Verified live, not just in tests
+
+Against local Postgres with a real PDF, through the running API and the web UI: uploaded
+by room name, extracted via pdf.js, chunked, found by full-text search, found again by
+the Swedish compound "uppsagning" against "Uppsagningstiden", downloaded byte-identical,
+invisible to a second account (404 and an empty search), charged once when the same bytes
+arrived twice, and the AI summary appearing without touching the extracted source.
 
 ### Bugs found, all of which typechecked
 
@@ -305,16 +323,22 @@ table on Track 2's list.
   sentence.
 - `e2e` compiled with `strict: false`. Hid nothing of its own, but another package's
   discriminated unions stopped narrowing the moment `db` depended on `auth`. Now strict.
-- `packages/db` ran its test files in parallel against one shared database that several
-  of them reset. Now sequential.
+- `packages/db` and `e2e` ran their test files in parallel against one shared database
+  that several of them reset. Both now sequential.
+- The Swedish stemmer does not split compounds, so searching "uppsägning" did not find
+  "uppsägningstiden" — found by writing the test wrong and believing the test. Migration
+  0012 adds a trigram fallback scored strictly below every full-text hit.
+- The document upload confirmation lived inside the shelf, which remounts when the shelf
+  reloads after a successful upload — so the message could vanish in the frame it
+  appeared. Caught by watching a screen recording, not by a test. Hoisted above the
+  branch; the case it matters for is "sparad, men vi kunde inte läsa ut text ur den".
 
-### In progress
+### Still to do on this branch
 
-Widening `DocumentPort` (original text, download, storage usage) and wiring both
-implementations onto the blob store and the storage counter; chunk FTS in retrieval;
-`@photographic/supabase` (Auth JWT verification, Supabase Storage as a `BlobStore`,
-pooler-safe connection config); REST upload/download routes and the Swedish upload UI
-with a storage meter; export and account deletion.
+Export (zip of NDJSON plus originals, `format_version`, streamed, signed link,
+`export.created`) and account deletion (both the 30-day freeze and the immediate path
+Emil confirmed, tombstone person row, pseudonymised contributions surviving in shared
+rooms, "ta bort mina bidrag").
 
 ### For Track 2 — two handoffs
 
