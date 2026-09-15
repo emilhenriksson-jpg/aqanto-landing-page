@@ -82,24 +82,19 @@ export async function resolveActor(
 }
 
 /**
- * Which AI a token was issued to, guessed from the name the client registered under.
+ * Which AI a token was issued to, read from the client's frozen identity.
  *
- * A guess, and labelled as one: `unknown` rather than a plausible-looking default,
- * because this string appears in the person's own history feed next to "sparade" and a
- * confident wrong attribution is worse than an honest blank. MCP connections refine it
- * from `clientInfo` at initialize, which is more precise than registration ever is.
+ * Read, not derived. The derivation runs once at registration
+ * (`deriveClientIdentity`) and the store freezes the result, so this cannot change
+ * between two requests from the same client — which it could when it was a string match
+ * against the name the client sends, and a client renaming itself would silently rewrite
+ * the attribution on memories it had already written.
+ *
+ * An unregistered or unrecognised client is `unknown` and stays `unknown`. No plausible
+ * default: this string appears in the person's own history next to "sparade", and a
+ * confident wrong attribution is worse than an honest blank because there is nothing to
+ * notice it by.
  */
 export function agentClientOf(client: OAuthClientRecord | null): AgentClient {
-  if (!client) return 'unknown';
-
-  const name = client.clientName.toLowerCase();
-
-  if (name.includes('claude code')) return 'claude-code';
-  if (name.includes('claude') && name.includes('mobile')) return 'claude-mobile';
-  if (name.includes('claude')) return 'claude-desktop';
-  if (name.includes('cursor')) return 'cursor';
-  if (name.includes('codex')) return 'codex';
-  if (name.includes('chatgpt') || name.includes('openai')) return 'chatgpt-web';
-
-  return 'unknown';
+  return client?.agentClient ?? 'unknown';
 }

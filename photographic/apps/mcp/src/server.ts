@@ -19,7 +19,8 @@
  * product.
  */
 
-import { FALLBACK_INSTRUCTIONS, renderInstructions, TOOLS } from '@photographic/agent';
+import { FALLBACK_INSTRUCTIONS, renderInstructions, TOOLS, toolWireFormat } from '@photographic/agent';
+import type { ToolDefinition } from '@photographic/agent';
 import type { Actor, Services } from '@photographic/core';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
@@ -34,6 +35,8 @@ import { dispatchTool } from './dispatch.js';
 export interface McpServerDeps {
   services: Services;
   actor: Actor;
+  /** Capabilities the connection's token carries. See `toolsFor`. */
+  scopes: string[];
   config: McpConfig;
   log?: McpLog;
 }
@@ -87,16 +90,25 @@ export function createMcpServer(deps: McpServerDeps, instructions: string): Serv
     },
   );
 
+  const allowed = toolsFor(deps.scopes);
+
   server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: TOOLS.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      annotations: tool.annotations,
-    })),
+    tools: allowed.map(toolWireFormat),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    // Checked again rather than relying on the filtered list. `tools/list` is advice a
+    // client may ignore, cache from a previous connection, or never call at all — and a
+    // model that has seen `remember` in an earlier session will try it.
+    const denial = denyForScope(request.params.name, deps.scopes);
+    if (denial) {
+      log.warn('tool_scope_denied', {
+        tool: request.params.name,
+        personId: deps.actor.personId,
+      });
+      return { content: [{ type: 'text' as const, text: denial }], isError: true };
+    }
+
     const result = await dispatchTool(
       { services: deps.services, log },
       deps.actor,
@@ -111,4 +123,40 @@ export function createMcpServer(deps: McpServerDeps, instructions: string): Serv
   });
 
   return server;
+}
+
+/**
+ * The tools a connection may actually call.
+ *
+ * Filtered rather than listed-and-refused, for two reasons. A tool definition sits in
+ * the context window for the whole session, so advertising ones that cannot work is
+ * paying tokens for a guaranteed failure. And a model that can see `remember` will use
+ * it and then tell the person their memory was saved when it was not — whereas a model
+ * that cannot see it says it is unable to save, which is true.
+ */
+export function toolsFor(scopes: readonly string[]): ToolDefinition[] {
+  return TOOLS.filter((tool) => tool.scopes.every((scope) => scopes.includes(scope)));
+}
+
+/**
+ * The refusal text, addressed to the model.
+ *
+ * English, like the rest of what the model is told, and explicit that this is a
+ * permission the person can grant rather than a malfunction — otherwise the model
+ * reports "something went wrong", and the person has no idea their connection is
+ * read-only.
+ */
+function denyForScope(name: string, scopes: readonly string[]): string | null {
+  const tool = TOOLS.find((candidate) => candidate.name === name);
+  if (!tool) return null;
+
+  const missing = tool.scopes.filter((scope) => !scopes.includes(scope));
+  if (missing.length === 0) return null;
+
+  return (
+    `Not permitted: this connection was granted ${scopes.join(', ') || 'no scopes'} and ` +
+    `${name} requires ${missing.join(', ')}. This is a read-only connection, not an ` +
+    'error. Tell the person they can reconnect granting write access if they want you ' +
+    'to be able to do this.'
+  );
 }

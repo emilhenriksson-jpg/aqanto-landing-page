@@ -229,9 +229,23 @@ export function mapRoomDocument(dto: RoomDocumentDto): DocumentLine {
   return {
     id: dto.id,
     title: dto.filename,
-    /** Quiet Swedish shelf label — not a file-manager extension chip. */
-    meta: 'Dokument',
+    meta: documentMeta(dto),
+    searchable: dto.searchable,
   };
+}
+
+/**
+ * The quiet line under a filename.
+ *
+ * Says when a document is not searchable, because otherwise a scanned PDF sits on the
+ * shelf looking exactly like every other row and a person has no way to know their AI
+ * cannot read it. Size rather than a file-type chip: the type is already in the name.
+ */
+function documentMeta(dto: RoomDocumentDto): string {
+  if (!dto.searchable) return `${dto.byteSizeLabel} · kan inte läsas som text`;
+
+  const pages = dto.pageCount && dto.pageCount > 1 ? `${dto.pageCount} sidor · ` : '';
+  return `${pages}${dto.byteSizeLabel}`;
 }
 
 export async function loadDocumentsFromApi(roomId: string): Promise<DocumentLine[]> {

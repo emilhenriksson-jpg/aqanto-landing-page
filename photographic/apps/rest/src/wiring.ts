@@ -19,7 +19,15 @@
 import { randomUUID } from 'node:crypto';
 
 import { createAuthServer, createInMemoryRateLimiter } from '@photographic/auth';
-import type { AuthServer, PersonLookup, SessionTokenVerifier } from '@photographic/auth';
+import type {
+  AuthCodeStore,
+  AuthServer,
+  OAuthClientStore,
+  PendingAuthorizationStore,
+  PersonLookup,
+  SessionTokenVerifier,
+  TokenStore,
+} from '@photographic/auth';
 import {
   MemoryAuthCodeStore,
   MemoryClientStore,
@@ -31,10 +39,27 @@ import { generateCode } from '@photographic/connect';
 import { MemoryCodeStore, MemorySessionIssuer } from '@photographic/connect/testing';
 import { createCodeSenderFromEnv } from '@photographic/delivery';
 import type { Actor, PersonId, Services, SessionId } from '@photographic/core';
-import { createPool, createPostgresServices } from '@photographic/db';
+import {
+  createPool,
+  createPostgresServices,
+  PgAuthCodeStore,
+  PgClientGrants,
+  PgOAuthClientStore,
+  PgPendingAuthorizationStore,
+  PgTokenStore,
+} from '@photographic/db';
+import type { BlobStore } from '@photographic/documents';
+import { createS3BlobStore } from '@photographic/documents';
 import { createLlmFromEnv } from '@photographic/llm';
 import { createMcpApp, defaultConfig } from '@photographic/mcp';
 import { createMemoryServices } from '@photographic/services-memory';
+import {
+  describeSupabase,
+  looksLikeSupabase,
+  supabaseConfigFromEnv,
+  supabasePoolConfig,
+  SupabaseStorageBlobStore,
+} from '@photographic/supabase';
 import type { Hono } from 'hono';
 
 import { createApp } from './app.js';
@@ -42,6 +67,7 @@ import type { RestConfig } from './config.js';
 import type { AppEnv } from './context.js';
 import type { Logger } from './logger.js';
 import { createOAuthProvider } from './oauth.js';
+import { FIRST_PARTY_CLIENT_ID } from './oauth-contract.js';
 import type { OAuthProvider, TokenClaims } from './oauth-contract.js';
 
 export interface Wiring {
@@ -49,6 +75,15 @@ export interface Wiring {
   services: Services;
   auth: AuthServer;
   oauth: OAuthProvider;
+  /**
+   * Per-person, per-client grants — what `Klienter` lists, renames and revokes.
+   *
+   * Null without a database. Not a degraded version of the screen but the absence of
+   * one: registrations that vanish on restart cannot be revoked in any sense a person
+   * would recognise, and offering a revoke button that lasts until the next deploy
+   * would be worse than offering none.
+   */
+  clientGrants: PgClientGrants | null;
   /** Background work, run by whoever owns the schedule. */
   runJobs(): Promise<unknown>;
   purgeTrash(): Promise<number>;
@@ -56,17 +91,44 @@ export interface Wiring {
   close(): Promise<void>;
 }
 
+/**
+ * Where the authorization server keeps its state.
+ *
+ * Bundled together rather than passed as four arguments because they have to come from
+ * the same place. A Postgres token store beside an in-memory client store would resolve
+ * tokens that survived a restart against registrations that did not, and the failure
+ * would look like every client suddenly being unknown.
+ */
+interface AuthStores {
+  clients: OAuthClientStore;
+  codes: AuthCodeStore;
+  pending: PendingAuthorizationStore;
+  tokens: TokenStore;
+  /** Absent on the in-memory path: there is no Klienter screen without a database. */
+  grants: PgClientGrants | null;
+}
+
 interface WiredServices {
   services: Services;
+  authStores: AuthStores;
   runJobs(): Promise<unknown>;
   purgeTrash(): Promise<number>;
   close(): Promise<void>;
   llmKind: 'fake' | 'openai';
+  persistence: 'postgres' | 'memory';
+  /** Which `BlobStore` document originals land in. See `resolveBlobStore`. */
+  storageKind: string;
 }
 
 /**
  * Picks the backend. The only place in the process that reads `DATABASE_URL`, so
  * `wiring.ts` stays the one seam where "which database" is decided.
+ *
+ * OAuth state moves with it. It used to be in-memory unconditionally, which meant every
+ * token and every client registration vanished on restart — so a person revoking a
+ * client's access was really revoking it until the next deploy, and per-client
+ * permissions were a fiction. With `DATABASE_URL` set, registrations, codes, pending
+ * authorizations and tokens all live in `app.oauth_*`.
  */
 async function createServices(config: RestConfig): Promise<WiredServices> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -75,34 +137,131 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
   // say which brain is answering without re-reading the environment.
   void llmKind;
 
+  const { blobs, storageKind } = resolveBlobStore();
+
   if (databaseUrl) {
-    const pool = createPool({ connectionString: databaseUrl });
-    const wired = await createPostgresServices({ pool, baseUrl: config.publicUrl, llm });
+    // Supabase Postgres is Postgres, so this is a re-point rather than a rewrite: the
+    // same migrations, the same seeds, the same suites. What differs is TLS and the
+    // transaction pooler, and both fail in ways that look like something else — see
+    // `supabasePoolConfig`.
+    const pool = createPool(
+      looksLikeSupabase(databaseUrl)
+        ? supabasePoolConfig({
+            connectionString: databaseUrl,
+            ...(process.env.SUPABASE_CA_CERT ? { caCertificate: process.env.SUPABASE_CA_CERT } : {}),
+            allowUnverifiedTls: process.env.SUPABASE_ALLOW_UNVERIFIED_TLS === '1',
+          }).config
+        : { connectionString: databaseUrl },
+    );
+
+    const wired = await createPostgresServices({
+      pool,
+      baseUrl: config.publicUrl,
+      llm,
+      ...(blobs ? { blobs } : {}),
+    });
     return {
       services: wired.services,
+      authStores: {
+        clients: new PgOAuthClientStore(pool),
+        codes: new PgAuthCodeStore(pool),
+        pending: new PgPendingAuthorizationStore(pool),
+        tokens: new PgTokenStore(pool),
+        grants: new PgClientGrants(pool),
+      },
       runJobs: () => wired.runJobsToCompletion(),
       purgeTrash: () => wired.services.trash.purgeExpired(),
       close: () => wired.close(),
       llmKind,
+      persistence: 'postgres',
+      storageKind,
     };
   }
 
   const wired = createMemoryServices({ baseUrl: config.publicUrl, llm });
   return {
     services: wired.services,
+    authStores: {
+      clients: new MemoryClientStore(),
+      codes: new MemoryAuthCodeStore(),
+      pending: new MemoryPendingAuthorizationStore(),
+      tokens: new MemoryTokenStore(),
+      grants: null,
+    },
     runJobs: () => wired.jobs.runOnce(),
     purgeTrash: () => wired.services.trash.purgeExpired(),
     close: async () => {
       // Nothing to release: the reference implementation holds no handles.
     },
     llmKind,
+    persistence: 'memory',
+    storageKind,
   };
+}
+
+/**
+ * Where document originals go, decided in one place.
+ *
+ * The order is deliberate. An explicit S3 configuration wins, because someone who set
+ * one meant it; then Supabase, because that is the platform default; then local disk,
+ * which is right for a laptop and wrong for a container, where a restart loses the
+ * files while the rows still reference them.
+ *
+ * Every branch returns a `BlobStore` and nothing below this line knows which. That is
+ * the promise from the build plan made concrete: replacing Supabase Storage with R2 is
+ * this function and nothing else.
+ */
+function resolveBlobStore(): { blobs: BlobStore | null; storageKind: string } {
+  const s3BaseUrl = process.env.BLOB_S3_BASE_URL;
+  if (s3BaseUrl && process.env.BLOB_S3_ACCESS_KEY_ID && process.env.BLOB_S3_SECRET_ACCESS_KEY) {
+    return {
+      blobs: createS3BlobStore({
+        baseUrl: s3BaseUrl,
+        accessKeyId: process.env.BLOB_S3_ACCESS_KEY_ID,
+        secretAccessKey: process.env.BLOB_S3_SECRET_ACCESS_KEY,
+        ...(process.env.BLOB_S3_REGION ? { region: process.env.BLOB_S3_REGION } : {}),
+        ...(process.env.BLOB_S3_PREFIX ? { prefix: process.env.BLOB_S3_PREFIX } : {}),
+      }),
+      storageKind: 's3',
+    };
+  }
+
+  const supabase = supabaseConfigFromEnv();
+  if (supabase?.serviceRoleKey) {
+    return {
+      blobs: new SupabaseStorageBlobStore({
+        url: supabase.url,
+        serviceRoleKey: supabase.serviceRoleKey,
+        bucket: supabase.storageBucket,
+      }),
+      storageKind: 'supabase',
+    };
+  }
+
+  // Null hands the choice back to `createPostgresServices`, which defaults to
+  // `LocalBlobStore`. Said here rather than constructed here so there is one default
+  // rather than two that can disagree.
+  return { blobs: null, storageKind: 'local' };
 }
 
 export async function createWiring(input: { config: RestConfig; logger: Logger }): Promise<Wiring> {
   const { config, logger } = input;
   const wired = await createServices(config);
   logger.info('llm_selected', { kind: wired.llmKind });
+  // Worth a line at boot: "tokens survive a restart" and "they do not" are the same
+  // process with one environment variable different, and nothing else says which.
+  logger.info('oauth_persistence', { kind: wired.persistence });
+  logger.info('blob_storage', { kind: wired.storageKind });
+
+  // Said at boot rather than discovered later. A Supabase project that is configured for
+  // Postgres but not for Storage is a normal state and not an error — but it is one an
+  // operator should know about before someone uploads a file.
+  const supabase = supabaseConfigFromEnv();
+  if (supabase) {
+    const readiness = describeSupabase(supabase);
+    logger.info('supabase', { storage: readiness.storage, auth: readiness.auth });
+    for (const note of readiness.missing) logger.warn('supabase_incomplete', { note });
+  }
 
   /**
    * Turns the browser session token from the sign-up flow into a person.
@@ -135,11 +294,15 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     },
   };
 
+  const grants = wired.authStores.grants;
+
   const auth = createAuthServer({
-    clients: new MemoryClientStore(),
-    codes: new MemoryAuthCodeStore(),
-    pending: new MemoryPendingAuthorizationStore(),
-    tokens: new MemoryTokenStore(),
+    clients: wired.authStores.clients,
+    codes: wired.authStores.codes,
+    pending: wired.authStores.pending,
+    tokens: grants
+      ? recordingGrants(wired.authStores.tokens, grants, logger)
+      : wired.authStores.tokens,
     people,
     sessions: sessionTokens,
     rateLimiter: createInMemoryRateLimiter({ limit: 30, windowSeconds: 60 }),
@@ -219,10 +382,16 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
       if (!claims) return null;
 
       return {
-        personId: claims.personId,
-        agentClient: claims.agentClient ?? 'unknown',
-        sessionId: null,
-        roomScope: claims.roomScope,
+        actor: {
+          personId: claims.personId,
+          agentClient: claims.agentClient ?? 'unknown',
+          sessionId: null,
+          roomScope: claims.roomScope,
+        },
+        // Carried through rather than dropped here. Without them the MCP endpoint had no
+        // way to tell a read-only connection from a full one, so every tool was offered
+        // to every token and `DEFAULT_SCOPE` omitting `memory.write` meant nothing.
+        scopes: claims.scopes,
       };
     },
   });
@@ -234,6 +403,15 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     oauth,
     connect: { deps: connect },
     mcp,
+    clientGrants: grants,
+    // Straight to the store rather than through the authorization server's RFC 7009
+    // endpoint: that one authenticates the *client* presenting a token, and this is the
+    // person revoking a client that is not asking to be revoked.
+    revokeClientTokens: (input) =>
+      wired.authStores.tokens.revokeFamily(
+        { clientId: input.clientId, personId: input.personId },
+        new Date(),
+      ),
   });
 
   return {
@@ -241,9 +419,54 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     services: wired.services,
     auth,
     oauth,
+    clientGrants: wired.authStores.grants,
     runJobs: () => wired.runJobs(),
     purgeTrash: () => wired.purgeTrash(),
     close: () => wired.close(),
+  };
+}
+
+/**
+ * Records a grant whenever a token is issued.
+ *
+ * Wrapping the store rather than adding a callback to the authorization server, because
+ * `TokenStore.create` already *is* the moment a client gains access to a person's
+ * memory: it is called exactly once per issuance, with the client, the person and the
+ * scope, and it cannot be reached any other way. A separate hook would be a second
+ * definition of that moment, and the two would drift.
+ *
+ * Failures are swallowed. The grant row drives a management screen; a token that was
+ * issued but not listed is a bad screen, while an issuance that fails because the
+ * screen's bookkeeping failed is a person locked out of their own memory.
+ */
+function recordingGrants(tokens: TokenStore, grants: PgClientGrants, logger: Logger): TokenStore {
+  // Delegated method by method rather than `{ ...tokens, create }`. Spreading copies own
+  // enumerable properties only, so a class instance loses every prototype method and the
+  // wrapper ends up with nothing but `create` — which fails as a 401 on the next request
+  // rather than as a type error here.
+  return {
+    findByAccessHash: (hash) => tokens.findByAccessHash(hash),
+    findByRefreshHash: (hash) => tokens.findByRefreshHash(hash),
+    revoke: (id, at) => tokens.revoke(id, at),
+    revokeFamily: (family, at) => tokens.revokeFamily(family, at),
+    touch: (id, at) => tokens.touch(id, at),
+
+    create: async (input) => {
+      const record = await tokens.create(input);
+      try {
+        await grants.record({
+          personId: input.personId,
+          clientId: input.clientId,
+          scope: input.scope,
+        });
+      } catch (error) {
+        logger.warn('client_grant_record_failed', {
+          clientId: input.clientId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return record;
+    },
   };
 }
 
@@ -294,7 +517,7 @@ function withFirstPartySessions(input: {
         personId,
         sessionId,
         agentClient: 'web',
-        clientId: 'first-party',
+        clientId: FIRST_PARTY_CLIENT_ID,
         scopes: [...input.scopes],
         roomScope: [],
         expiresAt: null,

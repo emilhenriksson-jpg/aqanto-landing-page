@@ -108,11 +108,13 @@ export function createMcpApp(deps: McpDeps): McpApp {
 
     if (!token) return challenge(deps, path, 'Ingen åtkomsttoken skickades med.');
 
-    const actor = await deps.authenticate(token);
-    if (!actor) {
+    const caller = await deps.authenticate(token);
+    if (!caller) {
       log.warn('token_rejected');
       return challenge(deps, path, 'Tokenen gäller inte längre. Anslut Photographic igen.');
     }
+
+    const { actor, scopes } = caller;
 
     reapIdle();
 
@@ -178,7 +180,7 @@ export function createMcpApp(deps: McpDeps): McpApp {
     });
 
     const server = createMcpServer(
-      { services: deps.services, actor: sessionActor, config: deps.config, log },
+      { services: deps.services, actor: sessionActor, scopes, config: deps.config, log },
       instructions,
     );
 

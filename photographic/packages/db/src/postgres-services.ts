@@ -7,9 +7,27 @@
  * the point.
  */
 
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import type { Actor, AgentClient, PersonId, RoomId, Services } from '@photographic/core';
 import { FakeLlm, FakeNotify } from '@photographic/core/testing';
+import type { BlobStore, StorageLedger } from '@photographic/documents';
+import { LocalBlobStore } from '@photographic/documents';
 import type { Pool } from 'pg';
+
+import { PgStorageLedger } from './services/storage-ledger.js';
+
+/**
+ * Where files land when nobody said.
+ *
+ * `PHOTOGRAPHIC_BLOB_ROOT` if set, otherwise a fixed path under the temp directory —
+ * fixed rather than random so two processes on one machine, and a restart of the same
+ * one, still find the files a previous run wrote.
+ */
+function defaultBlobRoot(): string {
+  return process.env.PHOTOGRAPHIC_BLOB_ROOT ?? join(tmpdir(), 'photographic-blobs');
+}
 
 import { PgAudit } from './services/audit.js';
 import { PgBundle } from './services/bundle.js';
@@ -35,6 +53,25 @@ export interface PostgresServicesOptions {
    * of the write path that compute a date in JS rather than in SQL (`now()` already
    * does the job everywhere else). */
   clock?: () => Date;
+
+  /**
+   * Where uploaded files go.
+   *
+   * Defaults to a temporary local directory, which is right for tests and for a laptop
+   * and wrong for anything else — a process restart on a container loses the files
+   * while the rows still reference them. A deployment passes `LocalBlobStore` on a
+   * volume, `S3BlobStore` for R2, or Supabase Storage from `@photographic/supabase`.
+   *
+   * This is the seam the portability promise rests on: nothing below it names a
+   * storage provider, so replacing one does not reach the memory model.
+   */
+  blobs?: BlobStore;
+
+  /**
+   * Per-person storage accounting. Defaults to `PgStorageLedger`, which counts against
+   * `STORAGE_LIMIT_BYTES`. Injectable mainly so a test can set a small limit.
+   */
+  storage?: StorageLedger;
 }
 
 export interface PostgresServices {
@@ -71,7 +108,9 @@ export async function createPostgresServices(
   const ingest = new PgIngest(pool, llm, projection, jobs, clock);
   const bundle = new PgBundle(projection, rooms);
   const retrieval = new PgRetrieval(pool, llm);
-  const documents = new PgDocuments(pool, llm, projection, jobs);
+  const blobs = options.blobs ?? new LocalBlobStore({ root: defaultBlobRoot() });
+  const storage = options.storage ?? new PgStorageLedger(pool);
+  const documents = new PgDocuments(pool, llm, projection, jobs, blobs, storage);
   const trash = new PgTrash(pool, ingest, projection);
   const history = new PgHistory(pool);
   const events = new PgEvents(pool);

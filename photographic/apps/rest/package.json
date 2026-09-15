@@ -25,7 +25,9 @@
     "@photographic/mcp": "workspace:*",
     "@photographic/services-memory": "workspace:*",
     "hono": "^4.6.14",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "@photographic/documents": "workspace:*",
+    "@photographic/supabase": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

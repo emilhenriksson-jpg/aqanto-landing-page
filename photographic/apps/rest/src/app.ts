@@ -9,7 +9,7 @@
  * Middleware order is load-bearing and stated once, below.
  */
 
-import type { Services } from '@photographic/core';
+import type { PersonId, Services } from '@photographic/core';
 import type { ConnectConfig, ConnectDeps } from '@photographic/connect';
 import { Hono } from 'hono';
 
@@ -26,7 +26,10 @@ import {
   handleError,
   rateLimit,
   requestContext,
+  firstPartyOnly,
+  requireScope,
 } from './middleware.js';
+import { FIRST_PARTY_ONLY_ROUTES, SCOPED_ROUTES } from './scoped-routes.js';
 import type { OAuthProvider } from './oauth-contract.js';
 import {
   createStubOAuthProvider,
@@ -35,7 +38,8 @@ import {
   OAUTH_PATHS,
 } from './oauth-contract.js';
 import { connectRoutes, publicConnectRoutes } from './routes/connect.js';
-import { contextRoutes } from './routes/context.js';
+import { contextRoutes, type ClientGrants } from './routes/context.js';
+import { documentRoutes } from './routes/documents.js';
 import { historyRoutes } from './routes/history.js';
 import { memoryRoutes } from './routes/memory.js';
 import { oauthRoutes } from './routes/oauth.js';
@@ -61,6 +65,18 @@ export interface AppDeps {
    * OAuth deployments to serve one login.
    */
   mcp?: { fetch(request: Request): Promise<Response> };
+
+  /**
+   * Per-person client registrations, for the `Klienter` screen.
+   *
+   * Optional because the in-memory deployment has none: registrations that vanish on
+   * restart cannot honestly be listed as "AIs that can reach your memory", and the
+   * routes answer 503 rather than an empty list.
+   */
+  clientGrants?: ClientGrants | null;
+
+  /** Revokes every token one client holds for one person. See `ContextRouteDeps`. */
+  revokeClientTokens?: (input: { personId: PersonId; clientId: string }) => Promise<number>;
 }
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
@@ -194,11 +210,37 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     }),
   );
 
-  authenticated.route('/', contextRoutes(connectConfig));
+  /**
+   * Which scope each route needs, in one list.
+   *
+   * One list rather than a check at the top of each handler, because the interesting
+   * question about scope enforcement is not "is this route covered" but "is any route
+   * *not* covered" — and that is only answerable if the answers are in one place a
+   * reviewer can read top to bottom.
+   *
+   * Registered per method, because the method is half of the answer: reading a room and
+   * writing to it are the same path.
+   */
+  for (const [method, path, ...scopes] of SCOPED_ROUTES) {
+    authenticated.on(method, path, requireScope(...scopes));
+  }
+  for (const [method, path] of FIRST_PARTY_ONLY_ROUTES) {
+    authenticated.on(method, path, firstPartyOnly());
+  }
+
+  authenticated.route(
+    '/',
+    contextRoutes({
+      connect: connectConfig,
+      clientGrants: deps.clientGrants ?? null,
+      ...(deps.revokeClientTokens ? { revokeClientTokens: deps.revokeClientTokens } : {}),
+    }),
+  );
   authenticated.route('/', memoryRoutes());
   authenticated.route('/', trashRoutes());
   authenticated.route('/', historyRoutes());
   authenticated.route('/', roomRoutes());
+  authenticated.route('/', documentRoutes());
 
   app.route('/v1', authenticated);
 

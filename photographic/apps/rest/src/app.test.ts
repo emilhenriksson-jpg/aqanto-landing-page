@@ -8,6 +8,7 @@
  * returns whatever the test wants.
  */
 
+import { SUPPORTED_SCOPES } from '@photographic/auth';
 import type { PersonId, Person, SessionId } from '@photographic/core';
 import type { ConnectDeps } from '@photographic/connect';
 import {
@@ -123,7 +124,11 @@ async function fixture(): Promise<Fixture> {
         sessionId: session.id as SessionId,
         agentClient,
         clientId: 'test',
-        scopes: ['memory.read', 'memory.write'],
+        // Everything a client gets when it asks for everything. These assertions are
+        // about routes and serialisers, not about scope narrowing — `scope.test.ts`
+        // owns that — so a fixture short of the full set would fail here for a reason
+        // that has nothing to do with what is being checked.
+        scopes: [...SUPPORTED_SCOPES],
         roomScope: [],
         expiresAt: null,
       });
@@ -548,11 +553,21 @@ describe('rooms and who can see them', () => {
     const res = await f.get(`/v1/rooms/${created.room.id}/documents`, emil.token);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.documents).toEqual([
-      { id: uploaded.documentId, filename: 'Due diligence-paket Q3.pdf' },
-    ]);
+    expect(body.documents).toHaveLength(1);
+    expect(body.documents[0]).toMatchObject({
+      id: uploaded.documentId,
+      filename: 'Due diligence-paket Q3.pdf',
+    });
+
+    // The card fields, never the contents. Asserted as what must be absent rather than
+    // as an exact key list: the extracted text and the original bytes can each be
+    // megabytes and have their own endpoints, and a list that sometimes carries one is a
+    // list that sometimes times out. Pinning the exact keys instead would also fail
+    // every time a label is added, which is not the thing worth protecting.
     for (const doc of body.documents) {
-      expect(Object.keys(doc).sort()).toEqual(['filename', 'id']);
+      expect(doc).not.toHaveProperty('text');
+      expect(doc).not.toHaveProperty('bytes');
+      expect(doc).not.toHaveProperty('storageKey');
     }
 
     const jacob = await register(f, 'jacob@example.com', 'Jacob');
@@ -586,7 +601,9 @@ describe('rooms and who can see them', () => {
       sessionId: null,
       agentClient: 'cursor',
       clientId: 'test',
-      scopes: ['memory.write'],
+      // Full capabilities, narrowed rooms. The point of this test is that the room
+      // narrowing bites even when nothing else does.
+      scopes: [...SUPPORTED_SCOPES],
       roomScope: [created.room.id],
       expiresAt: null,
     });

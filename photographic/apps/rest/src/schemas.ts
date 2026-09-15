@@ -130,6 +130,29 @@ export const contextQuerySchema = z.object({
   budget: z.coerce.number().int().min(100).max(8000).optional(),
 });
 
+/**
+ * The room a multipart upload names, as text fields beside the file.
+ *
+ * Both optional and both accepted, matching `RoomRef`: a client that has an id sends
+ * `roomId`, and a model relaying "lägg den i Buyersclub Ledning" sends `room`. Neither
+ * means the personal room.
+ */
+export const uploadFieldsSchema = z.object({
+  room: z.string().trim().min(1).max(120).optional(),
+  roomId: uuid.optional(),
+});
+
+/**
+ * The person's own name for a connected client.
+ *
+ * `null` is meaningful and distinct from omitted: it clears the rename and hands the
+ * name back to the label frozen at registration. Capped because it is rendered in the
+ * history feed next to every memory the client wrote.
+ */
+export const renameClientSchema = z.object({
+  displayName: z.string().trim().min(1).max(60).nullable(),
+});
+
 export const signupRequestSchema = z
   .object({
     email: z.string().trim().email().optional(),

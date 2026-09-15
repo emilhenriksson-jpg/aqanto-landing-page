@@ -46,6 +46,31 @@ export interface RoomItemDto {
 export interface RoomDocumentDto {
   id: string;
   filename: string;
+  mimeType: string;
+  byteSize: number;
+  byteSizeLabel: string;
+  createdAt: string;
+  /** Mirrors `app.extraction_status`. `extracted` is the only searchable one. */
+  extraction: 'pending' | 'extracted' | 'unsupported' | 'empty' | 'failed';
+  /** Swedish, and shown: why there is no text. Null when extraction worked. */
+  extractionError: string | null;
+  warnings: string[];
+  pageCount: number | null;
+  chunkCount: number;
+  searchable: boolean;
+  summary: string | null;
+}
+
+/** `GET /v1/storage` — the 10 GB product limit and how much of it is used. */
+export interface StorageDto {
+  bytesUsed: number;
+  limitBytes: number;
+  objectCount: number;
+  usedLabel: string;
+  limitLabel: string;
+  remainingLabel: string;
+  /** 0–1, already clamped by the API. */
+  fraction: number;
 }
 
 export interface RenderedItemDto {

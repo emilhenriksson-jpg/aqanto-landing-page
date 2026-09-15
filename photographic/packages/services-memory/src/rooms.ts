@@ -12,7 +12,7 @@ import type {
   RoomPort,
   RoomSummary,
 } from '@photographic/core';
-import { NotPermittedError } from '@photographic/core';
+import { matchRoomByName, NotPermittedError } from '@photographic/core';
 
 import { slugify } from './identity.js';
 import { MemoryStore, newId } from './store.js';
@@ -140,22 +140,21 @@ export class MemoryRooms implements RoomPort {
    * belongs to, which is what keeps a fuzzy match from becoming a way to discover other
    * people's room names by guessing.
    */
+  /**
+   * Exact, or a unique prefix. Never a substring — see `matchRoomByName`.
+   *
+   * Candidates are the rooms the actor can reach, so a name only ever selects among
+   * rooms they are already in. The rule lives in `@photographic/core` so this and
+   * `PgRooms` cannot answer differently.
+   */
   async resolveByName(actor: Actor, name: string): Promise<Room | null> {
-    const needle = slugify(name);
-    if (!needle) return null;
-
     const candidates = this.store
       .accessibleRoomIds(actor.personId)
       .map((id) => this.store.rooms.get(id)!)
       .filter(Boolean);
 
-    return (
-      candidates.find((r) => r.slug === needle) ??
-      candidates.find((r) => slugify(r.title) === needle) ??
-      candidates.find((r) => slugify(r.title).startsWith(needle)) ??
-      candidates.find((r) => slugify(r.title).includes(needle)) ??
-      null
-    );
+    const match = matchRoomByName(candidates, name);
+    return match.matched ? match.room : null;
   }
 
   async members(

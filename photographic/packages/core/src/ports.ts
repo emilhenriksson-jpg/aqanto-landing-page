@@ -293,15 +293,98 @@ export interface RetrievalPort {
 // Documents
 // ---------------------------------------------------------------------------
 
+/**
+ * Why a document has no searchable text. `pending` means the extractor has not run yet;
+ * everything else is terminal until the document is re-extracted.
+ *
+ * None of these fail an upload. A scanned contract with no text layer is a normal file
+ * to be handed, and losing someone's document because we could not parse it is the one
+ * outcome that is never acceptable — so the bytes are stored either way and this says
+ * what happened to the text.
+ */
+export type ExtractionStatus = 'pending' | 'extracted' | 'unsupported' | 'empty' | 'failed';
+
+/**
+ * What a document is, as everything above this port sees it.
+ *
+ * `text` and `summary` are separate fields and never fall back to one another. `text` is
+ * what we extracted from the file; `summary` is what a model wrote about it. The product
+ * promise is that the original is always reachable, and a single field that sometimes
+ * holds the source and sometimes holds a paraphrase is how that promise quietly stops
+ * being true.
+ */
+export interface DocumentSummary {
+  id: DocumentId;
+  roomId: RoomId;
+  filename: string;
+  mimeType: string;
+  byteSize: number;
+  checksum: string;
+  uploadedBy: PersonId;
+  createdAt: Date;
+  extraction: ExtractionStatus;
+  /** Swedish, shown to the uploader. Null unless extraction failed. */
+  extractionError: string | null;
+  /** Swedish. Truncation and skipped pages are the uploader's business. */
+  warnings: string[];
+  pageCount: number | null;
+  chunkCount: number;
+  /** AI-generated. Null until the `summarise_document` job has run. */
+  summary: string | null;
+}
+
+/** Storage against the product limit. See `STORAGE_LIMIT_BYTES`. */
+export interface StorageUsageReport {
+  bytesUsed: number;
+  limitBytes: number;
+  objectCount: number;
+}
+
 export interface DocumentPort {
+  /**
+   * Stores the file, then extracts and chunks it.
+   *
+   * Refuses in this order, all three before any text is read: the actor may not write to
+   * the room, the file is over `MAX_DOCUMENT_BYTES`, or the person is at their storage
+   * limit. The room is a request from the caller, resolved against real memberships — a
+   * room id or name a model supplied is never a grant.
+   *
+   * Extraction failing does not fail the upload. A scanned contract with no text layer
+   * is a normal thing to be handed, and losing someone's document because we could not
+   * parse it is the one outcome that is never acceptable. The result says what happened
+   * to the text; the bytes are safe either way.
+   */
   upload(
     actor: Actor,
     input: { roomId: RoomId; filename: string; mimeType: string; bytes: Uint8Array },
-  ): Promise<{ documentId: DocumentId }>;
+  ): Promise<{ documentId: DocumentId; extraction: ExtractionStatus; chunkCount: number }>;
 
-  get(actor: Actor, documentId: DocumentId): Promise<{ filename: string; summary: string | null } | null>;
-  listForRoom(actor: Actor, roomId: RoomId): Promise<Array<{ id: DocumentId; filename: string }>>;
+  get(actor: Actor, documentId: DocumentId): Promise<DocumentSummary | null>;
+  listForRoom(actor: Actor, roomId: RoomId): Promise<DocumentSummary[]>;
   chunksFor(actor: Actor, documentId: DocumentId): Promise<Array<{ id: ChunkId; ord: number; text: string }>>;
+
+  /**
+   * The text we extracted, verbatim. Null when there is none.
+   *
+   * Separate from `get` because it is unbounded: a summary belongs on a card, a
+   * 400-page contract does not, and a list endpoint that sometimes carries one is a
+   * list endpoint that sometimes times out.
+   */
+  originalText(actor: Actor, documentId: DocumentId): Promise<string | null>;
+
+  /**
+   * The original bytes.
+   *
+   * The floor under everything else here. Summaries can be wrong, extraction can fail,
+   * chunk boundaries can change — and none of it matters as long as the file a person
+   * uploaded is still the file they get back.
+   */
+  download(
+    actor: Actor,
+    documentId: DocumentId,
+  ): Promise<{ filename: string; mimeType: string; bytes: Uint8Array } | null>;
+
+  storageUsage(actor: Actor): Promise<StorageUsageReport>;
 }
 
 // ---------------------------------------------------------------------------

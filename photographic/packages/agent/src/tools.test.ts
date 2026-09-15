@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { estimateTokens } from './instructions.js';
-import { TOOL_NAMES, TOOLS, toolByName } from './tools.js';
+import { TOOL_NAMES, TOOLS, toolByName, toolWireFormat } from './tools.js';
 
 describe('the tool set', () => {
   it('stays small enough that every definition can be loaded at once', () => {
@@ -13,7 +13,11 @@ describe('the tool set', () => {
     // Around 2% of a 200k window, inside the range where loading every tool is fine.
     // The ceiling is generous on purpose: descriptions are decision prompts, and a
     // vague `remember` costs far more than the tokens a precise one occupies.
-    expect(estimateTokens(JSON.stringify(TOOLS))).toBeLessThan(4500);
+    //
+    // Measured on the wire format rather than on the definitions, because that is what
+    // occupies the window. Fields the server does not forward — `scopes` — cost nothing
+    // and should not eat the budget.
+    expect(estimateTokens(JSON.stringify(TOOLS.map(toolWireFormat)))).toBeLessThan(4500);
   });
 
   it('uses distinct verbs rather than vague ones', () => {

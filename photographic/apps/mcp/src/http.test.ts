@@ -22,24 +22,39 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { defaultConfig } from './deps.js';
 import type { McpApp } from './http.js';
+import { SUPPORTED_SCOPES } from '@photographic/auth';
+
+import type { AuthenticatedCaller } from './deps.js';
 import { createMcpApp, identifyClient } from './http.js';
 
 const ENDPOINT = 'https://photographic.test/mcp';
 
 let wired: MemoryServices;
 let app: McpApp;
-let tokens: Map<string, Actor>;
+let tokens: Map<string, AuthenticatedCaller>;
 let open: Client[];
 
-/** A token that resolves to a person, the way an access token will. */
-async function register(name: string, email: string): Promise<string> {
+/**
+ * A token that resolves to a person, the way an access token will.
+ *
+ * Granted every scope by default, because these tests are about transport, sessions and
+ * the handshake. `scopes.test.ts` covers what a narrower token can reach.
+ */
+async function register(
+  name: string,
+  email: string,
+  scopes: string[] = [...SUPPORTED_SCOPES],
+): Promise<string> {
   const { person } = await wired.services.identity.register({ email, displayName: name });
   const token = `token-for-${person.id}`;
   tokens.set(token, {
-    personId: person.id,
-    agentClient: 'unknown',
-    sessionId: null,
-    roomScope: [],
+    actor: {
+      personId: person.id,
+      agentClient: 'unknown',
+      sessionId: null,
+      roomScope: [],
+    },
+    scopes,
   });
   return token;
 }
@@ -96,7 +111,7 @@ describe('connecting', () => {
     // before the first token the person types. A model that has to call a tool to learn
     // who it is talking to has already failed the person once.
     const token = await register('Emil', 'emil@example.com');
-    const actor = tokens.get(token)!;
+    const actor = tokens.get(token)!.actor;
     const personal = await wired.services.identity.personalRoomOf(actor.personId);
 
     await wired.services.ingest.remember(actor, {
@@ -117,7 +132,7 @@ describe('connecting', () => {
     // told about, so it answers from the profile and is confidently wrong about work
     // that lives somewhere else.
     const token = await register('Emil', 'emil@example.com');
-    const actor = tokens.get(token)!;
+    const actor = tokens.get(token)!.actor;
 
     await wired.services.rooms.create(actor, {
       title: 'Buyersclub Ledning',
@@ -140,7 +155,7 @@ describe('connecting', () => {
     const token = await register('Emil', 'emil@example.com');
     await connect(token, 'claude-ai');
 
-    const health = await wired.services.sessions.health(tokens.get(token)!);
+    const health = await wired.services.sessions.health(tokens.get(token)!.actor);
 
     expect(health).toHaveLength(1);
     expect(health[0]).toMatchObject({
@@ -282,7 +297,7 @@ describe('using it', () => {
 
   it('keeps a shared room\u2019s text as data, even arriving through a tool', async () => {
     const token = await register('Emil', 'emil@example.com');
-    const actor = tokens.get(token)!;
+    const actor = tokens.get(token)!.actor;
     const room = await wired.services.rooms.create(actor, { title: 'Buyersclub Ledning' });
 
     await wired.services.ingest.remember(actor, {
@@ -434,7 +449,7 @@ describe('a person with nothing saved', () => {
     expect((await client.listTools()).tools).toHaveLength(8);
 
     // And the session exists with nothing delivered, which is the honest state: amber.
-    const health = await wired.services.sessions.health(tokens.get(token) as Actor);
+    const health = await wired.services.sessions.health(tokens.get(token)!.actor);
     expect(health[0]?.profileDelivered).toBe(false);
 
     await client.close();

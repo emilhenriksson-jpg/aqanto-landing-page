@@ -1,5 +1,6 @@
 {
   "extends": "../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist", "strict": false },
+  "comment": "strict, like every other package. It used to be off here, which was invisible until a dependency change pulled another package's source into this compilation and its discriminated unions stopped narrowing. Turning it on found nothing in this package's own code.",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist", "strict": true },
   "include": ["src/**/*"]
 }

@@ -562,6 +562,90 @@
   color: var(--ink-muted);
 }
 
+/* --------------------------------------------------------------- storage */
+
+/* Reuses the token-meter language rather than inventing a second bar: two meters that
+   look different on one screen read as two unrelated systems. */
+.storage {
+  max-width: 320px;
+  margin-top: var(--space-5);
+}
+
+.storage__title {
+  font: var(--type-meta);
+  font-weight: 600;
+  color: var(--ink-muted);
+  margin: 0 0 var(--space-2);
+  letter-spacing: 0.01em;
+}
+
+.storage__bar {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--brand-soft) 70%, var(--surface));
+  overflow: hidden;
+}
+
+.storage__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--brand) 55%, var(--brand-soft)) 0%,
+    var(--brand) 100%
+  );
+  transition: width var(--dur-base) var(--ease-spring);
+}
+
+/* Only at the point where it is genuinely about to matter. Below that the meter is
+   hidden entirely rather than coloured, because a warning colour on a number nobody
+   needs to act on is how an interface teaches people to ignore warnings. */
+.storage--warning .storage__fill {
+  background: linear-gradient(90deg, var(--brand) 0%, #b4451f 100%);
+}
+
+.storage__meta {
+  margin-top: var(--space-2);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------ document upload */
+
+.documents__upload {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* The real input stays in the accessibility tree and out of the layout: a styled label
+   over a hidden input loses keyboard focus in several browsers, so the button forwards
+   the click instead. */
+.documents__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.documents__status {
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .storage__fill {
+    transition: none;
+  }
+}
+
 /* ------------------------------------------------------------- room grid */
 
 .room-grid {
@@ -1063,10 +1147,20 @@
 
 .invite__cta {
   display: flex;
-  justify-content: flex-start;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
   padding: 0;
   animation: rise var(--dur-slow) var(--ease-spring) both;
   animation-delay: 80ms;
+}
+
+/* Quiet, but present in the first viewport — the promise has to be read before the
+   button is pressed, not found afterwards in a settings screen. */
+.invite__consent {
+  max-width: 34rem;
+  line-height: 1.55;
+  text-wrap: pretty;
 }
 
 .invite__join {

@@ -41,10 +41,24 @@ export interface McpConfig {
   idleTimeoutMs: number;
 }
 
+/**
+ * Who is calling, and what their token lets them do.
+ *
+ * Two fields because they are two different facts. The actor is *who*, resolved from the
+ * token and never from the request. The scopes are *what that token may do*, which is
+ * narrower than the person's own permissions whenever a client asked for less than
+ * everything — and which used to be dropped here, so a read-only connection was
+ * read-only only for as long as nothing tried to write.
+ */
+export interface AuthenticatedCaller {
+  actor: Actor;
+  scopes: string[];
+}
+
 export interface McpDeps {
   services: Services;
-  /** Resolves a bearer token to an actor. Null for unknown, expired or malformed. */
-  authenticate(token: string): Promise<Actor | null>;
+  /** Resolves a bearer token to a caller. Null for unknown, expired or malformed. */
+  authenticate(token: string): Promise<AuthenticatedCaller | null>;
   config: McpConfig;
   log?: McpLog;
   /** Injected so a test can expire an idle connection without waiting half an hour. */

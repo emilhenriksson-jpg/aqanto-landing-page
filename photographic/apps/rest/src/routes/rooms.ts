@@ -13,6 +13,7 @@ import type { AppEnv } from '../context.js';
 import { createRoomSchema, describeRoomSchema, inviteSchema, roomIdParam } from '../schemas.js';
 import {
   serialiseBrief,
+  serialiseDocument,
   serialiseInvite,
   serialiseRoom,
   serialiseRoomSummary,
@@ -84,20 +85,21 @@ export function roomRoutes(): Hono<AppEnv> {
   /**
    * Documents in a room, for the Dokument shelf.
    *
-   * id + filename only — summaries and dates live on get/upload, not this list.
-   * Membership is enforced inside DocumentPort; unreachable rooms are 404.
+   * The card fields, not the contents: the extracted text and the original bytes each
+   * have their own endpoint under `/documents/:id`, because either can be megabytes and
+   * a list that sometimes carries one is a list that sometimes times out.
+   *
+   * `extraction` is here so the shelf can say "kan inte läsas" on a scanned PDF rather
+   * than showing a row that looks like every other one and silently is not searchable.
+   *
+   * Membership is enforced inside `DocumentPort`; unreachable rooms are 404.
    */
   routes.get('/rooms/:roomId/documents', async (c) => {
     const actor = getActor(c);
     const { roomId } = parseParams(c, roomIdParam);
 
     const documents = await getServices(c).documents.listForRoom(actor, roomId as RoomId);
-    return c.json({
-      documents: documents.map((doc) => ({
-        id: doc.id,
-        filename: doc.filename,
-      })),
-    });
+    return c.json({ documents: documents.map(serialiseDocument) });
   });
 
   /**

@@ -16,6 +16,17 @@ export interface AppVariables {
   logger: Logger;
   /** Null until the auth middleware has run, and on unauthenticated routes. */
   actor: Actor | null;
+  /**
+   * Capabilities the presented token actually carries.
+   *
+   * Separate from the actor because they answer different questions. The actor is *who*
+   * is calling and is resolved from the token; this is *what that token may do*, and it
+   * is narrower than the person's own permissions whenever a client asked for less than
+   * everything. Empty on unauthenticated routes.
+   */
+  scopes: string[];
+  /** The OAuth client the token was issued to. Null for the first-party web session. */
+  clientId: string | null;
   services: Services;
   config: RestConfig;
 }

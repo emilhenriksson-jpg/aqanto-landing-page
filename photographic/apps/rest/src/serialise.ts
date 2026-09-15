@@ -12,9 +12,11 @@
  * is what makes "ta bort p-7k2m" work in a voice session.
  */
 
+import { formatBytes } from '@photographic/documents';
 import type {
   Brief,
   ContextBundle,
+  DocumentSummary,
   HistoryEntry,
   Invite,
   Item,
@@ -129,6 +131,40 @@ export function serialiseSearchHit(hit: SearchHit) {
     text: hit.text,
     score: Number(hit.score.toFixed(6)),
     documentId: hit.documentId,
+  };
+}
+
+/**
+ * A document as a card.
+ *
+ * `summary` and the extracted text are not both here, and that is the point. The summary
+ * is a sentence a model wrote and belongs on a card; the extraction is the source and can
+ * be a megabyte, so it has its own endpoint. A list that sometimes carried one would be a
+ * list that sometimes times out.
+ *
+ * `byteSizeLabel` is formatted here rather than in each client, so "1,5 MB" reads the
+ * same wherever it appears.
+ */
+export function serialiseDocument(doc: DocumentSummary) {
+  return {
+    id: doc.id,
+    roomId: doc.roomId,
+    filename: doc.filename,
+    mimeType: doc.mimeType,
+    byteSize: doc.byteSize,
+    byteSizeLabel: formatBytes(doc.byteSize),
+    checksum: doc.checksum,
+    uploadedBy: doc.uploadedBy,
+    createdAt: doc.createdAt.toISOString(),
+    extraction: doc.extraction,
+    // Swedish, and shown: truncation, skipped pages and "this is a scan" are the
+    // uploader's business rather than ours to hide.
+    extractionError: doc.extractionError,
+    warnings: doc.warnings,
+    pageCount: doc.pageCount,
+    chunkCount: doc.chunkCount,
+    searchable: doc.chunkCount > 0,
+    summary: doc.summary,
   };
 }
 
