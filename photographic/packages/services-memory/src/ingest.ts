@@ -45,6 +45,7 @@ import { NotFoundError, NotPermittedError, ValidationError } from '@photographic
 import {
   COMPASS_KEY_FIELD,
   COMPASS_PRINCIPLE_MAX_CHARS,
+  FIRST_NAME_MAX_CHARS,
   ROUTING_SAMPLE_SIZE,
   canRemoveMemory,
   canRepublishMemory,
@@ -82,6 +83,8 @@ const BASE_SALIENCE: Record<ItemKind, number> = {
   fact: 0.75,
   decision: 0.6,
   note: 0.4,
+  // Never read for ranking: see the matching entry in `PgIngest`.
+  name: 0,
 };
 
 const IDENTITY_HINTS =
@@ -132,6 +135,10 @@ export class MemoryIngest implements IngestPort {
     // matching guard in `PgIngest.remember` for the full reasoning.
     if (input.kind === 'compass') {
       throw new ValidationError('Kompassen ändras bara via ett förslag som personen godkänner.');
+    }
+    // `name` has no door here either, not even a gated one. See `PgIngest.remember`.
+    if (input.kind === 'name') {
+      throw new ValidationError('Förnamnet sätts bara via kontosidan, aldrig som ett vanligt minne.');
     }
 
     const body = input.body.trim().replace(/\s+/g, ' ');
@@ -292,6 +299,12 @@ export class MemoryIngest implements IngestPort {
     if (!body) throw new ValidationError('Tomt förslag kan inte sparas.');
 
     const kind = input.kind ?? classifyKind(body);
+
+    // See `PgIngest.propose`: no legitimate path ever proposes a person's own name.
+    if (kind === 'name') {
+      throw new ValidationError('Förnamnet sätts bara via kontosidan, aldrig som ett förslag.');
+    }
+
     const siblings = this.store.itemsInRoom(input.roomId).filter((i) => i.status === 'active');
 
     if (kind === 'compass') {
@@ -769,6 +782,47 @@ export class MemoryIngest implements IngestPort {
     });
 
     await this.markStale(item.roomId, actor);
+    return item;
+  }
+
+  /**
+   * See `IngestPort.setFirstName` and `PgIngest.setFirstName`, which this mirrors:
+   * supersede whatever `name` item was active (if any), write the new one, and refresh
+   * `person.displayName` — the same cache every other surface already reads.
+   */
+  async setFirstName(actor: Actor, firstName: string): Promise<Item> {
+    const value = firstName.trim().replace(/\s+/g, ' ');
+    if (!value) throw new ValidationError('Förnamnet får inte vara tomt.');
+    if (value.length > FIRST_NAME_MAX_CHARS) {
+      throw new ValidationError(`Förnamnet är för långt — max ${FIRST_NAME_MAX_CHARS} tecken.`);
+    }
+
+    const roomId = this.store.personalRoomIdOf(actor.personId);
+    if (!roomId) throw new NotFoundError('Personen har inget personligt rum.');
+
+    const existing = this.store
+      .itemsInRoom(roomId)
+      .find((i) => i.status === 'active' && i.kind === 'name');
+    if (existing && existing.body === value) return existing;
+
+    const item = await this.write(actor, {
+      roomId,
+      kind: 'name',
+      body: value,
+      sensitivity: 'normal',
+      explicit: true,
+      supersedes: existing?.id ?? null,
+      previousBody: existing?.body ?? null,
+      motivation: existing ? 'Bytte förnamn.' : 'Angav förnamn.',
+    });
+
+    if (existing) {
+      this.supersede(actor, { loser: existing, winner: item });
+    }
+
+    const person = this.store.persons.get(actor.personId);
+    if (person) person.displayName = value;
+
     return item;
   }
 

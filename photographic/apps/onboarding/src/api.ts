@@ -72,6 +72,12 @@ export interface Api {
   health(): Promise<ClientHealthEntry[]>;
   renderedProfile(): Promise<string>;
 
+  /**
+   * Sets the person's own first name, right after they sign in for the first time (or
+   * later, from the account screen — outside this app). Same endpoint either way.
+   */
+  setFirstName(firstName: string): Promise<{ firstName: string }>;
+
   /** What a parked authorization request is for, so the person can decide. */
   describeAuthorization(requestId: string): Promise<AuthorizationRequest>;
   /** Answers it. Returns where to send the browser, back to the client that asked. */
@@ -145,6 +151,8 @@ export const httpApi: Api = {
     const body = await send<{ profile: { rendered: string } }>('/v1/profile');
     return body.profile.rendered;
   },
+  setFirstName: (firstName) =>
+    send('/v1/account/name', { method: 'PATCH', body: JSON.stringify({ firstName }) }),
   describeAuthorization: (requestId) =>
     send(`/oauth/authorize/request?auth_request=${encodeURIComponent(requestId)}`),
   answerAuthorization: (input) =>

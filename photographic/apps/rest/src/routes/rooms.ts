@@ -59,10 +59,15 @@ export function roomRoutes(): Hono<AppEnv> {
     return c.json({
       room: serialiseRoom(room),
       brief: serialiseBrief(brief),
+      // `isSelf` is computed here, from the actor this request already resolved, rather
+      // than asking the client to know its own person id: nothing before this exposed it,
+      // and the room screen's only use for it is telling other members apart from you
+      // when naming who a room is shared with.
       members: members.map((m) => ({
         personId: m.person.id,
         displayName: m.person.displayName,
         role: m.role,
+        isSelf: m.person.id === actor.personId,
       })),
     });
   });

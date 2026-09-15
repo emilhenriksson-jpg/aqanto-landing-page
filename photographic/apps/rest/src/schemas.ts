@@ -9,7 +9,12 @@
  */
 
 import { MIN_HONOURABLE_BUDGET_TOKENS } from '@photographic/agent';
-import { ROOM_HEADLINE_TOKEN_BUDGET, SHORT_ID_PATTERN, isCalendarDate } from '@photographic/core';
+import {
+  FIRST_NAME_MAX_CHARS,
+  ROOM_HEADLINE_TOKEN_BUDGET,
+  SHORT_ID_PATTERN,
+  isCalendarDate,
+} from '@photographic/core';
 import { z } from 'zod';
 
 const ITEM_KINDS = [
@@ -301,6 +306,17 @@ export const uploadFieldsSchema = z.object({
  */
 export const renameClientSchema = z.object({
   displayName: z.string().trim().min(1).max(60).nullable(),
+});
+
+/**
+ * The person's own first name.
+ *
+ * No `null` here, unlike `renameClientSchema`: there is no "clear it" affordance in the
+ * product yet — skipping at first sign-in already leaves it unset, and setting it again
+ * only ever replaces one name with another.
+ */
+export const setFirstNameSchema = z.object({
+  firstName: z.string().trim().min(1).max(FIRST_NAME_MAX_CHARS),
 });
 
 /**

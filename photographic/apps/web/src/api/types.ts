@@ -33,6 +33,8 @@ export interface RoomMemberDto {
   personId: string;
   displayName: string | null;
   role: string;
+  /** Computed server-side from the request's own actor — never guessed client-side. */
+  isSelf: boolean;
 }
 
 /** GET /v1/rooms/:id/items — active memories for the shared-room screen. */
@@ -117,6 +119,21 @@ export interface ForgetResponse {
   item: ItemDto;
   undoToken: string;
   daysRecoverable: number;
+}
+
+/** Public GET /v1/invites/:token — no auth, harder rate limit. */
+export interface InvitePreviewDto {
+  room: { title: string; description: string | null };
+  invitedByName: string | null;
+  /** Newline-separated memory bodies, capped server-side. */
+  preview: string | null;
+  role: string;
+  expiresAt: string;
+}
+
+/** GET /v1/account — the person's own first name, for the account screen. */
+export interface AccountDto {
+  firstName: string | null;
 }
 
 /** GET /v1/clients — per-AI delivery lights. */

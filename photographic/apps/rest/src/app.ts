@@ -53,6 +53,7 @@ import { historyRoutes } from './routes/history.js';
 import { memoryRoutes } from './routes/memory.js';
 import { oauthRoutes } from './routes/oauth.js';
 import { opsRoutes, type QueueSource } from './routes/ops.js';
+import { personRoutes } from './routes/person.js';
 import { publicInviteRoutes, roomRoutes } from './routes/rooms.js';
 import { trashRoutes } from './routes/trash.js';
 import {
@@ -439,6 +440,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   authenticated.route('/', calendarRoutes());
   authenticated.route('/', roomRoutes());
   authenticated.route('/', documentRoutes());
+  authenticated.route('/', personRoutes());
 
   // First-party only, like client management: no OAuth scope should let a connected AI
   // export a person's whole memory or delete their account.

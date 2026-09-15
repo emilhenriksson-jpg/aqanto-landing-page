@@ -2318,3 +2318,101 @@ document delete, and the unified view.
   `connect-flow.test.ts` with `password authentication failed`. `ALTER ROLE photographic_app
   PASSWORD 'photographic_app'` matches what `scripts/run-suites.mjs` derives. Worth a line in
   the local setup docs by whoever owns them.
+  refused, and both event rows present. Fly credentials were not available in that environment,
+  so `fly ssh console` itself is the one step nobody has executed — the shape it needs is a
+  separate process on the machine with `DATABASE_URL` and `BREAK_GLASS_SECRET`, which is what
+  was tested.
+
+## förnamn — a name so a shared room can name people instead of counting them
+
+Phone-only sign-up never asks anyone their name, which meant a shared room could only say
+"3 medlemmar", provenance could never say "Jacob skrev det", and an invite read as being
+from nobody. Adds a first name, asked once at the right moment, and threads it through the
+three surfaces that already had a fallback word instead of a name.
+
+**Storage: a memory like any other, not a settings field.** `name` is a new `app.item`
+kind (`0023_first_name.sql`), mirroring how `0015` stored the Personal Compass — full
+provenance, history and 30-day trash for the item that says what a person is called, not
+a second source of truth beside it. At most one is ever active: `IngestPort.setFirstName`
+finds whatever `name` item is active in the personal room, writes the new one, and
+explicitly supersedes the old one (the same shape a same-author correction already takes
+in `applyProposal`) — one transaction, so the item and the `app.person.display_name` cache
+update together or not at all. `display_name` stays the read cache every existing surface
+already joins against (provenance, invites, room membership, the history feed), so making
+those three surfaces name people instead of falling back needed **zero changes to any of
+their SQL** — populating the cache was the whole fix.
+
+**No MCP tool, and refused everywhere a model could reach it.** Unlike the Compass, a name
+has no propose path at all: `remember` and `propose` both refuse `kind: 'name'` outright,
+in both `PgIngest` and `MemoryIngest`, so `POST /v1/import` and `POST /v1/memory/proposals`
+cannot be used to slip one into some other room and skip the singleton-supersede logic.
+`packages/llm`'s fact-extraction kind coverage excludes it the same way it already excludes
+`compass`, so a model can never infer a name from something said in passing. The one write
+path, `PATCH /v1/account/name`, is first-party only (`FIRST_PARTY_ONLY_ROUTES`) — same
+reasoning as renaming a connected client: no scope should let an AI decide what a person is
+called, because a scope that permitted it would be held by every client holding it.
+
+**Asked once, and only once, never a wall.** `apps/onboarding` shows "Vad heter du?" right
+after the code verifies, gated on `VerifyCodeResponse.created` so a returning person is
+never asked again — skipping it once means setting it later, from the account screen, is
+the only remaining door. Both "Hoppa över" and an empty submit skip without calling the
+API at all. `apps/web` gained that account screen (`/konto`, footer link off the personal
+room, matching Kompass/Historik/Papperskorg) — one field, prefilled, and a plain "Sparat
+som …" or "Inget förnamn angett än." rather than ever showing a blank.
+
+**The fallback, made consistent rather than invented.** "Någon" already existed as the
+product's word for an unknown person (`historyWho`, invite `invitedByName`, dispute
+`authorName`) — this reuses it rather than adding a second word. `apps/web`'s shared-room
+member list used to *drop* a nameless member from `memberNames` entirely (undercounting
+who was actually there); it now maps every member to a name or "Någon", never to nothing.
+
+**Named, not counted.** `SharedRoom.tsx`'s "Delad med N personer" is now "Delad med
+{namn}" (`joinNames`, Swedish "och" before the last name), reading `memberNames` as *the
+other* members — computed from a new `isSelf` flag the REST room-members response adds
+from the request's own actor, so the client never has to guess its own identity. Avatars
+in the room header shrank by one for the same reason: they show who else is here, not you
+plus who else is here. `InvitePreview.tsx` already had `invitedByName`/"Någon" wired up
+from before this change; it now actually receives a name once the inviter has one.
+
+**Deliberately not touched.** The personal profile injected into a session, retrieval and
+search, and the MCP tool surface — a first name is not something the product decided a
+model needs handed to it, and nothing here adds it. `RoomSummaryDto`/the "Alla" room grid
+still shows counts only; naming lives on the room a person has actually opened, and
+widening the summary contract for it was more than the ask.
+
+Coverage: `apps/rest/src/app.test.ts` (+6, the whole path over HTTP — unset on a fresh
+account, set and reaching provenance/invites/membership, supersede, refused for a
+connected client, refused as an ordinary memory kind), `packages/db/src/postgres-services.test.ts`
+(+2, against real Postgres — supersede plus the `display_name` cache, and the `remember`/
+`propose` refusals), `apps/web` (`Account.test.tsx` new + `App.test.tsx`/`load.test.ts`
+updated for member naming), `apps/onboarding/src/App.test.tsx` (+6, the prompt itself:
+first-sign-in only, skip, empty-submit-is-skip, saves and continues, a save failure that
+does not block the way forward). Monorepo typecheck clean; `pnpm lint` clean (one stale
+suppression from a cast this removed, pruned rather than left behind); full `pnpm test`
+green — unit 703, e2e-memory 62, db 285 (2 skipped, pre-existing and unrelated), e2e-postgres 62.
+
+Verified by hand against a real Postgres-backed process, not only in tests, at desktop
+and mobile widths, with two real phone-signup accounts: Jacob sets his name at first
+sign-in ("Vad heter du?", skippable, never a wall); Anna signs up separately, skips it,
+and confirms `/konto` reads "Inget förnamn angett än." rather than blank or "undefined";
+Jacob invites Anna into a shared room and the invite landing names him ("Jacob bjöd in
+dig till"); Anna's view of the room says "Delad med Jacob"; Jacob's view — the case that
+actually occurs, a pre-existing member with no name set — says "Delad med Någon", not a
+count, not blank, not a stray comma. Re-signing in as Jacob a second time confirmed the
+prompt never returns for an account that already has a name. One inconsistency found and
+fixed on the way: `apps/onboarding`'s own invite landing said "Du är inbjuden till" for a
+nameless inviter, a different sentence from the "Någon" fallback everywhere else — now
+the same word, same sentence shape either way.
+
+Screenshots (project store, `media/`): `fornamn-fragas-vid-forsta-inloggning.png`,
+`kontoskarm-fornamn-satt.png`, `ditt-rum-mobil.png`, `inbjudan-fran-jacob-desktop.png`,
+`inbjudan-fran-jacob-mobil.png`, `kontoskarm-inget-namn-satt.png`,
+`delat-rum-namnger-medlem-utan-namn.png`, `delat-rum-namnger-medlem-utan-namn-mobil.png`.
+
+Migration renumbered three times while this was in flight (0018 → 0020 → 0021 → 0022) as
+sibling branches kept landing on `main` in the same range; re-checked against `main`
+immediately before marking the PR ready rather than trusting the number picked at the
+start. Not yet
+reconciled with PR #22, which independently built its own `apps/web/src/screens/Konto.tsx`
+and `apps/web/src/api/account.ts` — real overlap for whoever merges second, flagged rather
+than resolved here since merges are the deploy agent's call.

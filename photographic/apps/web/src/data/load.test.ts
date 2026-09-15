@@ -370,8 +370,9 @@ describe('loadSharedRoomFromApi', () => {
             builtAt: '2026-09-15T00:00:00.000Z',
           },
           members: [
-            { personId: 'p1', displayName: 'Emil', role: 'owner' },
-            { personId: 'p2', displayName: 'Anna', role: 'member' },
+            { personId: 'p1', displayName: 'Emil', role: 'owner', isSelf: true },
+            { personId: 'p2', displayName: 'Anna', role: 'member', isSelf: false },
+            { personId: 'p3', displayName: null, role: 'member', isSelf: false },
           ],
         });
       }
@@ -385,7 +386,10 @@ describe('loadSharedRoomFromApi', () => {
       id: roomId,
       kind: 'shared',
       title: 'Buyersclub Ledning',
-      memberNames: ['Emil', 'Anna'],
+      // The viewer's own name (Emil) is excluded — "delad med" already means "with other
+      // people" — and a member with no name set falls back to "Någon" rather than being
+      // dropped from the list.
+      memberNames: ['Anna', 'Någon'],
       memories: [{ shortId: 'd-7k2m', kind: 'decision', body: 'Skjuta till Q3' }],
     });
   });

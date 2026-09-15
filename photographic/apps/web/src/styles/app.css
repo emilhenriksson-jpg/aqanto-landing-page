@@ -1573,6 +1573,36 @@
   flex: none;
 }
 
+/* -------------------------------------------------------------------- konto */
+
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 24rem;
+  margin-bottom: var(--space-6);
+}
+
+.field {
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 12px 20px;
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+.field::placeholder {
+  color: var(--ink-muted);
+}
+
+.field:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
 .ask-chips {
   display: flex;
   flex-wrap: wrap;

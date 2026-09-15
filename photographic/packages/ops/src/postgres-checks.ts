@@ -75,6 +75,15 @@ export const MIGRATION_ARTIFACTS: Record<string, string> = {
   // is true either way. `entry_type` is the discriminator the union added, and it is exactly
   // what a database still on the old view does not have.
   '0022_one_trash.sql': column('trash', 'entry_type'),
+  // An enum value, which is neither a relation nor a column. `ALTER TYPE ... ADD VALUE`
+  // is all this migration does, so the label's presence is the only thing that
+  // distinguishes a database that ran it from one that merely recorded it.
+  '0023_first_name.sql': `EXISTS (
+      SELECT 1 FROM pg_enum e
+      JOIN pg_type t ON t.oid = e.enumtypid
+      JOIN pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = 'app' AND t.typname = 'item_kind' AND e.enumlabel = 'name'
+    )`,
 };
 
 /**
