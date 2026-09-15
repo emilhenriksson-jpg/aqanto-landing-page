@@ -188,7 +188,7 @@ export async function createPostgresServices(
     // The vector and the record of which model produced it, in one statement. A memory
     // with a vector and no provenance would be one that cannot answer "did my text go to
     // a model?", which is part of "hur vet du det om mig?" rather than a detail — see
-    // `0016_embedding_provenance.sql`.
+    // `0020_embedding_provenance.sql`.
     const identity = llm.embeddingIdentity?.() ?? null;
     await pool.query(
       `UPDATE app.item

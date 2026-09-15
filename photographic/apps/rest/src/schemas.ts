@@ -23,10 +23,19 @@ const ITEM_KINDS = [
 
 export const uuid = z.string().uuid();
 
-/** `p-7k2m`. Short, speakable, and no 0/O or 1/l to mishear. */
+/**
+ * `p-7k2m9c`. Short, speakable, and no 0/O or 1/l to mishear.
+ *
+ * Four to six characters, not exactly six. New ids are six — four gave a 42% chance that
+ * a room reaching a thousand memories had lost at least one save to a collision — and the
+ * ids already written are four, so both have to address. This regex was `{4}`, which is
+ * why widening the generator was not the one-line change it looked like: every new id
+ * would have been rejected here, so a person could not update, delete or trace the
+ * memories they had just saved.
+ */
 export const shortId = z
   .string()
-  .regex(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4}$/, 'måste vara ett id som p-7k2m');
+  .regex(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4,6}$/, 'måste vara ett id som p-7k2m9c');
 
 export const memoryBody = z.string().trim().min(1).max(2000);
 
@@ -95,17 +104,24 @@ export const updateSchema = roomRef.and(
 /**
  * Sharing or moving a memory into another room.
  *
- * `confirmed` is the person saying yes, in the app. It is the only thing that turns a
- * share into a write rather than a proposal, which is why it is a separate field from
- * `explicit` on a save: one is a claim about what somebody said, and this is a claim that
- * somebody pressed something.
+ * There is deliberately no `confirmed` here. It used to be an optional boolean the caller
+ * supplied, and `confirmed: true` placed the memory immediately instead of queueing a
+ * proposal — on a route whose only requirement is `memory.write`, which every connected
+ * model holds. So a model reading a poisoned document, or anyone with a stolen token,
+ * could copy private material into a shared room with nobody approving it.
+ *
+ * `.strict()` rather than zod's default of dropping unknown keys: a caller still sending
+ * `confirmed: true` is asking for something this endpoint will not do, and answering 400
+ * says so instead of quietly doing something else. An old client learns; an attacker
+ * learns nothing it could not have learned by reading the 202.
  */
-export const placementSchema = z.object({
-  toRoomId: uuid,
-  fromRoomId: uuid.optional(),
-  confirmed: z.boolean().optional(),
-  motivation: motivationText,
-});
+export const placementSchema = z
+  .object({
+    toRoomId: uuid,
+    fromRoomId: uuid.optional(),
+    motivation: motivationText,
+  })
+  .strict();
 
 export const resolveDisputeSchema = z.object({
   winnerShortId: shortId,

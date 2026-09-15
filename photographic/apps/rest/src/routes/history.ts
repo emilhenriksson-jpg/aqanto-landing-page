@@ -62,7 +62,7 @@ export function historyRoutes(): Hono<AppEnv> {
        *
        * `external: true` means the memory's own words were sent to a third party to make
        * it searchable by meaning. A person asking "hur vet du det om mig?" is entitled
-       * to reach that, and until `0016_embedding_provenance.sql` nothing recorded it.
+       * to reach that, and until `0020_embedding_provenance.sql` nothing recorded it.
        * `null` means no vector was ever computed for this memory.
        *
        * The screen that shows this is another track's; what is owned here is that the

@@ -271,7 +271,7 @@ describe('the embedding backfill', () => {
     // as done would report success without making anything findable by meaning.
     const { ids } = await personWithUnembeddedMemories(['Jobbar med förvärv på Buyersclub']);
 
-    await runEmbeddingBackfillBatch(pool!, new FakeLlm(1536), { batchSize: 10 });
+    await embedUntilProvider(ids, new FakeLlm(1536), 'fake');
     const afterFake = await embeddingRowsFor(ids);
     expect(afterFake[0]!.embedding_provider).toBe('fake');
 
@@ -279,7 +279,7 @@ describe('the embedding backfill', () => {
     const progress = await embeddingBackfillProgress(pool!, real);
     expect(progress.stale).toBeGreaterThan(0);
 
-    await runEmbeddingBackfillBatch(pool!, real, { batchSize: 10 });
+    await embedUntilProvider(ids, real, 'counting');
     const afterReal = await embeddingRowsFor(ids);
     expect(afterReal[0]!.embedding_provider).toBe('counting');
   });

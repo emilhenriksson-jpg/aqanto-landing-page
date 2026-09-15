@@ -1,0 +1,47 @@
+{
+  "$comment": [
+    "Test doubles that are in the production import graph today, so that a NEW one fails",
+    "the build instead of joining them quietly. Read by scripts/check-test-doubles.mjs.",
+    "",
+    "This list is a ratchet: an entry that no longer matches an import also fails the",
+    "check, with the line to delete. It can only shrink. Nothing here is endorsed by",
+    "being here — two of these are the live account-takeover, and the reason the check",
+    "exists is that they reached production and stayed there for three weeks.",
+    "",
+    "Do not add a row to make a build green. The question a row has to answer is 'why is",
+    "a fake the right thing to run against a real person's memory', and for the first two",
+    "the honest answer is 'it is not, and PR #14 is replacing one half of it'."
+  ],
+  "known": [
+    {
+      "importer": "apps/rest/src/wiring.ts",
+      "specifier": "@photographic/connect/testing",
+      "why": "MemorySessionIssuer and MemoryCodeStore. NOT acceptable, recorded so nothing else joins them. The issuer mints session-<personId>-<n> and wiring.ts:319 verifies it by regex, so any member of a shared room can sign in as any other member; PR #14 replaces the issuer with a signed one. MemoryCodeStore survives even after #14: login codes and their hourly rate limit live in one process's heap and there is no table for them in any migration. Delete both rows when there is a real issuer and a real code store."
+    },
+    {
+      "importer": "apps/rest/src/wiring.ts",
+      "specifier": "@photographic/auth/testing",
+      "why": "MemoryClientStore, MemoryAuthCodeStore, MemoryPendingAuthorizationStore, MemoryTokenStore — the OAuth state for connected AI clients, only on the branch with no DATABASE_URL (wiring.ts:218-221). Postgres-backed versions exist and are selected when there is a database, and wiring.merge.test.ts guards that. So this one is a real fallback rather than the only implementation, and it is why apps/rest's suite must run against Postgres in CI: with no database the guard test is the one that cannot run."
+    },
+    {
+      "importer": "packages/llm/src/select.ts",
+      "specifier": "@photographic/core/testing",
+      "why": "FakeLlm, the default when PHOTOGRAPHIC_LLM is unset. Deliberate and documented: the suite must run offline and free (AGENTS.md non-negotiable 5), and a deterministic model is what makes the acceptance suite assert on text at all. The failure mode is visible rather than silent — a deployed process with no key summarises nothing instead of authenticating the wrong person."
+    },
+    {
+      "importer": "packages/db/src/postgres-services.ts",
+      "specifier": "@photographic/core/testing",
+      "why": "FakeLlm and FakeNotify as the defaults for the two ports a caller did not pass (postgres-services.ts:100-101). Same reasoning as packages/llm, and the mirror of createMemoryServices on purpose so the two implementations cannot drift in their defaults. apps/rest passes the selected LlmPort in, so production does not take these."
+    },
+    {
+      "importer": "packages/services-memory/src/index.ts",
+      "specifier": "@photographic/core/testing",
+      "why": "FakeLlm and FakeNotify inside the in-memory reference implementation. The whole package is a test double that production can fall back to when DATABASE_URL is unset — which the review calls the one failure that is both silent and total, because the deploy comes up green and every memory is lost on restart. The fix is section 2.1 of the review (refuse to boot in production without a database), not this line."
+    },
+    {
+      "importer": "packages/services-memory/src/documents.ts",
+      "specifier": "@photographic/documents/testing",
+      "why": "MemoryBlobStore and MemoryStorageLedger, inside the same reference implementation. apps/rest picks a real BlobStore through resolveBlobStore for the Postgres path, so this is reached only on the in-memory branch above."
+    }
+  ]
+}

@@ -46,10 +46,24 @@ the tests pass.
    filters by membership *inside the SQL query*. Never fetch then filter in TypeScript.
    That is how rooms leak into each other.
 
-2. **`app.event` is append-only.** The database rejects UPDATE and DELETE on it. All
-   memory mutations append an event; `item`, `profile`, `brief` and embeddings are
-   projections that a replay can rebuild. If you find yourself mutating state without
-   an event, stop.
+2. **`app.event` is append-only.** The database rejects UPDATE and DELETE on it, except
+   from inside `app.purge_expired_items` (UPDATE, for redaction) and
+   `app.erase_personal_room` (DELETE, for account deletion). All memory mutations append an
+   event, in the *same transaction* as the state change they describe — `app.trash` and the
+   calendar are derived from the log, so a status change that commits without its event is a
+   memory nobody can find and nobody can restore.
+
+   `item`, `profile`, `brief` and embeddings are projections. What a replay can rebuild from
+   the log alone is which room an item is in, whether it is active, deleted or superseded,
+   what it currently says, and whether it is in the trash — that is `replayItemLifecycle` in
+   `packages/core/src/replay.ts`, and `divergencesFrom` beside it is what asserts the log and
+   `app.item` agree. Salience, use counts and token estimates are derived from behaviour or
+   recomputed from the body rather than replayed, and a purged memory is deliberately
+   unrecoverable. This paragraph used to promise a full rebuild and nothing tested it, which
+   for the invariant the whole product rests on is the same as not promising it.
+
+   If you find yourself mutating state without an event, or appending an event outside the
+   transaction that changed the state, stop.
 
 3. **Provenance is never optional.** Who wrote it, which client, which session, when.
    It cannot be backfilled.

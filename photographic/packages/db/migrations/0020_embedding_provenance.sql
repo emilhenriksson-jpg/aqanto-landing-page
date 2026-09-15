@@ -22,16 +22,20 @@
 -- (documents.ts), so no document text has been sent to a model. When that backfill runs
 -- it should add the same three columns here rather than invent its own shape.
 
+-- `IF NOT EXISTS` because this file has already been renumbered once: `main` took 0016
+-- and 0017 while this branch was in flight, and the ledger keys on filename, so a rename
+-- makes the runner apply it again. Idempotent DDL means a renumber costs nothing instead
+-- of costing a database.
 ALTER TABLE app.item
-  ADD COLUMN embedding_model    text,
-  ADD COLUMN embedding_provider text,
-  ADD COLUMN embedded_at        timestamptz;
+  ADD COLUMN IF NOT EXISTS embedding_model    text,
+  ADD COLUMN IF NOT EXISTS embedding_provider text,
+  ADD COLUMN IF NOT EXISTS embedded_at        timestamptz;
 
 COMMENT ON COLUMN app.item.embedding_provider IS
   'Who computed app.item.embedding: ''openai'' means this body left our servers. NULL means no vector was ever computed for it.';
 
 -- The backfill''s own index: find what still needs embedding, or was embedded by a model
 -- we no longer use, without scanning every active memory.
-CREATE INDEX item_embedding_backfill_idx
+CREATE INDEX IF NOT EXISTS item_embedding_backfill_idx
   ON app.item (embedding_model)
   WHERE status = 'active';

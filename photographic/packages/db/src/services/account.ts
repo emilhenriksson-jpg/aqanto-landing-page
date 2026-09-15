@@ -40,9 +40,31 @@ import type { BlobStore } from '@photographic/documents';
 import type { Pool } from 'pg';
 
 import { execute, queryOne, queryRows, withTransaction } from '../pool.js';
+import { ITEM_COLUMNS, mapItem, type ItemRow } from '../rows.js';
 import { appendEvent } from './events.js';
+import { softDeleteWithin } from './lifecycle.js';
 
 export type ContributionChoice = 'keep' | 'remove';
+
+/**
+ * Shown in the other members' trash and in their room history.
+ *
+ * Says both halves — that an account was deleted and that removing the contributions was a
+ * choice the person made — because an owner deciding whether to restore something needs to
+ * know it was not an accident.
+ */
+export const CONTRIBUTIONS_REMOVED_REASON =
+  'Kontot raderades och personen valde att ta bort sina bidrag.';
+
+/**
+ * How long one sweep's claim on a deletion stays current.
+ *
+ * Long enough that a slow run — hundreds of contributions, a sluggish object store — is
+ * never overtaken by the next timer tick, and short enough that a machine that died
+ * mid-deletion does not leave a person half-deleted until somebody investigates. It is a
+ * lease rather than a lock so that recovery needs no human.
+ */
+export const DELETION_LEASE = '15 minutes';
 
 export interface DeletionRequest {
   id: string;
@@ -68,10 +90,13 @@ interface DeletionRow {
   cancelled_at: Date | null;
   completed_at: Date | null;
   removed: Record<string, unknown>;
+  /** Which steps of the sweep have already run, and what each of them removed. */
+  progress: Record<string, unknown> | null;
+  claimed_at: Date | null;
 }
 
 const COLUMNS = `id, person_id, status, immediate, contributions, requested_at, execute_after,
-                 cancelled_at, completed_at, removed`;
+                 cancelled_at, completed_at, removed, progress, claimed_at`;
 
 function toRequest(row: DeletionRow): DeletionRequest {
   return {
@@ -232,33 +257,87 @@ export class PgAccounts {
   }
 
   /**
-   * Carries out a deletion.
+   * Carries out a deletion, as resumable steps rather than one long hopeful sequence.
    *
    * Order is load-bearing. Files go before the rows that name them, because a row
    * deleted first is a blob nobody can find again — the storage is content-addressed,
    * so the only index into it is the `storage_key` about to be dropped. Shared-room
    * contributions are handled before the tombstone, because removing them needs the
    * person to still be attributable.
+   *
+   * What is new is that the order is *recoverable*. This used to be a dozen statements and
+   * two sets of blob deletions in a row with no record of how far it had got, so a crash in
+   * the middle left a half-deleted person and nothing able to work out what had already
+   * happened — the next timer run would redo the blobs, redo the counts, and could not tell
+   * whether the personal room had been erased. Now:
+   *
+   * - **A lease, not a flag.** `claimed_at` is taken conditionally in SQL, so two sweeps
+   *   cannot run one deletion, and a sweep that died releases it by the lease expiring
+   *   rather than by anyone noticing.
+   * - **A step is named and recorded.** Each step checks `progress` and skips itself if it
+   *   already ran. The SQL steps record their own completion in the same transaction as
+   *   their work, so a step is either done and marked or neither.
+   * - **Blob steps are at-least-once, deliberately.** `BlobStore.delete` is idempotent in
+   *   every implementation, so re-running one is a no-op; making it exactly-once would need
+   *   a two-phase commit against object storage to buy nothing.
+   *
+   * `progress` accumulates the counts as it goes and becomes `removed` at the end, so a
+   * deletion that took three attempts still reports one honest account of what it removed.
    */
   async executeDeletion(deletionId: string): Promise<DeletionRequest | null> {
-    const request = await queryOne<DeletionRow>(
-      this.pool,
-      `SELECT ${COLUMNS} FROM app.account_deletion WHERE id = $1 AND status = 'requested'`,
-      [deletionId],
-    );
+    const request = await this.claim(deletionId);
     if (!request) return null;
 
+    try {
+      return await this.sweep(deletionId, request);
+    } catch (error) {
+      // Hands the lease straight back. The timeout exists for a worker that died without
+      // being able to say so; a worker still running and holding a caught error knows the
+      // deletion is free, and making the next attempt wait out the lease would turn a
+      // transient object-storage error into a quarter of an hour of a half-deleted person.
+      await execute(
+        this.pool,
+        `UPDATE app.account_deletion SET claimed_at = NULL WHERE id = $1 AND status = 'requested'`,
+        [deletionId],
+      );
+      throw error;
+    }
+  }
+
+  private async sweep(
+    deletionId: string,
+    request: DeletionRow,
+  ): Promise<DeletionRequest | null> {
     const personId = request.person_id as PersonId;
-    const removed: Record<string, unknown> = {};
+    const progress: Record<string, unknown> = { ...(request.progress ?? {}) };
+    const done = (step: string): boolean => progress[`step:${step}`] === true;
+
+    /** Records a step's outcome and its completion together. */
+    const complete = async (step: string, counts: Record<string, unknown> = {}): Promise<void> => {
+      Object.assign(progress, counts, { [`step:${step}`]: true });
+      await execute(
+        this.pool,
+        `UPDATE app.account_deletion SET progress = $2::jsonb WHERE id = $1`,
+        [deletionId, JSON.stringify(progress)],
+      );
+    };
 
     // ---------------------------------------------------------------
     // 1. Shared rooms, according to the person's choice
     // ---------------------------------------------------------------
 
-    if (request.contributions === 'remove') {
-      removed['shared_items_trashed'] = await this.removeContributions(personId);
-    } else {
-      removed['shared_items_kept'] = await this.countContributions(personId);
+    if (!done('contributions')) {
+      if (request.contributions === 'remove') {
+        // Itself resumable: it only selects what is not already in the trash, so an
+        // interrupted run continues rather than restarting.
+        await complete('contributions', {
+          shared_items_trashed: await this.removeContributions(personId),
+        });
+      } else {
+        await complete('contributions', {
+          shared_items_kept: await this.countContributions(personId),
+        });
+      }
     }
 
     // ---------------------------------------------------------------
@@ -271,7 +350,7 @@ export class PgAccounts {
       [personId],
     );
 
-    if (personal) {
+    if (personal && !done('personal_files')) {
       const blobs = await queryRows<{ storage_key: string; checksum: string }>(
         this.pool,
         `SELECT DISTINCT storage_key, checksum FROM app.document WHERE room_id = $1`,
@@ -295,8 +374,10 @@ export class PgAccounts {
         await this.blobs.delete(blob.storage_key);
         filesDeleted += 1;
       }
-      removed['files_deleted'] = filesDeleted;
+      await complete('personal_files', { files_deleted: filesDeleted });
+    }
 
+    if (personal && !done('personal_room')) {
       // The room, and everything that cascades from it: items, documents, chunks,
       // briefs, events. The thirty-day trash does not apply here — the freeze already
       // was the window, and a deletion that left a trash behind would not be one.
@@ -306,54 +387,73 @@ export class PgAccounts {
       // function is the only code permitted to delete from the log, it refuses any room
       // that is not this person's own personal room, and it clears its own flag. See
       // migration 0014.
-      const erased = await queryOne<{ erase_personal_room: number }>(
-        this.pool,
-        `SELECT app.erase_personal_room($1)`,
-        [personId],
-      );
-      removed['personal_events_erased'] = Number(erased?.erase_personal_room ?? 0);
-      removed['personal_room_deleted'] = 1;
+      const erased = await withTransaction(this.pool, async (tx) => {
+        const row = await queryOne<{ erase_personal_room: number }>(
+          tx,
+          `SELECT app.erase_personal_room($1)`,
+          [personId],
+        );
+        return Number(row?.erase_personal_room ?? 0);
+      });
+      await complete('personal_room', {
+        personal_events_erased: erased,
+        personal_room_deleted: 1,
+      });
     }
 
-    removed['storage_released'] = await execute(
-      this.pool,
-      `DELETE FROM app.storage_object WHERE person_id = $1`,
-      [personId],
-    );
-    await execute(this.pool, `DELETE FROM app.storage_usage WHERE person_id = $1`, [personId]);
+    if (!done('storage')) {
+      const released = await withTransaction(this.pool, async (tx) => {
+        const count = await execute(tx, `DELETE FROM app.storage_object WHERE person_id = $1`, [
+          personId,
+        ]);
+        await execute(tx, `DELETE FROM app.storage_usage WHERE person_id = $1`, [personId]);
+        return count;
+      });
+      await complete('storage', { storage_released: released });
+    }
 
     // Exports are archives of the memory being deleted; leaving one downloadable would
     // make the deletion cosmetic.
-    const exports = await queryRows<{ storage_key: string | null }>(
-      this.pool,
-      `SELECT storage_key FROM app.export_job WHERE person_id = $1 AND storage_key IS NOT NULL`,
-      [personId],
-    );
-    for (const archive of exports) {
-      if (archive.storage_key) await this.blobs.delete(archive.storage_key);
+    if (!done('exports')) {
+      const exports = await queryRows<{ storage_key: string | null }>(
+        this.pool,
+        `SELECT storage_key FROM app.export_job WHERE person_id = $1 AND storage_key IS NOT NULL`,
+        [personId],
+      );
+      for (const archive of exports) {
+        if (archive.storage_key) await this.blobs.delete(archive.storage_key);
+      }
+      await complete('exports', {
+        exports_deleted: await execute(
+          this.pool,
+          `DELETE FROM app.export_job WHERE person_id = $1`,
+          [personId],
+        ),
+      });
     }
-    removed['exports_deleted'] = await execute(
-      this.pool,
-      `DELETE FROM app.export_job WHERE person_id = $1`,
-      [personId],
-    );
 
     // ---------------------------------------------------------------
     // 3. The tombstone
     // ---------------------------------------------------------------
 
-    const tombstone = await queryOne<{ tombstone_person: Record<string, unknown> }>(
-      this.pool,
-      `SELECT app.tombstone_person($1)`,
-      [personId],
+    if (!done('tombstone')) {
+      const tombstone = await queryOne<{ tombstone_person: Record<string, unknown> }>(
+        this.pool,
+        `SELECT app.tombstone_person($1)`,
+        [personId],
+      );
+      await complete('tombstone', tombstone?.tombstone_person ?? {});
+    }
+
+    const removed = Object.fromEntries(
+      Object.entries(progress).filter(([key]) => !key.startsWith('step:')),
     );
-    Object.assign(removed, tombstone?.tombstone_person ?? {});
 
     const finished = await queryOne<DeletionRow>(
       this.pool,
       `UPDATE app.account_deletion
-       SET status = 'completed', completed_at = now(), removed = $2::jsonb
-       WHERE id = $1
+       SET status = 'completed', completed_at = now(), removed = $2::jsonb, claimed_at = NULL
+       WHERE id = $1 AND status = 'requested'
        RETURNING ${COLUMNS}`,
       [deletionId, JSON.stringify(removed)],
     );
@@ -362,51 +462,109 @@ export class PgAccounts {
   }
 
   /**
-   * Moves the person's own memories in shared rooms to the trash.
+   * Takes the lease on one deletion, or declines to run it.
    *
-   * Through the ordinary trash rather than a silent purge, so the other members see
-   * `item.deleted` with a reason and a room owner can restore within thirty days. "Ingen
-   * tyst massradering" is the rule; a deletion that emptied a shared room without anyone
-   * seeing it would change what the others remember behind their backs.
-   *
-   * Authorship comes from the log, because `app.item` has no author column yet.
+   * Conditional in SQL so that two sweeps overlapping — a timer and a hand-run script, or
+   * two machines — cannot both start on one person. `DELETION_LEASE` is what makes a sweep
+   * that died recoverable: nobody has to notice and clear a stuck flag, the lease simply
+   * stops being current and the next run picks the deletion up where `progress` says it
+   * stopped.
    */
-  private async removeContributions(personId: PersonId): Promise<number> {
-    const rows = await queryRows<{ item_id: string }>(
+  private async claim(deletionId: string): Promise<DeletionRow | null> {
+    return queryOne<DeletionRow>(
       this.pool,
-      `SELECT DISTINCT (e.payload ->> 'item_id') AS item_id
-       FROM app.event e
-       JOIN app.room r ON r.id = e.room_id
-       WHERE e.actor_person_id = $1
-         AND r.kind = 'shared'
-         AND e.event_type = 'item.created'
-         AND e.payload ? 'item_id'`,
-      [personId],
-    );
-
-    const ids = rows.map((row) => row.item_id).filter(Boolean);
-    if (ids.length === 0) return 0;
-
-    return execute(
-      this.pool,
-      `UPDATE app.item
-       SET status = 'deleted',
-           deleted_at = now(),
-           deleted_by = $1,
-           delete_reason = 'Kontot raderades och personen valde att ta bort sina bidrag.',
-           purge_after = now() + interval '30 days'
-       WHERE id = ANY($2::uuid[]) AND status <> 'deleted'`,
-      [personId, ids],
+      `UPDATE app.account_deletion
+       SET claimed_at = now()
+       WHERE id = $1
+         AND status = 'requested'
+         AND execute_after <= now()
+         AND (claimed_at IS NULL OR claimed_at < now() - $2::interval)
+       RETURNING ${COLUMNS}`,
+      [deletionId, DELETION_LEASE],
     );
   }
 
+  /**
+   * Moves the person's own memories in shared rooms to the trash.
+   *
+   * Through the ordinary trash, which this used to only claim. It was a bulk
+   * `UPDATE app.item SET status = 'deleted'` with `purge_after` set and **no
+   * `item.deleted` event**, under a comment quoting "ingen tyst massradering". Since
+   * `app.trash` derives membership from the last lifecycle event, no event meant no row in
+   * anybody's trash — while `purge_after` still counted down, so `app.purge_expired_items`
+   * hard-deleted the lot thirty days later. The other members of a shared room lost
+   * material with nothing in their history saying so and no owner able to restore what
+   * they never saw leave. That was not a race; it was what the path did every time it ran.
+   *
+   * Now one `softDeleteWithin` per contribution, each in its own transaction, so every
+   * removal appends its `item.deleted`, appears in the trash, keeps an undo token, and is
+   * restorable by a room owner for the ordinary thirty days.
+   *
+   * **The identity on the event is the departing person's**, not a system actor. The other
+   * members are entitled to see whose contributions left and why, and this runs before the
+   * tombstone in `executeDeletion`, so the attribution is still there to record. It is also
+   * why the sweep's order is load-bearing.
+   *
+   * A transaction per item rather than one around all of them: the loop is resumable. The
+   * query only selects what is not already deleted, and `softDeleteWithin` is conditional
+   * on the same thing, so a sweep interrupted halfway resumes exactly where it stopped
+   * rather than starting over or double-counting.
+   */
+  private async removeContributions(personId: PersonId): Promise<number> {
+    // The person as the actor of their own choice. `web` because this is a button in the
+    // deletion flow; no session, because the sweep may run thirty days after the request.
+    const actor: Actor = {
+      personId,
+      agentClient: 'web',
+      sessionId: null,
+      roomScope: [],
+    };
+
+    // `author_person_id` rather than the `item.created` actor the old query joined against:
+    // it is the projection of exactly that, added in migration 0003, and it also covers a
+    // memory the person shared into the room rather than typed there.
+    const rows = await queryRows<ItemRow>(
+      this.pool,
+      `SELECT ${ITEM_COLUMNS} FROM app.item
+       WHERE author_person_id = $1
+         AND status <> 'deleted'
+         AND room_id IN (SELECT id FROM app.room WHERE kind = 'shared')
+       ORDER BY created_at`,
+      [personId],
+    );
+
+    let removed = 0;
+    for (const row of rows) {
+      const result = await withTransaction(this.pool, (tx) =>
+        softDeleteWithin(tx, {
+          actor,
+          item: mapItem(row),
+          reason: CONTRIBUTIONS_REMOVED_REASON,
+          now: new Date(),
+        }),
+      );
+      if (result.applied) removed += 1;
+    }
+
+    return removed;
+  }
+
+  /**
+   * How many contributions stay, for the record of what the deletion did.
+   *
+   * Counted the same way `removeContributions` selects, so "kept" and "removed" are two
+   * answers to one question. It used to count every item the person had touched *any* event
+   * about — including memories they had only edited or deleted, and other people's — so the
+   * two numbers described different sets.
+   */
   private async countContributions(personId: PersonId): Promise<number> {
     const row = await queryOne<{ count: string }>(
       this.pool,
-      `SELECT count(DISTINCT e.payload ->> 'item_id') AS count
-       FROM app.event e
-       JOIN app.room r ON r.id = e.room_id
-       WHERE e.actor_person_id = $1 AND r.kind = 'shared' AND e.payload ? 'item_id'`,
+      `SELECT count(*) AS count
+       FROM app.item
+       WHERE author_person_id = $1
+         AND status <> 'deleted'
+         AND room_id IN (SELECT id FROM app.room WHERE kind = 'shared')`,
       [personId],
     );
     return Number(row?.count ?? 0);

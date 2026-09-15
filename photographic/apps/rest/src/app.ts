@@ -13,6 +13,7 @@ import type { PersonId, Services } from '@photographic/core';
 import type { ConnectConfig, ConnectDeps } from '@photographic/connect';
 import { Hono } from 'hono';
 
+import { BREAK_GLASS_PATH, breakGlassPage } from './break-glass-page.js';
 import type { RestConfig } from './config.js';
 import { loadConfigFromEnv } from './config.js';
 import type { AppEnv } from './context.js';
@@ -59,10 +60,32 @@ export interface AppDeps {
   services: Services;
   config?: RestConfig;
   logger?: Logger;
+  /**
+   * What `/health` asks before answering, and what it reports.
+   *
+   * Passed in rather than imported so this app still does not depend on the database.
+   * Omitted — in tests and without a database — `/health` reports the persistence kind
+   * and nothing about a round trip, which is honest rather than green.
+   */
+  health?: {
+    persistence: 'postgres' | 'memory';
+    /** `SELECT 1`, essentially. Resolves or throws. */
+    checkDatabase?: () => Promise<void>;
+  };
   /** Falls back to a stub that answers metadata and refuses every flow with 501. */
   oauth?: OAuthProvider;
   /** Sign-up needs a code store and a sender; omit to leave those routes unmounted. */
-  connect?: { deps: ConnectDeps; config?: Partial<ConnectConfig> };
+  connect?: {
+    deps: ConnectDeps;
+    config?: Partial<ConnectConfig>;
+    /**
+     * The key `scripts/break-glass-signin.ts` signs with. Read from the environment by the
+     * composition root and passed in, never read here. Absent means the break-glass
+     * exchange accepts nothing — which is the state every deployment is in until someone
+     * sets the secret deliberately.
+     */
+    breakGlassSecret?: string | null;
+  };
   /**
    * The MCP endpoint, mounted at `/mcp`.
    *
@@ -97,7 +120,12 @@ export interface AppDeps {
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const config = deps.config ?? loadConfigFromEnv();
-  const logger = deps.logger ?? createLogger({ level: config.logLevel });
+  const logger =
+    deps.logger ??
+    createLogger({
+      level: config.logLevel,
+      revealSignupCode: config.environment !== 'production',
+    });
   const oauth = deps.oauth ?? createStubOAuthProvider();
 
   const app = new Hono<AppEnv>();
@@ -115,7 +143,40 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   // every domain error as a 500. See `handleError`.
   app.onError(handleError);
 
-  app.get('/health', (c) => c.json({ ok: true, environment: config.environment }));
+  /**
+   * Health, meaning "the memory is real", not "the process is listening".
+   *
+   * This returned `{ok:true}` unconditionally, which made it useless for the failure it
+   * most needed to catch: with `DATABASE_URL` unset the process runs the in-memory
+   * implementation, answers every route correctly, and loses everything on restart —
+   * and Fly, which restarts a machine that stops answering *this*, was told all was
+   * well. Two very different systems behind one green light.
+   *
+   * So it round-trips the database when there is one, and says which implementation is
+   * answering either way. `persistence` is in the body so the difference is visible to
+   * anyone looking, not only to whoever reads the boot log once.
+   */
+  app.get('/health', async (c) => {
+    const persistence = deps.health?.persistence ?? 'memory';
+    const check = deps.health?.checkDatabase;
+
+    if (!check) return c.json({ ok: true, persistence, environment: config.environment });
+
+    try {
+      await check();
+      return c.json({ ok: true, persistence, database: 'ok', environment: config.environment });
+    } catch (error) {
+      logger.error('health_database_unreachable', {
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      // 503, so Fly's own health check restarts the machine instead of leaving it in the
+      // pool answering requests it cannot serve.
+      return c.json(
+        { ok: false, persistence, database: 'unreachable', environment: config.environment },
+        503,
+      );
+    }
+  });
 
   // ---------------------------------------------------------------------------
   // MCP
@@ -219,12 +280,37 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       key: (c) => `signup:${clientAddress(c)}`,
     }));
     app.use('/v1/connect', anonymous);
-    app.route('/v1', publicConnectRoutes({ connect: deps.connect.deps, config: connectConfig }));
+    app.route(
+      '/v1',
+      publicConnectRoutes({
+        connect: deps.connect.deps,
+        config: connectConfig,
+        breakGlassSecret: deps.connect.breakGlassSecret ?? null,
+      }),
+    );
 
-    app.use('/v1/connect/*', authenticate(oauth));
-    app.use('/v1/import', authenticate(oauth));
-    app.use('/v1/import/*', authenticate(oauth));
-    app.route('/v1', connectRoutes({ connect: deps.connect.deps, config: connectConfig }));
+    /**
+     * The page that spends a break-glass token, on the origin the token is for.
+     *
+     * Registered here rather than left to the browser apps: it must render on a
+     * deployment where a bundle failed to build, which is precisely the kind of day
+     * someone needs it. Static, secretless, and `no-store` so a shared machine's cache
+     * does not keep the page that was mid-sign-in.
+     */
+    app.get(BREAK_GLASS_PATH, (c) => {
+      c.header('cache-control', 'no-store');
+      c.header('x-robots-tag', 'noindex, nofollow');
+      return c.html(breakGlassPage());
+    });
+
+    // The authenticated half of the connect flow is *not* mounted here. It goes on the
+    // `authenticated` sub-app below, which is the only place `requireScope` is attached
+    // (see the comment there). Registering it here with a bare `authenticate` — which is
+    // what this branch originally did, before the scope table covered these routes —
+    // authenticates the caller and then runs no scope check at all, so a read-only
+    // connection could queue proposals through `POST /v1/import`. Both mounts existed for
+    // a moment during this merge and the outer one won, which is exactly how the hole
+    // reappears.
   }
 
   // ---------------------------------------------------------------------------
@@ -268,6 +354,24 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       ...(deps.revokeClientTokens ? { revokeClientTokens: deps.revokeClientTokens } : {}),
     }),
   );
+  /**
+   * The authenticated half of the connect flow, inside this group rather than beside it.
+   *
+   * `/v1/import`, `/v1/import/preview` and `/v1/connect/*` had their own
+   * `app.use(..., authenticate(oauth))` and were routed straight onto `app`, so the
+   * `SCOPED_ROUTES` loop above — registered on this sub-app — never covered them. They were
+   * authenticated and unscoped, which is how a token deliberately issued without
+   * `memory.write` could queue proposals through `POST /v1/import`.
+   *
+   * Mounting them here means one authentication, one rate limit and one scope table for
+   * every authenticated route, so "is any route not covered" has a single answer again.
+   * `publicConnectRoutes` stays above, where sign-up and the connect screen belong: those
+   * genuinely run before a token exists.
+   */
+  if (deps.connect) {
+    authenticated.route('/', connectRoutes({ connect: deps.connect.deps, config: connectConfig }));
+  }
+
   authenticated.route('/', memoryRoutes());
   authenticated.route('/', trashRoutes());
   authenticated.route('/', historyRoutes());

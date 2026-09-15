@@ -168,12 +168,14 @@ export function memoryRoutes(): Hono<AppEnv> {
   });
 
   /**
-   * Sharing a memory into another room. Always an explicit act.
+   * Asking to share a memory into another room. Always a 202, never a 201.
    *
-   * `confirmed` comes from the app, where a person pressed something. Without it this
-   * returns a proposal, whichever client asked — and the database refuses the row
-   * underneath regardless, so a future code path that forgets cannot place anything in
-   * front of other people.
+   * This endpoint cannot place anything. It queues a proposal, and the only route that
+   * turns a proposal into a placement is `POST /memory/proposals/:id`, which
+   * `FIRST_PARTY_ONLY_ROUTES` restricts to the person's own browser session and which
+   * `authenticate` protects against cross-site use. So the yes that widens an audience is
+   * always a person pressing something on our own origin, and never a field in a request
+   * body from whatever is holding a token.
    */
   routes.post('/memory/:shortId/share', async (c) => {
     const actor = getActor(c);
@@ -184,14 +186,18 @@ export function memoryRoutes(): Hono<AppEnv> {
       shortId: shortId as ShortId,
       toRoomId: assertRoomInScope(actor, input.toRoomId as RoomId),
       ...(input.fromRoomId ? { fromRoomId: input.fromRoomId as RoomId } : {}),
-      ...(input.confirmed === undefined ? {} : { confirmed: input.confirmed }),
       ...(input.motivation ? { motivation: input.motivation } : {}),
     });
 
     return serialisePlacement(c, decision);
   });
 
-  /** Moving a memory: private -> room, or room -> room. The short id survives. */
+  /**
+   * Moving a memory: private -> room, or room -> room. The short id survives.
+   *
+   * 202 whenever the target is a shared room, for the reason above. A move that only
+   * narrows the audience answers 201, because there is no new reader to protect.
+   */
   routes.post('/memory/:shortId/move', async (c) => {
     const actor = getActor(c);
     const { shortId } = parseParams(c, shortIdParam);
@@ -201,7 +207,6 @@ export function memoryRoutes(): Hono<AppEnv> {
       shortId: shortId as ShortId,
       toRoomId: assertRoomInScope(actor, input.toRoomId as RoomId),
       ...(input.fromRoomId ? { fromRoomId: input.fromRoomId as RoomId } : {}),
-      ...(input.confirmed === undefined ? {} : { confirmed: input.confirmed }),
       ...(input.motivation ? { motivation: input.motivation } : {}),
     });
 

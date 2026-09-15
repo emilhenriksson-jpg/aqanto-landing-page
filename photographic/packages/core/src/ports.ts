@@ -322,10 +322,18 @@ export interface IngestPort {
    * in the shared room where other people can read it. Moving it would mean the personal
    * memory is now visible to a room, which section 1 of the scope says can never happen.
    *
-   * `confirmed` is the person saying yes. Without it this returns a proposal for the
-   * approval queue, no matter which client asked, and the database refuses the row
-   * underneath regardless — see the placement trigger in migration 0003. Automation may
-   * write privately all day; it may not put anything in front of other people.
+   * There is no way to ask for the placement itself. This *always* returns a proposal,
+   * and the only thing that turns a proposal into a placement is `resolveProposal`, which
+   * `apps/rest` restricts to the person's own browser session.
+   *
+   * It used to take `confirmed?: boolean`, meaning any caller holding `memory.write` —
+   * every connected model, and anyone holding a stolen token — could set one field and
+   * copy a private memory into a room other people read, with nobody approving anything.
+   * The database trigger did not catch it either: it checks `placement_explicit`, which
+   * records that *something* asked for the placement and cannot tell a person from a
+   * flag in a request body. A boolean a caller supplies is the caller's claim about a
+   * human, which is the same mistake `explicit` made on the write path and is refused
+   * here the same way — by there being no field to set.
    */
   share(
     actor: Actor,
@@ -334,7 +342,6 @@ export interface IngestPort {
       /** Which room the memory is in now. Defaults to searching the actor's rooms. */
       fromRoomId?: RoomId;
       toRoomId: RoomId;
-      confirmed?: boolean;
     } & WriteProvenance,
   ): Promise<PlacementDecision>;
 
@@ -342,8 +349,12 @@ export interface IngestPort {
    * Relocates a memory: private -> room, or room -> room.
    *
    * The short id survives, because "flytta p-7k2m till Buyersclub Ledning" has to still
-   * refer to p-7k2m afterwards. A move into a shared room is a sharing act and needs the
-   * same confirmation as `share`.
+   * refer to p-7k2m afterwards.
+   *
+   * A move into a shared room widens the audience exactly as a share does, so it takes
+   * the same route: a proposal, approved first-party, with no field a client can set to
+   * skip it. A move that only ever narrows the audience — into the person's own personal
+   * room — happens directly, because nobody new can read it afterwards.
    */
   move(
     actor: Actor,
@@ -351,7 +362,6 @@ export interface IngestPort {
       shortId: ShortId;
       fromRoomId?: RoomId;
       toRoomId: RoomId;
-      confirmed?: boolean;
     } & WriteProvenance,
   ): Promise<PlacementDecision>;
 

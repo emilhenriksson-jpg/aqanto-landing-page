@@ -17,7 +17,13 @@ import { createLogger } from './logger.js';
 import { createWiring } from './wiring.js';
 
 const config = loadConfigFromEnv();
-const logger = createLogger({ level: config.logLevel });
+const logger = createLogger({
+  level: config.logLevel,
+  // On a laptop the log is the delivery channel and the code has to be readable there.
+  // In production it must not be readable at all, by anyone who can read logs — which is
+  // the whole reason this deploy had a way in that a read-only token could use.
+  revealSignupCode: config.environment !== 'production',
+});
 
 if (process.env.DATABASE_URL) {
   logger.info('using_postgres', { detail: 'DATABASE_URL är satt: kör mot Postgres.' });
@@ -39,9 +45,20 @@ const jobTimer = setInterval(() => {
 }, 1000);
 
 const purgeTimer = setInterval(() => {
-  void wiring.purgeTrash().then((count) => {
-    if (count > 0) logger.info('trash_purged', { count });
-  });
+  // The `.catch` is not defensive tidiness. The timers either side of this one have had
+  // one all along; this one did not, and under Node 22 an unhandled rejection terminates
+  // the process — so a single transient database blip during the minute-ly sweep took the
+  // whole API down, and with one machine that is every live MCP session with it.
+  void wiring
+    .purgeTrash()
+    .then((count) => {
+      if (count > 0) logger.info('trash_purged', { count });
+    })
+    .catch((error: unknown) => {
+      logger.error('trash_purge_failed', {
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    });
 }, 60_000);
 
 // Exports and deletions, on their own cadence. Ten seconds is a compromise: fast enough
