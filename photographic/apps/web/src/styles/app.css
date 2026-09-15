@@ -197,6 +197,13 @@
   gap: var(--space-8);
 }
 
+/* Further on a phone, where the notice is taller and the tab bar takes the last 60px. */
+@media (max-width: 720px) {
+  .hero--personal:has(+ .waiting) {
+    min-height: min(40dvh, 340px);
+  }
+}
+
 /* Brand sits high; identity rests at the floor — one composition, no secondary chrome. */
 .hero__identity {
   display: flex;
@@ -417,6 +424,19 @@
 .memory__proof .provenance__row {
   grid-template-columns: 9.5rem 1fr;
   gap: var(--space-3);
+}
+
+/*
+ * Stacked on a phone, which is the primary case here — a person asks where a memory came
+ * from while they are talking. The narrower label column above is an override of the
+ * shared `.provenance__row` rule and beat its own mobile collapse on specificity, which
+ * squeezed every answer into a 158px ribbon.
+ */
+@media (max-width: 720px) {
+  .memory__proof .provenance__row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
 }
 
 .memory__proof-more {
