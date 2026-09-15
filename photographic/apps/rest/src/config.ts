@@ -19,6 +19,17 @@ export interface RestConfig {
    */
   publicUrl: string;
 
+  /**
+   * Where the browser-facing app lives.
+   *
+   * Separate from `publicUrl` because two of the URLs this process hands out are pages a
+   * person opens, not endpoints a client calls: the login page an authorization request
+   * redirects to, and the connect page a QR code points at. Deriving those from the API
+   * origin sends people to an origin that serves no HTML, and the failure only shows up
+   * in a browser — never in a test that checks the redirect happened.
+   */
+  webUrl: string;
+
   environment: 'development' | 'test' | 'production';
   logLevel: LogLevel;
 
@@ -60,6 +71,7 @@ export const DEFAULT_CONFIG: RestConfig = {
   host: '0.0.0.0',
   port: 8787,
   publicUrl: 'http://localhost:8787',
+  webUrl: 'http://localhost:5173',
   environment: 'development',
   logLevel: 'info',
   corsOrigins: ['http://localhost:3000', 'http://localhost:5173'],
@@ -93,6 +105,7 @@ export function loadConfigFromEnv(env: Env = process.env): RestConfig {
     host: env.HOST ?? DEFAULT_CONFIG.host,
     port,
     publicUrl,
+    webUrl: (env.WEB_ORIGIN ?? DEFAULT_CONFIG.webUrl).replace(/\/+$/, ''),
     environment,
     logLevel: pickLogLevel(env.LOG_LEVEL, environment),
     corsOrigins: list(env.CORS_ORIGINS) ?? defaultCorsOrigins(env),

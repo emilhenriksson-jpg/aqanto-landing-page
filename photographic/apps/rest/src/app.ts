@@ -159,7 +159,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   if (deps.connect) {
     const connectConfig: ConnectConfig = {
       mcpUrl: `${config.publicUrl}/mcp`,
-      connectPageUrl: `${config.publicUrl}/connect`,
+      connectPageUrl: `${config.webUrl}/connect`,
       ...deps.connect.config,
     };
 
