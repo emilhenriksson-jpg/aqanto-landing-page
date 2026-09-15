@@ -3,11 +3,17 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 import { Avatars } from '../components/Avatars.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
 import { Wordmark } from '../components/Wordmark.js';
-import { SECTION_LABELS, loadRoom, type MemoryLine, type RoomDetail } from '../data/demo.js';
+import {
+  DEMO_ACTIVITY,
+  SECTION_LABELS,
+  loadRoom,
+  type MemoryLine,
+  type RoomDetail,
+} from '../data/demo.js';
 import { loadSharedRoomFromApi } from '../data/load.js';
 import { useRoomData } from '../hooks/useRoomData.js';
 
-/** Inside a shared room: title, brief as calm prose, memories grouped by kind. */
+/** Inside a shared room: title, brief as calm prose, memories, then activity. */
 export function SharedRoom() {
   const { roomId = '' } = useParams();
   if (!roomId) return <Navigate to="/rum" replace />;
@@ -35,6 +41,7 @@ export function SharedRoom() {
 function SharedRoomReady({ room }: { room: RoomDetail }) {
   const others = Math.max(0, room.memberCount - 1);
   const grouped = groupByKind(room.memories);
+  const activity = DEMO_ACTIVITY[room.id] ?? [];
   const memberLine =
     others === 0
       ? 'Bara du'
@@ -81,6 +88,24 @@ function SharedRoomReady({ room }: { room: RoomDetail }) {
           </section>
         ))
       )}
+
+      <section className="section-block" aria-labelledby="room-activity">
+        <h2 id="room-activity" className="section-block__title">
+          Aktivitet
+        </h2>
+        {activity.length === 0 ? (
+          <p className="section-block__empty">Ingen aktivitet ännu.</p>
+        ) : (
+          <ul className="activity">
+            {activity.map((item) => (
+              <li key={item.id} className="activity__row">
+                <span className="meta">{item.when}</span>
+                <span>{item.body}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </article>
   );
 }

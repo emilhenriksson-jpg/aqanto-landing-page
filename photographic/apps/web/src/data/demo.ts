@@ -307,3 +307,34 @@ export function loadInvitePreview(token: string): InvitePreviewData | null {
   if (!token.trim()) return null;
   return { ...DEMO_INVITE, token };
 }
+
+/**
+ * Sparse room activity — calm Swedish lines, not an audit log.
+ * Demo only until a live activity endpoint exists.
+ */
+export interface ActivityLine {
+  id: string;
+  body: string;
+  /** Relative Swedish meta, e.g. "Igår", "2 timmar sedan". */
+  when: string;
+}
+
+export const DEMO_ACTIVITY: Record<string, ActivityLine[]> = {
+  ledning: [
+    {
+      id: 'act-ledning-1',
+      body: 'Emil sparade Vi beslutade att skjuta förvärvet till Q3',
+      when: '2 timmar sedan',
+    },
+    {
+      id: 'act-ledning-2',
+      body: 'Anna gick med',
+      when: 'Igår',
+    },
+    {
+      id: 'act-ledning-3',
+      body: 'Emil sparade Due diligence-paketet skickas till styrelsen 12 juni',
+      when: '3 dagar sedan',
+    },
+  ],
+};

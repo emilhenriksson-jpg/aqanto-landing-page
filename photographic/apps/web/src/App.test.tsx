@@ -39,6 +39,7 @@ describe('App', () => {
     expect(screen.getByLabelText('3 medlemmar')).toBeInTheDocument();
     expect(screen.getByText('Delad med 2 personer')).toBeInTheDocument();
     expect(screen.getByText('r-8k2m')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Aktivitet' })).toBeInTheDocument();
   });
 
   it('offers undo after deleting a memory line', async () => {
