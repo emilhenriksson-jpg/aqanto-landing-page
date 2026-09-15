@@ -34,7 +34,7 @@ import type { Pool } from 'pg';
 import { queryOne, queryRows, withTransaction } from '../pool.js';
 import { appendEvent } from './events.js';
 import { restoreDocumentWithin, trashDocumentWithin } from './lifecycle.js';
-import { canRead, canWrite } from './permissions.js';
+import { assertCanWrite, canRead } from './permissions.js';
 
 interface DocumentRow {
   id: string;
@@ -102,7 +102,7 @@ export class PgDocuments implements DocumentPort {
   ): Promise<{ documentId: DocumentId; extraction: ExtractionStatus; chunkCount: number }> {
     // Permission first, before a byte is written. Authorized by what the token can do,
     // never by anything found inside the file.
-    if (!(await canWrite(this.pool, actor.personId, input.roomId))) throw new NotPermittedError();
+    await assertCanWrite(this.pool, actor.personId, input.roomId);
 
     /**
      * The reservation, recorded as it is made.
@@ -410,7 +410,7 @@ export class PgDocuments implements DocumentPort {
   ): Promise<DocumentSummary | null> {
     const existing = await this.get(actor, documentId);
     if (!existing) return null;
-    if (!(await canWrite(this.pool, actor.personId, existing.roomId))) throw new NotPermittedError();
+    await assertCanWrite(this.pool, actor.personId, existing.roomId);
 
     // One transaction, through the shared lifecycle path a memory's delete goes through.
     // This used to be the `UPDATE` and then a separate `appendEvent`, which is the shape the
@@ -450,9 +450,7 @@ export class PgDocuments implements DocumentPort {
       [documentId, actor.personId],
     );
     if (!trashed) return null;
-    if (!(await canWrite(this.pool, actor.personId, trashed.room_id as RoomId))) {
-      throw new NotPermittedError();
-    }
+    await assertCanWrite(this.pool, actor.personId, trashed.room_id as RoomId);
 
     const applied = await withTransaction(this.pool, (tx) =>
       restoreDocumentWithin(tx, {

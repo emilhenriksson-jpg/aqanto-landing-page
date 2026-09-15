@@ -165,11 +165,6 @@
       "count": 1
     }
   },
-  "packages/db/src/services/rooms.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "packages/documents/src/blob-store.ts": {
     "no-useless-assignment": {
       "count": 1

@@ -26,7 +26,7 @@ import type { Pool } from 'pg';
 import { queryOne, queryRows, withTransaction } from '../pool.js';
 import { mapInvite, mapPerson, mapRoom, type InviteRow, type PersonRow, type RoomRow } from '../rows.js';
 import { appendEvent } from './events.js';
-import { roleIn } from './permissions.js';
+import { assertNotFrozen, roleIn } from './permissions.js';
 
 export const INVITE_TTL_DAYS = 14;
 export const PREVIEW_ITEM_COUNT = 3;
@@ -51,6 +51,8 @@ export class PgInvites implements InvitePort {
     actor: Actor,
     input: { roomId: RoomId; channel: 'email' | 'sms'; destination: string; role?: MemberRole },
   ): Promise<{ invite: Invite; url: string }> {
+    await assertNotFrozen(this.pool, actor.personId);
+
     // Owner only. Inviting is not a write, it is a disclosure decision: it settles who
     // gets to read everything already in the room, retroactively.
     await this.assertOwner(actor, input.roomId);
