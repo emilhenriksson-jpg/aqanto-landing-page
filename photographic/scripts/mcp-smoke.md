@@ -65,6 +65,18 @@ need an **OAuth access token** (register → authorize → approve with session 
 above, or finish the flow in a real client (Cursor / Claude connector) against
 `http://localhost:8787/mcp` (or a tunnel — `scripts/deploy.md`).
 
+### 3. Live HTTP against localhost:8787 (optional)
+
+Requires REST already up (and preferably `pnpm db:seed` so Emil has ketchup). Codes are
+logged as `signup_code` — point `LIVE_MCP_LOG` at that file (e.g. tee of `pnpm dev`).
+
+```bash
+LIVE_MCP=1 LIVE_MCP_LOG=/tmp/rest-demo-api.log pnpm --filter @photographic/e2e test
+```
+
+Only `e2e/src/live-mcp.smoke.test.ts` runs the live path; it is skipped unless
+`LIVE_MCP=1`. Asserts `initialize` instructions contain `ketchup`.
+
 ### Manual initialize (only after you already have an access token)
 
 If a client or the connect-flow helper already minted `ACCESS_TOKEN`:

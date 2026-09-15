@@ -34,7 +34,14 @@ async function main(): Promise<void> {
 
     const actor = wired.actorFor(person.id, 'api');
 
-    if (!existing) {
+    // After an e2e postgres reset + empty signup, the demo email can exist with no
+    // memories. Refill the personal facts whenever ketchup is missing so MCP smoke
+    // against a "seeded" DB does not assert against an empty profile.
+    const bundle = await services.bundle.build(actor);
+    const rendered = services.bundle.render(bundle);
+    const needsPersonalFacts = !rendered.toLowerCase().includes('ketchup');
+
+    if (needsPersonalFacts) {
       await services.ingest.remember(actor, {
         roomId: personalRoom.id,
         body: 'Emil, 34, bor i Stockholm',
@@ -53,7 +60,11 @@ async function main(): Promise<void> {
         kind: 'instruction',
         explicit: true,
       });
+    }
 
+    const rooms = await services.rooms.listForPerson(actor);
+    const hasShared = rooms.some((room) => room.title === 'Buyersclub Ledning');
+    if (!hasShared) {
       const shared = await services.rooms.create(actor, {
         title: 'Buyersclub Ledning',
         description: 'Beslut och riktning för Buyersclub-förvärvet',
@@ -64,9 +75,11 @@ async function main(): Promise<void> {
         kind: 'decision',
         explicit: true,
       });
+    }
 
+    if (needsPersonalFacts || !hasShared) {
       await wired.runJobsToCompletion();
-      console.log('Seedade demo-data.');
+      console.log(existing ? 'Fyllde på saknad demo-data.' : 'Seedade demo-data.');
     } else {
       console.log('Demo-personen fanns redan — hoppar över skrivningar.');
     }

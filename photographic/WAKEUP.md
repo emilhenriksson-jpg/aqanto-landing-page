@@ -68,3 +68,5 @@ Persistensen är på plats lokalt. Det som saknas för “Claude svarar om dig�
 ## MCP-rök (ketchup i instructions)
 
 Morgonkoll att OAuth → `/mcp` initialize + `tools/list` funkar, och att profilen nämner den seedade ketchup-allergin: se `scripts/mcp-smoke.md` (helst `connect-flow.test.ts` + `e2e` med `HARNESS=postgres`, eller `./scripts/mcp-smoke.sh`). Session-token från signup räcker **inte** till MCP — bara OAuth access token.
+
+**Live mot :8787:** `LIVE_MCP=1 LIVE_MCP_LOG=/tmp/rest-demo-api.log pnpm --filter @photographic/e2e test` (`e2e/src/live-mcp.smoke.test.ts`, skippad utan `LIVE_MCP=1`).
