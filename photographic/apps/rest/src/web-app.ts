@@ -188,6 +188,7 @@ export const PRODUCT_APP_ROUTES = [
   '/papperskorg',
   '/historik',
   '/kompass',
+  '/konto',
   '/kalender',
   '/i',
 ] as const;

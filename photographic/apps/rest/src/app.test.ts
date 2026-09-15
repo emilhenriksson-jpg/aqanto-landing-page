@@ -705,6 +705,89 @@ describe('context, which is the whole point', () => {
   });
 });
 
+describe('the person’s own first name', () => {
+  /**
+   * No `displayName` at registration, the way phone sign-up leaves it: unset.
+   * Registering by email falls back to the local part (`emil@…` → "Emil"), which is
+   * the right behaviour for that path but not what a phone-only account has, so this
+   * registers by phone instead, matching `verifyCode`'s `register({ phone })`.
+   */
+  async function registerNameless(f: Fixture, phone: string) {
+    const { person } = await f.wired.services.identity.register({ phone });
+    const token = await f.signIn(person);
+    return { person, token };
+  }
+
+  it('is unset on a brand-new account, never rendered as empty or undefined', async () => {
+    const { token } = await registerNameless(f, '+46701111111');
+    const account = await (await f.get('/v1/account', token)).json();
+    expect(account.firstName).toBeNull();
+  });
+
+  it('is set from the account screen and reaches provenance, invites and membership', async () => {
+    const emil = await registerNameless(f, '+46701111112');
+    const firstParty = await f.signInFirstParty(emil.person.id);
+
+    const set = await (
+      await f.patch('/v1/account/name', { firstName: '  Jacob  ' }, firstParty)
+    ).json();
+    expect(set.firstName).toBe('Jacob');
+
+    const account = await (await f.get('/v1/account', emil.token)).json();
+    expect(account.firstName).toBe('Jacob');
+
+    // Room membership: the person's own name shows up beside anyone else's.
+    const room = await (await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)).json();
+    const detail = await (await f.get(`/v1/rooms/${room.room.id}`, emil.token)).json();
+    expect(detail.members).toContainEqual(
+      expect.objectContaining({ displayName: 'Jacob', isSelf: true }),
+    );
+
+    // Invites: the recipient sees who invited them.
+    const invite = await (
+      await f.post(
+        `/v1/rooms/${room.room.id}/invites`,
+        { channel: 'email', destination: 'anna@example.com' },
+        emil.token,
+      )
+    ).json();
+    const token = invite.url.split('/').filter(Boolean).at(-1) as string;
+    const preview = await (await f.get(`/v1/invites/${token}`)).json();
+    expect(preview.invitedByName).toBe('Jacob');
+
+    // Provenance/history: who wrote a memory now has a name instead of falling back to
+    // null (rendered as "Någon" downstream) — the exact gap this feature closes.
+    await f.post('/v1/memory', { body: 'Allergisk mot ketchup' }, emil.token);
+    const history = await (await f.get('/v1/history', emil.token)).json();
+    expect(history.entries[0]).toMatchObject({ actorName: 'Jacob' });
+  });
+
+  it('supersedes an old name rather than sitting beside it', async () => {
+    const emil = await registerNameless(f, '+46701111113');
+    const firstParty = await f.signInFirstParty(emil.person.id);
+
+    await f.patch('/v1/account/name', { firstName: 'Jacob' }, firstParty);
+    await f.patch('/v1/account/name', { firstName: 'Jonas' }, firstParty);
+
+    const account = await (await f.get('/v1/account', emil.token)).json();
+    expect(account.firstName).toBe('Jonas');
+  });
+
+  it('cannot be set by a connected AI client, however broad its scope', async () => {
+    const { token } = await registerNameless(f, '+46701111114');
+
+    const response = await f.patch('/v1/account/name', { firstName: 'Jacob' }, token);
+    expect(response.status).toBe(403);
+  });
+
+  it('refuses "name" as an ordinary memory kind', async () => {
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+
+    const response = await f.post('/v1/memory', { body: 'Jacob', kind: 'name' }, token);
+    expect(response.status).toBe(400);
+  });
+});
+
 describe('rooms and who can see them', () => {
   it('never lists a room the caller does not belong to', async () => {
     const emil = await register(f, 'emil@example.com', 'Emil');
