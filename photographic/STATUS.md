@@ -1175,3 +1175,14 @@ against; flagged rather than assumed working.
   Kvar att veta: en telefonsignup sätter inget `display_name`, så en riktig inbjudan säger
   "Du är inbjuden till ett delat rum" i stället för "Emil bjuder in dig". Skärmen hanterar
   båda; att sätta namnet någonstans i flödet är ett produktbeslut, inte en bugg här.
+
+  Raderingsvägen är dessutom körd hela vägen **på ett engångskonto, aldrig Emils**: begäran
+  från skärmen → kvitto → `GET /v1/account/deletion` visar en pågående radering med
+  `executeAfter` 30 dagar fram och `contributions: keep` → `Avbryt raderingen` → `pending`
+  är `null` igen. Skärmbild av det pågående läget finns i `media/`.
+
+  En sak att veta för nästa körning: `pnpm test` med `DATABASE_URL` satt **nollställer den
+  delade lokala databasen** (flera sviter i `packages/db` och `apps/rest` gör det), så ett
+  verifieringskonto överlever inte en full testkörning. Skriptet som återskapar kontot ligger
+  utanför repot; ordningen är signup → minnen → delat rum → godkännanden → en borttagning →
+  inbjudan, och den behövs igen om någon vill upprepa verifieringen.
