@@ -568,8 +568,8 @@ describe('nödinloggning: signing in without SMS and without the log', () => {
     );
     const recorded = added.find((event) => event.eventType === 'session.break_glass_used');
 
-    // In their own room, under their own name: the point is not an audit file somewhere
-    // but that the person can see this happened to their memory.
+    // In their own room and under their own name, so it sits beside everything else that
+    // happened to their memory rather than in an audit file only we can read.
     expect(recorded).toBeDefined();
     expect(recorded?.actorPersonId).toBe(personId);
     // And the record names the token without being the token.

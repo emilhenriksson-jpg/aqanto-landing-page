@@ -26,8 +26,9 @@
  *   into the form; this signs a token for one number, and refuses if that number has no
  *   account rather than creating one.
  * - It leaves a record. Every mint appends `session.break_glass_minted` to the append-only
- *   event log, in that person's own room, so it shows up in their own history. Reading a
- *   code out of the log left no trace anywhere.
+ *   event log, in that person's own room, and the exchange appends
+ *   `session.break_glass_used` beside it. Reading a code out of the log left no trace
+ *   anywhere at all.
  * - It expires in ten minutes and is spent on first use. A log line was valid for as long
  *   as the retention window.
  *
@@ -94,10 +95,13 @@ async function main(): Promise<void> {
     /**
      * The record, written before the link is printed.
      *
-     * In the person's own room, so it appears in their own history beside everything else
-     * that ever happened to their memory — the point is not an audit file somewhere, it is
-     * that the person can see that this happened. Appended first: a mint that could not be
-     * recorded is one that must not be handed out.
+     * In the person's own room, beside everything else that ever happened to their memory,
+     * rather than in an audit file somewhere only we can read. Appended first: a mint that
+     * could not be recorded is one that must not be handed out.
+     *
+     * The `Historik` screen does not surface it yet — `PgHistory` filters on an allowlist
+     * whose type lives in the frozen `@photographic/core` — so today this is a row in the
+     * append-only log rather than a line a person reads in the product.
      */
     const personalRoom = await wired.services.identity.personalRoomOf(person.id);
     await wired.services.events.append({
