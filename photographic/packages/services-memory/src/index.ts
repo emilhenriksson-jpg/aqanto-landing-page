@@ -94,11 +94,12 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
   const rooms = new MemoryRooms(store, projection);
   const invites = new MemoryInvites(store, notify, options.baseUrl);
   const ingest = new MemoryIngest(store, llm, projection, jobs);
-  const bundle = new MemoryBundle(store, projection, rooms);
+  // Built before `bundle`: the session package's "recent" reads through it.
+  const history = new MemoryHistory(store);
+  const bundle = new MemoryBundle(store, projection, rooms, history);
   const retrieval = new MemoryRetrieval(store, llm);
   const documents = new MemoryDocuments(store, llm, projection, jobs);
   const trash = new MemoryTrash(store, ingest, projection);
-  const history = new MemoryHistory(store);
   const events = new MemoryEvents(store);
   const sessions = new MemorySessions(store);
 
