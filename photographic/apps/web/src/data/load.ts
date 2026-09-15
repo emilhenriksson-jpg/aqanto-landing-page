@@ -14,7 +14,7 @@ import {
   askMemory,
   getCalendarDay,
   getCalendarEvent,
-  getInvite,
+  getDeletionState,
   getProfile,
   getProvenance,
   getRoom,
@@ -46,6 +46,7 @@ import type {
   TrashEntryDto,
 } from '../api/index.js';
 import type {
+  ActivityLine,
   ApprovalItem,
   AskResultLine,
   CompassLine,
@@ -53,7 +54,6 @@ import type {
   DayView,
   DemoClient,
   DocumentLine,
-  InvitePreviewData,
   MemoryLine,
   ProvenanceAnswer,
   RoomCard,
@@ -168,46 +168,6 @@ function pushSection(
 function memberDisplayName(member: RoomMemberDto): string | null {
   const name = member.displayName?.trim();
   return name && name.length > 0 ? name : null;
-}
-
-export async function loadInviteFromApi(token: string): Promise<InvitePreviewData | null> {
-  try {
-    const dto = await getInvite(token);
-    return mapInvitePreview(token, dto);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) return null;
-    throw error;
-  }
-}
-
-export function mapInvitePreview(
-  token: string,
-  dto: {
-    room: { title: string; description: string | null };
-    invitedByName: string | null;
-    preview: string | null;
-  },
-): InvitePreviewData {
-  return {
-    token,
-    roomTitle: dto.room.title,
-    brief: dto.room.description,
-    invitedByName: dto.invitedByName?.trim() || 'Någon',
-    lines: previewLines(dto.preview),
-  };
-}
-
-function previewLines(preview: string | null): MemoryLine[] {
-  if (!preview) return [];
-  return preview
-    .split('\n')
-    .map((body) => body.trim())
-    .filter((body) => body.length > 0)
-    .map((body, index) => ({
-      shortId: `i-${index + 1}`,
-      kind: 'note' as const,
-      body,
-    }));
 }
 
 export function mapClientHealth(dto: ClientHealthDto): DemoClient {
@@ -450,6 +410,26 @@ export async function loadTrashFromApi(): Promise<TrashLine[]> {
   return entries.map(mapTrashEntry);
 }
 
+/**
+ * Whether this account is already on its way out.
+ *
+ * The account screen asks, because a person who requested deletion during a holiday and
+ * came back should be told from the screen that mentions their account rather than having
+ * to open the deletion page to find out how long is left.
+ */
+export interface AccountState {
+  deletion: { daysRemaining: number; immediate: boolean } | null;
+}
+
+export async function loadAccountStateFromApi(): Promise<AccountState> {
+  const pending = (await getDeletionState()).pending;
+  return {
+    deletion: pending
+      ? { daysRemaining: pending.daysRemaining, immediate: pending.immediate }
+      : null,
+  };
+}
+
 const HISTORY_ACTION: Record<string, string> = {
   saved: 'sparade',
   updated: 'ändrade',
@@ -576,6 +556,26 @@ export function mapHistoryEntry(dto: HistoryEntryDto, now = new Date()): History
 
 export async function loadHistoryFromApi(): Promise<HistoryLine[]> {
   const { entries } = await listHistory();
+  return entries.map((entry) => mapHistoryEntry(entry));
+}
+
+/**
+ * A shared room's activity feed, from the log rather than from fixtures.
+ *
+ * `DESIGN.md` puts this feed in the room so a person feels located rather than like they
+ * opened a table, and it read `DEMO_ACTIVITY` unconditionally — keyed by slug against real
+ * UUIDs, so every real room's feed was permanently empty and said "Ingen aktivitet ännu"
+ * about rooms with years in them. The event log already answers this question for
+ * `/historik` and the calendar; this asks it about one room.
+ *
+ * Twelve entries, because it is a feed and not an audit trail — the audit trail is
+ * `/historik`, and the calendar is the day-by-day view.
+ */
+export async function loadRoomActivityFromApi(
+  roomId: string,
+  limit = 12,
+): Promise<ActivityLine[]> {
+  const { entries } = await listHistory({ room: roomId, limit });
   return entries.map((entry) => mapHistoryEntry(entry));
 }
 

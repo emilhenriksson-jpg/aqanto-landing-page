@@ -20,7 +20,8 @@
     "pg": "^8.13.1",
     "@photographic/auth": "workspace:*",
     "@photographic/documents": "workspace:*",
-    "@photographic/export": "workspace:*"
+    "@photographic/export": "workspace:*",
+    "@photographic/projection": "workspace:*"
   },
   "devDependencies": {
     "@photographic/llm": "workspace:*",
