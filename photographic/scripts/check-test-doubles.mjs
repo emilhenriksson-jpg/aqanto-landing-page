@@ -158,7 +158,9 @@ const unexpected = violations.filter((v) => !allowed.has(key(v)));
 const stale = [...allowed.keys()].filter((k) => !violations.some((v) => key(v) === k));
 
 console.log(`Läste ${seen.size} moduler från ${ENTRY_POINTS.length} ingångspunkter.`);
-console.log(`Hittade ${violations.length} testdubbletter, varav ${allowed.size} kända.`);
+console.log(
+  `Hittade ${violations.length} testdubbletter, varav ${violations.length - unexpected.length} kända.`,
+);
 
 if (unexpected.length > 0) {
   console.error('\nNy testdubblett i produktionsgrafen:\n');
