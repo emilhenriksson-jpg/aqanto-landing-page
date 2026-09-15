@@ -35,7 +35,7 @@ import {
   MemoryTokenStore,
 } from '@photographic/auth/testing';
 import type { ConnectDeps } from '@photographic/connect';
-import { generateCode } from '@photographic/connect';
+import { BREAK_GLASS_SECRET_MIN_LENGTH, generateCode } from '@photographic/connect';
 import { MemoryCodeStore, MemorySessionIssuer } from '@photographic/connect/testing';
 import { createCodeSenderFromEnv, inertChannelDetail } from '@photographic/delivery';
 import type { Actor, PersonId, Services, SessionId } from '@photographic/core';
@@ -67,6 +67,7 @@ import {
 import type { Hono } from 'hono';
 
 import { createApp } from './app.js';
+import { BREAK_GLASS_PATH } from './break-glass-page.js';
 import type { RestConfig } from './config.js';
 import type { AppEnv } from './context.js';
 import type { Logger } from './logger.js';
@@ -400,6 +401,28 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     logger.error('code_delivery_inert', { channel, detail: inertChannelDetail(channel) });
   }
 
+  /**
+   * Whether there is a way in that does not depend on a supplier.
+   *
+   * Said at boot because it is the one thing an operator cannot check from outside: the
+   * endpoint answers identically whether or not the secret is set, on purpose. With the
+   * secret unset and SMS unconfigured, nobody can sign in at all — so this is a warning
+   * rather than a note, and the sentence names the fix.
+   */
+  const breakGlass = process.env.BREAK_GLASS_SECRET ?? null;
+  if (breakGlass && breakGlass.length >= BREAK_GLASS_SECRET_MIN_LENGTH) {
+    logger.info('break_glass_armed', { path: BREAK_GLASS_PATH });
+  } else {
+    logger.warn('break_glass_unavailable', {
+      detail:
+        breakGlass
+          ? `BREAK_GLASS_SECRET är kortare än ${BREAK_GLASS_SECRET_MIN_LENGTH} tecken och används inte. ` +
+            'Sätt en riktig nyckel med `openssl rand -hex 32`.'
+          : 'BREAK_GLASS_SECRET är inte satt, så nödinloggningen på maskinen kan inte användas. ' +
+            'Utan den och utan SMS-leverantör finns ingen väg in i produkten.',
+    });
+  }
+
   if (!process.env.CODE_SECRET) {
     // Codes are HMACed under this key, so a fresh one per boot invalidates every code in
     // flight. Harmless on a laptop, and a restart mid-signup on a shared instance that a
@@ -466,7 +489,7 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     config,
     logger,
     oauth,
-    connect: { deps: connect },
+    connect: { deps: connect, breakGlassSecret: breakGlass },
     mcp,
     clientGrants: grants,
     exports: wired.exports,

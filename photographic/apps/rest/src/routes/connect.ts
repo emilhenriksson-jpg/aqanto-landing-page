@@ -15,8 +15,11 @@ import {
   handleStartVerification,
   handleVerificationStatus,
   previewImport,
+  verifyBreakGlassToken,
   type ConnectDeps,
 } from '@photographic/connect';
+import type { PersonId } from '@photographic/core';
+import { AuthError } from '@photographic/core';
 import { Hono } from 'hono';
 
 import type { AppEnv } from '../context.js';
@@ -29,11 +32,32 @@ import { getActor, getServices } from './shared.js';
 export interface ConnectRouteDeps {
   connect: ConnectDeps;
   config: ConnectConfig;
+  /**
+   * The key `scripts/break-glass-signin.ts` signs with, from the machine's own
+   * environment. Null — the default — means no token verifies, so the endpoint below is
+   * mounted but has nothing to accept.
+   */
+  breakGlassSecret?: string | null;
 }
+
+/** The one answer the break-glass exchange ever gives when it will not sign anyone in. */
+const BREAK_GLASS_REJECTED =
+  'Nödkoden gäller inte. Kör skriptet på maskinen igen för att få en ny.';
 
 /** No token: this is how an account comes to exist in the first place. */
 export function publicConnectRoutes(deps: ConnectRouteDeps): Hono<AppEnv> {
   const routes = new Hono<AppEnv>();
+
+  /**
+   * Spent tokens, so one is one sign-in.
+   *
+   * Process-local rather than a table, and that is a real limit worth stating: a restart
+   * inside the token's few remaining minutes forgets it. Bounding the reuse window with
+   * the TTL rather than with storage is the trade — a table for this would be a schema
+   * change on the path that exists for the day the product is already broken, and the
+   * event log records every mint and every use either way.
+   */
+  const spent = new Set<string>();
 
   routes.post('/signup/request', async (c) => {
     const result = await handleSignupRequest(deps.connect, { body: await body(c) });
@@ -59,6 +83,67 @@ export function publicConnectRoutes(deps: ConnectRouteDeps): Hono<AppEnv> {
     }
 
     return c.json(result.body as object, result.status as 200);
+  });
+
+  /**
+   * Trades a token minted on the machine for the ordinary browser session.
+   *
+   * This is the *using* half of break-glass; the minting half is not reachable from here
+   * or from any other request. `scripts/break-glass-signin.ts` runs on the host, signs a
+   * token with a secret only the machine can read, and prints a URL. This endpoint checks
+   * that signature and nothing else grants it anything.
+   *
+   * Deliberately not a GET with the token in the path or query. `accessLog` logs the route
+   * template rather than the concrete path, but a browser keeps the URL in history and
+   * hands it to the next site in `Referer`, and the entire point of this work is to stop
+   * shipping credentials somewhere they are read later. The token arrives in a POST body,
+   * from the small page at `/nodlage`, which reads it out of the URL fragment — the one
+   * part of a URL that is never sent to a server.
+   *
+   * The session it mints is the ordinary one, from the same issuer sign-up uses, so
+   * whatever that issuer becomes — signed, revocable, expiring — this inherits without
+   * being touched. The token is not returned in the body: the cookie is `httpOnly` for a
+   * reason and a second copy in reach of page script would undo it.
+   */
+  routes.post('/signup/break-glass', async (c) => {
+    const services = getServices(c);
+    const payload = (await body(c)) as { token?: unknown };
+    const token = typeof payload.token === 'string' ? payload.token : '';
+
+    const claims = verifyBreakGlassToken({ token, secret: deps.breakGlassSecret ?? null });
+    // One refusal for every reason, including "break-glass is not configured here". A
+    // publicly reachable endpoint that answered differently would describe the state of a
+    // secret to whoever asked.
+    if (!claims || spent.has(claims.jti)) throw new AuthError(BREAK_GLASS_REJECTED);
+
+    const personId = claims.personId as PersonId;
+    const person = await services.identity.findById(personId);
+    if (!person) throw new AuthError(BREAK_GLASS_REJECTED);
+
+    spent.add(claims.jti);
+
+    // Written before the session exists, not after. A break-glass sign-in that happened
+    // without a line in the log is the thing this must never be, so the append is the
+    // step that can refuse — not an afterthought that can be lost.
+    const personalRoom = await services.identity.personalRoomOf(personId);
+    await services.events.append({
+      roomId: personalRoom.id,
+      eventType: 'session.break_glass_used',
+      payload: { jti: claims.jti, expiresAt: claims.expiresAt.toISOString() },
+      actorPersonId: personId,
+      agentClient: 'web',
+      explicit: true,
+    });
+
+    const session = await deps.connect.issuer.issue({ personId });
+    setSessionCookie(c, session.token, {
+      publicUrl: c.get('config').publicUrl,
+      expiresAt: session.expiresAt,
+    });
+
+    c.get('logger').warn('break_glass_signin', { personId, jti: claims.jti });
+
+    return c.json({ ok: true, expiresAt: session.expiresAt.toISOString() }, 200);
   });
 
   /**
