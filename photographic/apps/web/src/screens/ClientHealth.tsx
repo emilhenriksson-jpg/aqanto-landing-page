@@ -8,8 +8,8 @@ import {
 
 /**
  * Honesty feature: which connected AIs actually received the personal profile.
- * Hero surface, not a settings page — one calm row of cards, Swedish, no violet
- * except the wordmark.
+ * A quiet vertical list — standing in the product, not an ops status grid.
+ * Swedish; violet only on the wordmark.
  */
 export function ClientHealth() {
   return (
@@ -23,27 +23,27 @@ export function ClientHealth() {
         </p>
       </header>
 
-      <div className="health" role="list">
+      <ul className="health">
         {DEMO_CLIENTS.map((client) => (
-          <ClientCard key={client.id} client={client} />
+          <ClientRow key={client.id} client={client} />
         ))}
-      </div>
+      </ul>
     </article>
   );
 }
 
-function ClientCard({ client }: { client: DemoClient }) {
+function ClientRow({ client }: { client: DemoClient }) {
   const tone = clientHealthTone(client);
   const detail = statusCopy(client, tone);
 
   return (
-    <article className={`health-card health-card--${tone}`} role="listitem">
-      <h2 className="health-card__name">
+    <li className={`health__row health__row--${tone}`}>
+      <h2 className="health__name">
         <span className={`dot dot--${tone}`} aria-hidden="true" />
         {client.displayName}
       </h2>
-      <p className="health-card__detail">{detail}</p>
-    </article>
+      <p className="health__detail">{detail}</p>
+    </li>
   );
 }
 

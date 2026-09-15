@@ -453,37 +453,42 @@
 
 /* --------------------------------------------------------- client health */
 
+/*
+ * Quiet stacked rows — one column, generous vertical rhythm. Status lives in the
+ * dots only; no card grid, no violet beyond the wordmark.
+ */
 .page-head--health {
-  margin-bottom: var(--space-12);
+  margin-bottom: var(--space-16);
   max-width: 36rem;
 }
 
 .health {
-  display: grid;
-  gap: var(--space-5);
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-}
-
-.health-card {
-  background: var(--surface);
-  border-radius: var(--radius-xxl);
-  box-shadow: var(--shadow-card);
-  padding: var(--space-6);
-  min-height: 148px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  transition:
-    box-shadow var(--dur-base) var(--ease-spring),
-    transform var(--dur-base) var(--ease-spring);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 36rem;
 }
 
-.health-card:hover {
-  box-shadow: var(--shadow-lift);
-  transform: translateY(-2px);
+.health__row {
+  padding: var(--space-8) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
-.health-card__name {
+.health__row:first-child {
+  padding-top: 0;
+}
+
+.health__row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.health__name {
   font: var(--type-heading);
   letter-spacing: var(--track-heading);
   margin: 0;
@@ -492,12 +497,12 @@
   gap: 0;
 }
 
-.health-card__detail {
+.health__detail {
   font: var(--type-meta);
   color: var(--ink-muted);
   margin: 0;
-  max-width: 22rem;
-  flex: 1;
+  max-width: 28rem;
+  padding-left: 19px; /* align under the name, past the status dot */
 }
 
 .dot {
@@ -803,10 +808,6 @@
     min-height: 200px;
     padding: var(--space-8) var(--space-6);
   }
-
-  .health {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -816,7 +817,6 @@
 
   .room-card:hover,
   .room-card--personal:hover,
-  .health-card:hover,
   .btn--brand:hover {
     transform: none;
   }
