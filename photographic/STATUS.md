@@ -2187,3 +2187,125 @@ gick att återställa, och asymmetrin syns inte utifrån.
   suppressions i `eslint-suppressions.json` obsoleta, så `pnpm lint:prune` ska köras när #19
   och den här branchen möts. De två återstående fynden i `apps/rest/src/server.ts` är #19:s
   egna — dess diff lagar dem, den här rör dem inte.
+
+## one-trash — memories and documents in one papperskorg
+
+Follow-up to the write-path work and to PR #23's document life cycle, done once both were on
+`main`. Branch `cursor/one-trash-for-memories-and-documents-1aca`.
+
+The reason is not tidiness. A person who deleted something goes looking in one place, and a
+thirty-day promise that behaves differently for a document than for a memory is a promise with
+a footnote. Documents arrived with their own `deleted_at`/`purge_after`, their own listing
+endpoint and no screen at all — which was the right call while the item lifecycle was still
+being made transactional, and the wrong one once it had landed.
+
+### Two halves, and only the first needed no contract change
+
+**Documents now go through the same transactional lifecycle path.** `PgDocuments.remove` and
+`.restore` had the shape `softDelete` used to have: `UPDATE app.document`, then `appendEvent`
+as a separate statement. Same consequence — a failure in between leaves the file gone from its
+room with nothing in the log saying so, and the room's other members watch a document disappear
+untraceably. Both now go through `trashDocumentWithin` / `restoreDocumentWithin`: one
+transaction, conditional in SQL, so a retry appends nothing rather than moving the purge
+deadline. Two functions rather than one generic helper over both tables, because a document has
+no undo token, no short id and a storage charge that must outlive the delete.
+
+**`app.trash` is one view over both lifecycle event streams** (migration 0021). Both halves are
+derived from the most recent lifecycle event rather than one from the log and one from a column,
+which is what gives delete-undo-delete one answer for a file as it already had for a memory.
+That ordering was the actual prerequisite: the union is only honest because `document.deleted`
+is now written inside the transaction that updates the row.
+
+### The discriminator, introduced here rather than guessed at earlier
+
+`TrashEntry` is a discriminated union — `type: 'memory' | 'document'` — and not a widened record
+with half its fields nullable, so a screen cannot render a document as though it had a body.
+`type` and not `kind`, because `kind` already means `ItemKind` on the memory half.
+
+The two are addressed differently and always have been: a memory by the short id a person can
+say out loud, a document by its uuid. `TrashHandle` carries that, `trashHandleOf` reads one out
+of a path segment, and because the two id shapes cannot collide **one route serves both** —
+`POST /v1/trash/:handle/restore` and `DELETE /v1/trash/:handle`. The wire format carries both
+`type` and `handle`, so the `Papperskorg` screen restores what it is looking at without knowing
+which shape addresses which kind of thing.
+
+`GET /v1/documents/trash` and the document delete/restore routes are kept as a narrower door
+onto the same trash rather than removed — deleting another track's three-day-old API is not a
+call to make quietly, and both derive from the same events, so they cannot disagree.
+
+Purge stayed one shape with a document-only blob step inside it. `app.purge_expired_items` is
+the only code permitted to redact `app.event` and, being a SQL function, cannot delete a blob —
+so a document's bytes go from TypeScript after its row does. That asymmetry is real rather than
+untidy, and it is written down in `TrashPort` and in `PgTrash` so the next person does not
+"simplify" it into either a second purge path or orphaned bytes.
+
+### Two drifts the shared e2e suite caught, which is why it runs on both drivers
+
+- **`MemoryDocuments.remove` did not put the person's reason on the event.** `PgDocuments` did.
+  Since the trash reads its reason from the log, the same delete showed a reason on Postgres
+  and `null` on the reference implementation. Caught by `e2e/src/trash.test.ts` on the second
+  driver, not by any unit test.
+- **The short-id pattern had a second copy.** `trashHandleOf` was written against four
+  characters, which is what short ids were when the rule was last written down; they widened to
+  six in the meantime, so it refused every id minted since. Rather than fix the copy,
+  `SHORT_ID_PATTERN` now lives in `packages/core` beside `generateShortId`, and both the REST
+  schema and the handle parser read it.
+
+### One divergence check, on the seam, for both kinds
+
+`Harness.divergences()` rebuilds every memory *and* every document from `app.event` and reports
+each place the log and the tables disagree. It is asserted at the end of `journey.test.ts` and
+`calendar.test.ts` — by which point those files have driven saves, approvals, corrections,
+deletions, restores, moves, shares and disputes through whichever backend is selected, so it is
+one assertion over all of it. This is where the check belonged all along, which is why it was
+worth waiting for #23 rather than writing it twice.
+
+`replayDocumentLifecycle` and `documentDivergencesFrom` are narrower than the item versions and
+say so in place: a document's content is a blob plus an extraction the log never carried, so
+what the log can rebuild is room, filename and trash membership — exactly what the trash
+derives from.
+
+### A finding worth its own line: the acceptance suite is `any`-typed
+
+`TrashPort.restore` changed shape. Every typed consumer in the repo reported it at compile time.
+The two call sites in `e2e/src/journey.test.ts` did not — they failed at runtime, in the suite
+whose job is to notice that kind of thing early — because `harness` is declared `any` there and
+in `calendar.test.ts`.
+
+The existing comment estimated "two dozen" narrowing errors as the cost of fixing it. Measured:
+**31 in `journey.test.ts` and 70 in `calendar.test.ts`**. Both comments now carry the real
+number and the reason it is worth doing separately rather than inside a change that has to stay
+reviewable. Left as it is deliberately; `documents.test.ts` and the new `trash.test.ts` are
+typed, so the unified surface itself is covered by typed suites.
+
+### Coverage
+
+New: `e2e/src/trash.test.ts` (8, both drivers — one list, filename versus body, interleaved
+ordering, restore by handle, delete-undo-delete, early purge to the bytes, the thirty-day sweep,
+and room isolation on the new query), `packages/db/src/services/documents-lifecycle-atomicity.test.ts`
+(6, failures injected between statements). Extended: `apps/rest/src/app.test.ts` (+2 — a deleted
+document beside a deleted memory over HTTP, and an unparseable handle answering like a missing
+one), `journey.test.ts` and `calendar.test.ts` (+1 each, the divergence assertion).
+
+The fault injector is one copy now (`packages/db/src/testing/fail-once.ts`) rather than the same
+twenty lines in two files, and writing it without type assertions made two suppressed
+`no-unnecessary-type-assertion` errors unnecessary — pruned from `eslint-suppressions.json`
+rather than joined by a third.
+
+Green: monorepo typecheck and lint clean; every package suite; `e2e` 74 on both `HARNESS=memory`
+and Postgres. Each new guarantee was checked by breaking it on purpose — the non-transactional
+document delete, and the unified view.
+
+### Notes for whoever is next
+
+- **Migration 0021** replaces a view and creates no new relation, so its `ops` artifact is the
+  view's new `entry_type` column rather than `to_regclass('app.trash')`, which 0004 already
+  claims and which is true either way.
+- **`app.css` was checked** for the shared-closing-brace problem reported after today's merges:
+  braces balance, no rule opens inside another rule, nothing unclosed. Either #26's merge
+  already fixed it or it never reached this branch. No change made.
+- **Local setup, not a code issue:** migration 0020 creates `photographic_app` with no password,
+  so a full sequential `pnpm test` on a fresh database fails `wiring.merge.test.ts` and
+  `connect-flow.test.ts` with `password authentication failed`. `ALTER ROLE photographic_app
+  PASSWORD 'photographic_app'` matches what `scripts/run-suites.mjs` derives. Worth a line in
+  the local setup docs by whoever owns them.

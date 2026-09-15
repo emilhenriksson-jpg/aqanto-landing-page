@@ -56,6 +56,8 @@ describe('API → UI mapping', () => {
 
   it('maps trash DTOs onto quiet shelf lines with days remaining', () => {
     const line = mapTrashEntry({
+      type: 'memory',
+      handle: 'p-old1',
       shortId: 'p-old1',
       roomId: 'room-1',
       roomTitle: 'Ditt rum',

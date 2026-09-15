@@ -516,8 +516,19 @@ export const DEMO_DOCUMENTS: Record<string, DocumentLine[]> = {
  * feel like a quiet shelf, not a dump. Live path: GET /v1/trash.
  */
 export interface TrashLine {
-  shortId: string;
+  /**
+   * What kind of thing this is.
+   *
+   * The screen needs it: a deleted document has a filename and no body, and rendering one as
+   * the other is how a person ends up looking at a blank row where their contract used to be.
+   */
+  type: 'memory' | 'document';
+  /** The id to send back to restore or purge it. A short id, or a document uuid. */
+  handle: string;
+  /** `p-7k2m` for a memory; null for a document, which has no speakable id. */
+  shortId: string | null;
   roomTitle: string;
+  /** The memory's text, or the document's filename — whichever names the thing. */
   body: string;
   /** Swedish meta, e.g. "28 dagar kvar". */
   daysLabel: string;
@@ -526,6 +537,8 @@ export interface TrashLine {
 
 export const DEMO_TRASH: TrashLine[] = [
   {
+    type: 'memory',
+    handle: 'p-old1',
     shortId: 'p-old1',
     roomTitle: 'Ditt rum',
     body: 'Bor i Malmö',
@@ -533,11 +546,23 @@ export const DEMO_TRASH: TrashLine[] = [
     deleteReason: 'Flyttade till Stockholm',
   },
   {
+    type: 'memory',
+    handle: 'r-old2',
     shortId: 'r-old2',
     roomTitle: 'Buyersclub Ledning',
     body: 'Vi siktar på förvärv i Q2',
     daysLabel: '12 dagar kvar',
     deleteReason: 'Skjutits till Q3',
+  },
+  // A deleted file, so the shelf shows what it is actually going to show.
+  {
+    type: 'document',
+    handle: '0f8e7d6c-5b4a-4938-8271-6a5b4c3d2e1f',
+    shortId: null,
+    roomTitle: 'Buyersclub Ledning',
+    body: 'styrelseprotokoll-2026-03.pdf',
+    daysLabel: '19 dagar kvar',
+    deleteReason: 'Fel version uppladdad',
   },
 ];
 

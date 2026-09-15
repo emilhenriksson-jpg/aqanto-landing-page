@@ -278,7 +278,7 @@ describe('a memory in the trash', () => {
     const { newShortId } = await saveThenCorrect(actor, personalRoom.id, BEFORE, AFTER);
 
     await wired!.services.ingest.forget(actor, newShortId, personalRoom.id);
-    await wired!.services.trash.restore(actor, newShortId, personalRoom.id);
+    await wired!.services.trash.restore(actor, { type: 'memory', shortId: newShortId }, personalRoom.id);
 
     const [chain] = await wired!.services.history.changes(actor, [newShortId]);
 

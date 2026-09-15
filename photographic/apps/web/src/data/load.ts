@@ -395,10 +395,14 @@ export function mapTrashEntry(dto: TrashEntryDto): TrashLine {
   const daysLabel =
     days <= 0 ? 'Försvinner snart' : days === 1 ? '1 dag kvar' : `${days} dagar kvar`;
 
+  // A document is named by its filename and a memory by its text. Both go in `body` because
+  // both answer "what was this", and `type` is what tells the row how to present it.
   return {
-    shortId: dto.shortId,
+    type: dto.type,
+    handle: dto.handle,
+    shortId: dto.type === 'memory' ? dto.shortId : null,
     roomTitle: dto.roomTitle,
-    body: dto.body,
+    body: dto.type === 'document' ? dto.filename : dto.body,
     daysLabel,
     deleteReason: dto.deleteReason,
   };
