@@ -37,7 +37,13 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
 - **The tunnel hostname is new on every run**, so a connector saved in Claude is
   invalidated by the next restart. That is the accepted cost of not committing to a
   deployment while storage is still being decided.
-- **No real email or SMS.** Sign-up codes are written to the API log as `signup_code`.
+- **SMS is still the log.** Email is real as of `d8731c7` (Resend, selected by
+  `createCodeSenderFromEnv`); SMS has a 46elks sender but defaults to `log`, so codes sent
+  to a phone number still only appear in the API log as `signup_code`. The default for
+  both is the log, so an unconfigured process behaves as it always did.
+  <!-- Corrected on the Track 2 branch: this line said "no real email or SMS", which
+       d8731c7 had already made false. Fixed here rather than on the foundation, because
+       every push there re-conflicts the stacked PRs. -->
 - **Shared-room Aktivitet is still demo data.** Left alone on purpose: it is being
   rebuilt as a view over the append-only event log with full provenance, so a standalone
   activity endpoint now would be thrown away.
