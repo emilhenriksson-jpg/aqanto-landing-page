@@ -242,6 +242,26 @@ export interface Provenance {
   changed: boolean;
   /** Everything that has happened to this one memory, oldest first. */
   timeline: HistoryEntry[];
+  /**
+   * Which model has seen this text, if any.
+   *
+   * Part of "hur vet du det om mig?" rather than a technical detail: semantic search
+   * works by sending the memory's own words to an embedding model, and a person is
+   * entitled to reach that fact about their own memory rather than read it in a policy
+   * document. `external: false` says the vector was computed in-process and nothing
+   * left our servers; `null` says no vector was ever computed for this memory at all.
+   */
+  embedding: EmbeddingProvenance | null;
+}
+
+/** Which model computed a memory's vector, and whether that meant leaving our servers. */
+export interface EmbeddingProvenance {
+  /** `openai`, or `fake` for the deterministic in-process implementation. */
+  provider: string;
+  model: string;
+  /** True when the memory's text was sent to a third party to produce the vector. */
+  external: boolean;
+  at: Date;
 }
 
 /**

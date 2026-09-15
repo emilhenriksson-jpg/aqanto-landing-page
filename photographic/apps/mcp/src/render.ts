@@ -365,7 +365,29 @@ export function renderProvenance(provenance: Provenance): string {
       ? ['', 'Hela förloppet:', ...provenance.timeline.map((entry) => `  ${historyLine(entry)}`)]
       : [];
 
-  return [...head, '', body, ...timeline].join('\n');
+  return [...head, '', body, ...timeline, ...embeddingLines(provenance)].join('\n');
+}
+
+/**
+ * "Did my text go to a model?", answered plainly because it is part of the same question.
+ *
+ * Only stated when a vector exists, and only as a fact about that memory — not as a
+ * policy paragraph. A model relaying this to the person should be able to read it out as
+ * a sentence.
+ */
+function embeddingLines(provenance: Provenance): string[] {
+  const embedding = provenance.embedding;
+  if (!embedding) return [];
+
+  const when = date(embedding.at).slice(0, 10);
+
+  return embedding.external
+    ? [
+        '',
+        `Texten skickades ${when} till ${embedding.provider} (${embedding.model}) för att göras sökbar på betydelse.`,
+        'Det är så "hitta det jag menade" fungerar. Modellen tränas inte på den.',
+      ]
+    : ['', `Sökindexet räknades ut lokalt (${embedding.model}). Texten har inte skickats någonstans.`];
 }
 
 export function roomTitleIndex(rooms: RoomSummary[]): Map<RoomId, string> {

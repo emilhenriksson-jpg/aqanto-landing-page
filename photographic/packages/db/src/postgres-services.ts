@@ -17,6 +17,11 @@ import { LocalBlobStore } from '@photographic/documents';
 import type { Pool } from 'pg';
 
 import { PgStorageLedger } from './services/storage-ledger.js';
+import {
+  EMBEDDING_BACKFILL_DEDUPE_KEY,
+  EMBEDDING_BACKFILL_JOB,
+  runEmbeddingBackfillBatch,
+} from './embedding-backfill.js';
 
 /**
  * Where files land when nobody said.
@@ -55,6 +60,16 @@ export interface PostgresServicesOptions {
    * of the write path that compute a date in JS rather than in SQL (`now()` already
    * does the job everywhere else). */
   clock?: () => Date;
+
+  /**
+   * Where background jobs report progress.
+   *
+   * Exists for the embedding backfill, which runs unattended over everything a person
+   * has ever saved: "did it finish" has to be answerable from the log rather than
+   * inferred from the absence of an error. Defaults to `console.log` of one JSON line,
+   * matching how the rest of the process logs; pass a function to capture it.
+   */
+  log?: (entry: Record<string, unknown>) => void;
 
   /**
    * Where uploaded files go.
@@ -99,6 +114,7 @@ export async function createPostgresServices(
 
   const llm = options.llm ?? new FakeLlm();
   const notify = options.notify ?? new FakeNotify();
+  const log = options.log ?? ((entry: Record<string, unknown>) => console.log(JSON.stringify(entry)));
 
   const jobs = new PgJobs(pool);
   const audit = new PgAudit(pool);
@@ -169,10 +185,47 @@ export async function createPostgresServices(
     const [vector] = await llm.embed([item.body]);
     if (!vector) return;
 
-    await pool.query(`UPDATE app.item SET embedding = $1::vector WHERE id = $2`, [
-      toVectorLiteral(vector),
-      itemId,
-    ]);
+    // The vector and the record of which model produced it, in one statement. A memory
+    // with a vector and no provenance would be one that cannot answer "did my text go to
+    // a model?", which is part of "hur vet du det om mig?" rather than a detail — see
+    // `0016_embedding_provenance.sql`.
+    const identity = llm.embeddingIdentity?.() ?? null;
+    await pool.query(
+      `UPDATE app.item
+       SET embedding = $1::vector, embedding_model = $2, embedding_provider = $3,
+           embedded_at = now()
+       WHERE id = $4`,
+      [toVectorLiteral(vector), identity?.model ?? null, identity?.provider ?? null, itemId],
+    );
+  });
+
+  /**
+   * The backfill: everything saved before the model was switched on.
+   *
+   * Self-rescheduling rather than one long run, so it interleaves with everything else
+   * the queue has to do and so a crash costs one batch instead of the whole job. The
+   * dedupe key means the reschedule cannot fan out into a queue full of duplicates —
+   * see `embedding-backfill.ts` for why there is no cursor and what stops it paying for
+   * the same memory twice.
+   */
+  jobs.work(EMBEDDING_BACKFILL_JOB, async () => {
+    const { embedded, remaining } = await runEmbeddingBackfillBatch(pool, llm);
+
+    // One line per batch, with the number left. "Did it finish" should be answerable
+    // from the log without inferring it from the absence of errors.
+    log({
+      event: 'embedding_backfill_batch',
+      embedded,
+      remaining,
+      model: llm.embeddingIdentity?.()?.model ?? null,
+    });
+
+    if (remaining > 0) {
+      await jobs.enqueue({
+        kind: EMBEDDING_BACKFILL_JOB,
+        dedupeKey: EMBEDDING_BACKFILL_DEDUPE_KEY,
+      });
+    }
   });
 
   jobs.work('purge_trash', async () => {

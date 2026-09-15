@@ -166,6 +166,14 @@ export class MemoryHistory implements HistoryPort {
         (e) => e.eventType === 'item.updated' || e.eventType === 'item.superseded',
       ),
       timeline,
+      // Null, and honestly so. This implementation computes its vectors in-process from
+      // whatever `LlmPort` it was handed, and the write path that would record a model's
+      // identity lives in `MemoryIngest` — which the Postgres path records at the point
+      // the vector is written (`embed_item` and the backfill). A reference
+      // implementation that is only ever wired to `FakeLlm` has nothing to disclose,
+      // because nothing leaves the process; wiring a real provider into it would need
+      // this filled in, and it is stated rather than quietly returning a value.
+      embedding: null,
     };
   }
 

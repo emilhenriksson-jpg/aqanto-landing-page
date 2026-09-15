@@ -115,6 +115,17 @@ export class OpenAiLlm implements LlmPort {
   }
 
   /**
+   * What gets written next to every vector this class produces.
+   *
+   * `external: true` is the load-bearing part: it is how a memory can answer that its
+   * own text was sent to a third party at write time, which is a promise made to the
+   * person rather than an implementation note.
+   */
+  embeddingIdentity(): { provider: string; model: string; external: boolean } {
+    return { provider: 'openai', model: this.embeddingModel, external: true };
+  }
+
+  /**
    * Order in equals order out. Callers zip the result against their own array of items,
    * so a reordered response would attach the wrong vector to the wrong memory.
    */

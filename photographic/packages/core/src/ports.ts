@@ -764,6 +764,26 @@ export interface SessionPort {
 export interface LlmPort {
   embed(texts: string[]): Promise<number[][]>;
 
+  /**
+   * Who computes `embed`, so it can be written down next to what it computed.
+   *
+   * A person asking "hur vet du det om mig?" is entitled to reach the fact that their
+   * text was sent to a model, and that fact is a property of the provider rather than of
+   * the memory — so it has to come from here rather than be guessed by the caller. It is
+   * recorded on `app.item` at the moment the vector is written, by both the write-path
+   * job and the backfill.
+   *
+   * `external: false` is a real answer and not a missing one: the deterministic fake
+   * computes vectors in-process, so nothing left the server, and recording that is what
+   * lets the backfill find memories whose vectors came from the fake and redo them
+   * against a real model.
+   *
+   * Optional so that adding a provider does not mean editing every implementation. An
+   * implementation that does not answer gets no provenance written, which is an honest
+   * gap rather than a confident guess.
+   */
+  embeddingIdentity?(): { provider: string; model: string; external: boolean };
+
   /** Pulls durable, reusable facts out of a passage. Returns [] when there are none. */
   extractFacts(input: { text: string; existing: string[] }): Promise<
     Array<{ body: string; kind: ItemKind; confidence: number }>

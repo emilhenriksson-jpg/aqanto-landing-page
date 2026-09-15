@@ -5,6 +5,7 @@
 
 import type {
   Actor,
+  EmbeddingProvenance,
   HistoryAction,
   HistoryEntry,
   HistoryPort,
@@ -94,6 +95,20 @@ export class PgHistory implements HistoryPort {
     const item = mapItem(itemRow);
     if (!(await canRead(this.pool, actor.personId, item.roomId))) return null;
 
+    // Which model has seen this text. Part of the same question the rest of this method
+    // answers: semantic search works by sending a memory's own words to an embedding
+    // model, and "did my text go to a third party" is something a person should be able
+    // to ask of their own memory rather than read in a policy document.
+    const embeddingRow = await queryOne<{
+      embedding_model: string | null;
+      embedding_provider: string | null;
+      embedded_at: Date | null;
+    }>(
+      this.pool,
+      `SELECT embedding_model, embedding_provider, embedded_at FROM app.item WHERE id = $1`,
+      [item.id],
+    );
+
     const roomTitle = await queryOne<{ title: string }>(this.pool, `SELECT title FROM app.room WHERE id = $1`, [
       item.roomId,
     ]);
@@ -139,6 +154,7 @@ export class PgHistory implements HistoryPort {
         (r) => r.event_type === 'item.updated' || r.event_type === 'item.superseded',
       ),
       timeline,
+      embedding: embeddingProvenanceOf(embeddingRow),
     };
   }
 
@@ -262,6 +278,29 @@ export class PgHistory implements HistoryPort {
       .filter((chain): chain is MemoryChange => chain !== null)
       .sort((a, b) => b.lastChangedAt.getTime() - a.lastChangedAt.getTime());
   }
+}
+
+/**
+ * Which providers mean a memory's text left our servers.
+ *
+ * An allowlist of the ones that do *not*, so a provider nobody has classified here reads
+ * as external. That is the safe direction for a disclosure: claiming text stayed local
+ * when it did not is the failure that matters, and getting it wrong the other way only
+ * over-discloses.
+ */
+const LOCAL_EMBEDDING_PROVIDERS = new Set(['fake']);
+
+function embeddingProvenanceOf(
+  row: { embedding_model: string | null; embedding_provider: string | null; embedded_at: Date | null } | null,
+): EmbeddingProvenance | null {
+  if (!row?.embedded_at || !row.embedding_provider) return null;
+
+  return {
+    provider: row.embedding_provider,
+    model: row.embedding_model ?? 'okänd modell',
+    external: !LOCAL_EMBEDDING_PROVIDERS.has(row.embedding_provider),
+    at: row.embedded_at,
+  };
 }
 
 /**

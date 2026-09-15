@@ -20,6 +20,19 @@ export class FakeLlm implements LlmPort {
 
   constructor(private readonly dimensions = 1536) {}
 
+  /**
+   * `external: false`, which is the honest answer and not a placeholder: these vectors
+   * are hashes computed in this process, so no memory text goes anywhere.
+   *
+   * Written down rather than left null so the backfill can tell a memory embedded by the
+   * fake from one embedded by a real model, and redo the former — which is exactly what
+   * happens the first time a real key is configured on an account that already has
+   * memories.
+   */
+  embeddingIdentity(): { provider: string; model: string; external: boolean } {
+    return { provider: 'fake', model: 'deterministic-hash', external: false };
+  }
+
   async embed(texts: string[]): Promise<number[][]> {
     this.calls.embed += 1;
     return texts.map((t) => this.vectorFor(t));

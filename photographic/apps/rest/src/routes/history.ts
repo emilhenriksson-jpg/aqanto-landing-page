@@ -51,6 +51,31 @@ export function historyRoutes(): Hono<AppEnv> {
       savedAt: provenance.savedAt.toISOString(),
       savedByClient: provenance.savedByClient,
       approvedByName: provenance.approvedByName,
+      // Three of scope §4's six questions were computed by `HistoryPort.provenance` and
+      // dropped on the way out of this route: why it was stored where it is, where the
+      // information came from, and whether it has changed since.
+      motivation: provenance.motivation,
+      source: provenance.source,
+      changed: provenance.changed,
+      /**
+       * Which model has seen this text.
+       *
+       * `external: true` means the memory's own words were sent to a third party to make
+       * it searchable by meaning. A person asking "hur vet du det om mig?" is entitled
+       * to reach that, and until `0016_embedding_provenance.sql` nothing recorded it.
+       * `null` means no vector was ever computed for this memory.
+       *
+       * The screen that shows this is another track's; what is owned here is that the
+       * fact exists and is served.
+       */
+      embedding: provenance.embedding
+        ? {
+            provider: provenance.embedding.provider,
+            model: provenance.embedding.model,
+            external: provenance.embedding.external,
+            at: provenance.embedding.at.toISOString(),
+          }
+        : null,
       timeline: provenance.timeline.map(serialiseHistoryEntry),
     });
   });
