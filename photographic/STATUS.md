@@ -49,10 +49,185 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
 - **The tunnel hostname is new on every run**, so a connector saved in Claude is
   invalidated by the next restart. That is the accepted cost of not committing to a
   deployment while storage is still being decided.
-- **No real email or SMS.** Sign-up codes are written to the API log as `signup_code`.
+- **SMS is still the log.** Email is real as of `d8731c7` (Resend, selected by
+  `createCodeSenderFromEnv`); SMS has a 46elks sender but defaults to `log`, so codes sent
+  to a phone number still only appear in the API log as `signup_code`. The default for
+  both is the log, so an unconfigured process behaves as it always did.
+  <!-- Corrected on the Track 2 branch: this line said "no real email or SMS", which
+       d8731c7 had already made false. Fixed here rather than on the foundation, because
+       every push there re-conflicts the stacked PRs. -->
+
 - **Shared-room Aktivitet is still demo data.** Left alone on purpose: it is being
   rebuilt as a view over the append-only event log with full provenance, so a standalone
   activity endpoint now would be thrown away.
+
+## Track 2 — event log & calendar
+
+Branch `cursor/photographic-event-log-calendar-fc2d`, PR #3. Owns domain migrations:
+**0003** (`provenance_and_authorship`) and **0004** (`calendar_and_trash_views`). Track 3
+should number from 0005 upwards; the ledger keys on filename, so two files sharing a
+number would both apply in filename order, which is a coin toss nobody should have to
+think about.
+
+### Security fixes, done first
+
+- **`requiresApproval()` could be switched off by model-supplied content.** `explicit`
+  was tested before the gates for instructions, contradictions and shared rooms, and it
+  is a boolean an AI client sets from what it read — including text inside documents we
+  did not write. It is tested last now and relaxes only the 240-character rule.
+  Consequence, and it is deliberate: **every write into a shared room passes the Godkänn
+  queue**, including one the person asked for out loud (build-plan decision 2).
+- **Invites were not single-use.** `accept` never checked `status = 'pending'`, so a link
+  kept admitting people after the first acceptance. Single-use now, refused as a
+  not-found so a spent link cannot be told from a fictional one, and the status update is
+  conditional in SQL so two simultaneous clicks cannot both pass. `peek` closes with it.
+
+### Working end to end
+
+- **Provenance on the log.** `motivation`, `explicit`, `source_*`, `client_id`,
+  `from_room_id`, `to_room_id` on `app.event`, and `session_ref` finally filled in on the
+  write path — the chain from a memory back to its conversation was broken at the first
+  link. All six questions from scope §4 are answerable, including for memories written
+  before the columns existed: a client plus a session is derived as a conversation.
+- **The eight memory event kinds**, with ⚠️ Omtvistat as the eighth (approved).
+- **`item.superseded` is emitted**, in the same transaction as the status change. The one
+  operation that removes information from the current state was the one the log did not
+  record.
+- **Calendar day view** at `/kalender/:date`, a rail destination. Shows every memory
+  event for the day with its motivation, keeps a correction beside what it corrected, and
+  puts contributions from other members first and marked — there is no owner moderation
+  of incoming material, so visibility is the whole defence.
+- **Zoom**: dag → minneshändelse → källa, at `/kalender/handelse/:seq`. Every value the
+  memory has held, and the source as a place (the session, and what else came out of it).
+- **Trash and history are views over the log.** `app.trash` derives membership from the
+  last lifecycle event; delete-undo-delete now has one answer instead of two that drift.
+- **Disputes.** Across authors in a shared room both statements stay active, carry each
+  other, and always travel together into retrieval. Only the losing author or an owner
+  resolves one, never a model, and there is no tool for it.
+- **Room isolation in the data layer**: a trigger refuses any memory placed in a shared
+  room without a person asking, and another refuses a second member in a personal room.
+- **`member.left` / `membership.left_at`**, with owner succession to the longest-serving
+  editor, and a deliberate "ta bort mina bidrag" path through the ordinary trash.
+  Contributions otherwise stay, attributed.
+- **Inert RLS policies dropped** (approved) and `ARCHITECTURE.md` corrected in the same
+  change — it pointed the opposite way from build-plan decision 4.
+- `sensitivity` now forces the approval gate, so the MCP tool description stops promising
+  something the code did not do. `local_only` was never in the public tool schema.
+
+### Automatic memory routing
+
+The last unbuilt piece of the core idea. A write with no room named used to default to the
+personal room silently, so "Photographic decides where it goes" was really "the client
+decides, and the client always says private". `remember`'s `roomId` is optional now, and
+leaving it out means `routeMemory` decides and records why.
+
+Three properties hold by construction rather than by care:
+
+- **Nothing auto-shares.** The router picks a target; it does not decide whether the write
+  lands. A routed room meets the same `requiresApproval` gate a hand-named one does, and
+  that gate refuses every write into a shared room. The worst a wrong routing decision can
+  do is put a question in the Godkänn queue. There is no code path here that returns "and
+  no approval needed".
+- **Uncertainty resolves towards private.** A weak best match or two rooms matching about
+  equally both mean private — not because private is neutral but because it is the
+  reversible one.
+- **The model may only make the outcome more private.** The shortlist is lexical and
+  deterministic; `LlmPort.confirmPlacement` can veto a candidate and can never propose
+  one. Same asymmetry as the `explicit` fix: untrusted input may tighten a decision, never
+  loosen it.
+
+**On the fake or unavailable LLM** — the question worth writing down. Falling back to
+"always private, always ask" would have been safe and would have made the feature invisible
+in the only environment it is tested in. Instead the decision is split: *which room is a
+candidate* is computed from text without a model, and the model only ever narrows. So
+routing behaves identically against `FakeLlm`, an unconfigured process and a provider
+outage — the e2e suites exercise real room placements, not a stub — while a real model adds
+a veto. `confirmPlacement` is optional on the port for exactly this reason, and every
+failure path inside `OpenAiLlm.confirmPlacement` lands on `belongs: false`, which keeps the
+memory private.
+
+The room match is crude on purpose: token overlap against title, description and the room's
+own memories, with a short function-word list and a few Swedish suffixes stripped. Without
+the suffixes it cannot match "ledningen" to a room called "Ledning", which in a Swedish
+product is most of the misses.
+
+**Replace it, do not grow it.** The retrieval track is building its Swedish text handling
+as a reusable function in `core` rather than inline in search, specifically so routing has
+something real to adopt. When that lands, `stem` and `FUNCTION_WORDS` in `routing.ts`
+should be deleted in favour of it — a second hand-rolled suffix list is the thing to avoid.
+Left alone here on purpose while both branches are in flight.
+
+Two things found while building it, both now tested:
+
+- **Routing bypassed the token's room scope.** `assertRoomInScope` guards every path where
+  a room is *named*; routing is the path where none is, so a token issued for one room
+  could reach the personal room by not mentioning it. `routeMemory` filters candidates by
+  `actor.roomScope` and refuses with `NotPermittedError` when nothing is reachable.
+- **The routing reason was lost on approval.** It was recorded on `proposal.created` but
+  the memory that eventually landed carried a generic sentence. `app.proposal.motivation`
+  now carries it through, because deciding again at approval time — from a room list that
+  may have changed since — is a different decision wearing the first one's clothes.
+
+Also: the explanation quotes the person's own spelling. Matching runs on stripped, stemmed
+tokens; "eftersom det nämner forvarv, buyersclub" is the inside of the matcher, not a
+sentence anybody wrote.
+
+### Notes for whoever touches this next
+
+- **Two bugs the new tests found**, both pre-existing: purging a memory failed on a
+  foreign key when a proposal or a superseding item still pointed at it (fixed in 0003 —
+  `SET NULL`, because those are pointers and the rows holding them are records of their
+  own); and the e2e Postgres harness was wiping the schema the other packages read, so it
+  now uses a database of its own (`..._e2e`, created on demand, falling back if it
+  cannot).
+- `explicit: true` no longer saves into a shared room. Test helpers for that exist:
+  `harness.saveIntoRoom` in e2e, `saveIntoRoom` in `apps/rest/src/app.test.ts`.
+- Not built, deliberately: week/month/year rollups. Derivable from the same log whenever
+  they are wanted, and shipping summaries before the thing being summarised would have
+  been the wrong order.
+- Not touched, per ownership: OAuth client/token storage, scope middleware,
+  `resolveByName`. `app.event.client_id` and `app.item.author_client_id` are in place and
+  null until Track 3 moves the client store to Postgres — an honest gap rather than a
+  confident guess.
+
+Rebased onto the foundation tip at `d8731c7` (real email delivery + public HTTPS), so
+these numbers include that work. Two conflicts, both resolved by keeping the union:
+`STATUS.md` (this section under its own heading, theirs left untouched) and
+`e2e/vitest.config.ts` — they excluded the live smoke from the default run and gave it
+`test:live`, I set `fileParallelism: false`; both are needed and the merged file says why.
+
+Green: monorepo typecheck clean; core 52, agent 54, auth 34, connect 91, delivery 28,
+llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 memory +
+44 postgres (22 journey + 22 calendar/routing), plus
+`pnpm --filter @photographic/e2e test:live` against a running process.
+
+### Verified against a running system, not only by tests
+
+- **The session chain, which was the point of the `session_ref` fix.** A real MCP client
+  over the full OAuth dance calls `remember`; the resulting `item.created` carries
+  `session_ref`, and it joins to an `app.client_session` row with `transport = mcp` and
+  `profile_delivered = true`. `source_ref = session_ref`, so `GET /v1/calendar/events/:seq`
+  opens the conversation it came out of. Script: `/tmp/mcp-write.mjs` in that run — not
+  committed, it is twenty lines of OAuth and a tool call.
+  Note: the e2e harness's actors carry no session, so `session_ref` is null in that
+  database. That is honest rather than broken — no session, no ref.
+- **Both database triggers refuse raw SQL** that bypasses every application path: a
+  non-explicit insert into a shared room, and a second member in a personal room.
+- **`pg_policies` in schema `app` is empty** and `relrowsecurity` is false on `item`,
+  `document`, `chunk`, `brief` and `event`.
+- **Bottom clearance on the calendar, measured rather than eyeballed.** `.shell__main`
+  computes `padding-bottom: 140px` at 420px wide, and at the true bottom of the page the
+  last card sits 210px above the fixed tab bar with the footer link clear too. On desktop
+  the last card and footer are both fully visible and the 64px rail ends well left of the
+  content. Worth writing down because a *mid-scroll* screenshot of a page with a fixed tab
+  bar always looks like a clipping bug — the bar paints over whatever is under it at that
+  moment. `media/kalender-mobil.png` in the project store is therefore a full-page capture,
+  where the bar appears once at the real bottom and cannot be misread.
+- **Running `src/calendar.test.ts` alone against Postgres** leaves `item.disputed`,
+  `item.dispute_resolved`, `item.superseded` and `member.left` rows in the log, one
+  `membership.left_at` written, `disputed` present in `app.memory_event`, and two authors
+  recorded per shared room. Worth knowing: the two e2e files each reset the schema, so
+  inspecting the database after a full run only shows whichever ran last.
 
 ## Completed
 

@@ -12,6 +12,7 @@ import type {
   AgentClient,
   EventPort,
   MemoryEvent,
+  MemorySource,
   PersonId,
   RoomId,
 } from '@photographic/core';
@@ -19,7 +20,7 @@ import { NotPermittedError } from '@photographic/core';
 import type { Pool } from 'pg';
 
 import { queryOne, queryRows, type Db } from '../pool.js';
-import { mapEvent, type EventRow } from '../rows.js';
+import { EVENT_COLUMNS, mapEvent, type EventRow } from '../rows.js';
 import { canRead } from './permissions.js';
 
 export async function appendEvent(
@@ -30,23 +31,43 @@ export async function appendEvent(
     payload: Record<string, unknown>;
     actorPersonId?: PersonId | null;
     agentClient?: AgentClient | null;
+    clientId?: string | null;
     sessionRef?: string | null;
     approvedBy?: PersonId | null;
+    motivation?: string | null;
+    explicit?: boolean;
+    source?: MemorySource | null;
+    fromRoomId?: RoomId | null;
+    toRoomId?: RoomId | null;
   },
 ): Promise<MemoryEvent> {
   const row = await queryOne<EventRow>(
     db,
-    `INSERT INTO app.event (room_id, event_type, payload, actor_person_id, agent_client, session_ref, approved_by, approved_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $7::uuid IS NULL THEN NULL ELSE now() END)
-     RETURNING seq, id, room_id, event_type, payload, actor_person_id, agent_client, session_ref, approved_by, occurred_at`,
+    `INSERT INTO app.event (room_id, event_type, payload, actor_person_id, agent_client, client_id,
+                            session_ref, approved_by, approved_at, motivation, explicit,
+                            source_kind, source_label, source_ref, source_uri,
+                            from_room_id, to_room_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+             CASE WHEN $8::uuid IS NULL THEN NULL ELSE now() END,
+             $9, $10, $11, $12, $13, $14, $15, $16)
+     RETURNING ${EVENT_COLUMNS}`,
     [
       input.roomId,
       input.eventType,
       JSON.stringify(input.payload ?? {}),
       input.actorPersonId ?? null,
       input.agentClient ?? null,
+      input.clientId ?? null,
       input.sessionRef ?? null,
       input.approvedBy ?? null,
+      input.motivation?.trim() || null,
+      input.explicit ?? false,
+      input.source?.kind ?? null,
+      input.source?.label ?? null,
+      input.source?.ref ?? null,
+      input.source?.uri ?? null,
+      input.fromRoomId ?? null,
+      input.toRoomId ?? null,
     ],
   );
   return mapEvent(row!);
@@ -61,8 +82,14 @@ export class PgEvents implements EventPort {
     payload: Record<string, unknown>;
     actorPersonId?: PersonId;
     agentClient?: AgentClient;
+    clientId?: string;
     sessionRef?: string;
     approvedBy?: PersonId;
+    motivation?: string;
+    explicit?: boolean;
+    source?: MemorySource;
+    fromRoomId?: RoomId;
+    toRoomId?: RoomId;
   }): Promise<MemoryEvent> {
     return appendEvent(this.pool, input);
   }
@@ -74,7 +101,7 @@ export class PgEvents implements EventPort {
   } = {}): Promise<MemoryEvent[]> {
     const rows = await queryRows<EventRow>(
       this.pool,
-      `SELECT seq, id, room_id, event_type, payload, actor_person_id, agent_client, session_ref, approved_by, occurred_at
+      `SELECT ${EVENT_COLUMNS}
        FROM app.event
        WHERE ($1::uuid IS NULL OR room_id = $1)
          AND seq > $2
@@ -89,7 +116,7 @@ export class PgEvents implements EventPort {
     if (!(await canRead(this.pool, actor.personId, roomId))) throw new NotPermittedError();
     const rows = await queryRows<EventRow>(
       this.pool,
-      `SELECT seq, id, room_id, event_type, payload, actor_person_id, agent_client, session_ref, approved_by, occurred_at
+      `SELECT ${EVENT_COLUMNS}
        FROM app.event
        WHERE room_id = $1 AND seq > $2
        ORDER BY seq ASC`,

@@ -69,12 +69,19 @@ async function main(): Promise<void> {
         title: 'Buyersclub Ledning',
         description: 'Beslut och riktning för Buyersclub-förvärvet',
       });
-      await services.ingest.remember(actor, {
+
+      // Via the approval queue, because that is the only way into a shared room now —
+      // seeding around it would give the demo a room in a state the product cannot
+      // produce.
+      const queued = await services.ingest.remember(actor, {
         roomId: shared.id,
         body: 'Vi beslutade att skjuta förvärvet till Q3',
         kind: 'decision',
         explicit: true,
       });
+      if (queued.outcome === 'needs_approval') {
+        await services.ingest.resolveProposal(actor, queued.proposal.id, true);
+      }
     }
 
     if (needsPersonalFacts || !hasShared) {

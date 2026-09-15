@@ -12,6 +12,7 @@ import type {
   AgentClient,
   EventPort,
   MemoryEvent,
+  MemorySource,
   PersonId,
   RoomId,
 } from '@photographic/core';
@@ -28,8 +29,14 @@ export class MemoryEvents implements EventPort {
     payload: Record<string, unknown>;
     actorPersonId?: PersonId;
     agentClient?: AgentClient;
+    clientId?: string;
     sessionRef?: string;
     approvedBy?: PersonId;
+    motivation?: string;
+    explicit?: boolean;
+    source?: MemorySource;
+    fromRoomId?: RoomId;
+    toRoomId?: RoomId;
   }): Promise<MemoryEvent> {
     return this.store.append(input);
   }

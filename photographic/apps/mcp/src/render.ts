@@ -24,6 +24,7 @@ import type {
   RoomSummary,
   SearchHit,
   TrashEntry,
+  UpdateDecision,
   WriteDecision,
 } from '@photographic/core';
 import { estimateTokens, TRASH_RETENTION_DAYS } from '@photographic/core';
@@ -41,11 +42,17 @@ export const RESULT_TOKEN_BUDGET = 3000;
 export function renderWrite(decision: WriteDecision, roomTitle: string): string {
   switch (decision.outcome) {
     case 'auto':
-      return `Sparat i ${roomTitle} (${decision.item.shortId}).`;
+      return [
+        `Sparat i ${roomTitle} (${decision.item.shortId}).`,
+        // When Photographic chose the room rather than the model, say so and say why —
+        // the person will see this reason in their calendar, and a model that can repeat
+        // it is the difference between a placement and a black box.
+        ...(decision.routing ? [decision.routing.motivation] : []),
+      ].join(' ');
 
     case 'needs_approval':
       return [
-        `Inte sparat än — det här kräver personens godkännande: ${decision.proposal.reason}.`,
+        `Inte sparat än — det här kräver personens godkännande: ${decision.proposal.reason}`,
         `Förslaget ligger och väntar (${decision.proposal.id}).`,
         '',
         'Berätta för personen att du har frågat, och vad du frågade om. Säg inte att det',
@@ -71,6 +78,22 @@ export function renderUpdated(item: Item): string {
   return [
     `Uppdaterat (${item.shortId}). Den tidigare versionen finns kvar i historiken, så`,
     'personen kan se vad som gällde förut.',
+  ].join('\n');
+}
+
+/**
+ * An edit now goes through the same approval gate as every other write, so it has two
+ * outcomes rather than one. In a shared room it queues — which the model has to report as
+ * a question asked rather than a change made.
+ */
+export function renderUpdate(decision: UpdateDecision): string {
+  if (decision.outcome === 'updated') return renderUpdated(decision.item);
+
+  return [
+    `Inte ändrat än — det här kräver personens godkännande: ${decision.proposal.reason}.`,
+    `Förslaget ligger och väntar (${decision.proposal.id}).`,
+    '',
+    'Säg att du har frågat, och vad du frågade om. Säg inte att det är ändrat.',
   ].join('\n');
 }
 
@@ -218,9 +241,13 @@ const ACTION_TEXT: Record<HistoryEntry['action'], string> = {
   saved: 'sparade',
   updated: 'ändrade',
   superseded: 'ersatte',
+  shared: 'delade',
+  moved: 'flyttade',
   deleted: 'tog bort',
   restored: 'tog tillbaka',
   purged: 'raderade permanent',
+  disputed: 'bestred',
+  dispute_resolved: 'avgjorde tvisten om',
   proposed: 'föreslog',
   approved: 'godkände',
   rejected: 'avslog',

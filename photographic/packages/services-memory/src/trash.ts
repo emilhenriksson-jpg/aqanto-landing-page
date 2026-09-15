@@ -40,6 +40,21 @@ export class MemoryTrash implements TrashPort {
     private readonly projection: ProjectionPort,
   ) {}
 
+  /**
+   * What is in the trash, read out of the log.
+   *
+   * Membership is a question about events: an item whose most recent lifecycle event was
+   * a deletion, and which has not been restored or purged since. It used to be
+   * `status = 'deleted'` plus five columns recording who deleted it, from which client
+   * and why — every one of which the log already knew. Two records of one fact is one
+   * record and one thing that drifts from it, and you find out they disagree when a
+   * person sees something in the trash they restored last week.
+   *
+   * The text and the deadline still come from the item, because the item is the memory's
+   * current value and the deadline is a decision taken at deletion rather than a
+   * derivation. Who, which client and why come from the event, where nothing can
+   * overwrite them.
+   */
   async list(
     actor: Actor,
     input: { roomId?: RoomId; limit?: number } = {},
@@ -53,25 +68,37 @@ export class MemoryTrash implements TrashPort {
     );
     const now = this.store.now();
 
-    return [...this.store.items.values()]
-      .filter((i) => i.status === 'deleted' && scope.has(i.roomId) && i.deletedAt && i.purgeAfter)
-      .sort((a, b) => b.deletedAt!.getTime() - a.deletedAt!.getTime())
-      .slice(0, input.limit ?? 50)
-      .map((item) => ({
+    const entries: TrashEntry[] = [];
+
+    for (const item of this.store.items.values()) {
+      if (!scope.has(item.roomId)) continue;
+      if (item.purgeAfter === null) continue;
+
+      const last = this.store.lastLifecycleEvent(item.id);
+      if (last?.eventType !== 'item.deleted') continue;
+
+      entries.push({
         shortId: item.shortId,
         roomId: item.roomId,
         roomTitle: this.store.rooms.get(item.roomId)?.title ?? '',
         kind: item.kind,
         body: item.body,
-        deletedAt: item.deletedAt!,
-        deletedBy: item.deletedBy,
-        deletedByClient: item.deletedByClient,
-        deleteReason: item.deleteReason,
-        purgeAfter: item.purgeAfter!,
+        deletedAt: last.occurredAt,
+        deletedBy: last.actorPersonId,
+        deletedByClient: last.agentClient,
+        // The person's own phrasing, as it was recorded. "Flyttade från Stockholm" is an
+        // answer a week later; "borttaget" against forty rows is a list to re-derive.
+        deleteReason: last.motivation,
+        purgeAfter: item.purgeAfter,
         // Pre-computed because every surface showing the trash needs it, and a model
         // asked "is it really gone?" should not have to do date arithmetic to answer.
-        daysRemaining: daysRemaining(item.purgeAfter!, now),
-      }));
+        daysRemaining: daysRemaining(item.purgeAfter, now),
+      });
+    }
+
+    return entries
+      .sort((a, b) => b.deletedAt.getTime() - a.deletedAt.getTime())
+      .slice(0, input.limit ?? 50);
   }
 
   /**
@@ -83,7 +110,9 @@ export class MemoryTrash implements TrashPort {
    */
   async restore(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<Item> {
     const item = this.store.findByShortId(actor.personId, shortId, roomId);
-    if (!item || item.status !== 'deleted') throw new NotFoundError('Det finns inget att återställa.');
+    if (!item || !this.store.isInTrash(item.id)) {
+      throw new NotFoundError('Det finns inget att återställa.');
+    }
     if (!this.store.canWrite(actor.personId, item.roomId)) throw new NotPermittedError();
 
     return this.ingest.restore(actor, item);
@@ -115,6 +144,7 @@ export class MemoryTrash implements TrashPort {
         payload: { item_id: item.id, short_id: item.shortId },
         actorPersonId: item.deletedBy,
         agentClient: item.deletedByClient,
+        motivation: 'Trettio dagar gick. Texten är permanent raderad.',
       });
     }
 
@@ -127,7 +157,9 @@ export class MemoryTrash implements TrashPort {
   /** For people who want it gone now rather than in thirty days. */
   async purgeNow(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<void> {
     const item = this.store.findByShortId(actor.personId, shortId, roomId);
-    if (!item || item.status !== 'deleted') throw new NotFoundError('Det finns inget att radera.');
+    if (!item || !this.store.isInTrash(item.id)) {
+      throw new NotFoundError('Det finns inget att radera.');
+    }
     if (!this.store.canWrite(actor.personId, item.roomId)) throw new NotPermittedError();
 
     this.store.append({
@@ -136,6 +168,9 @@ export class MemoryTrash implements TrashPort {
       payload: { item_id: item.id, short_id: item.shortId },
       actorPersonId: actor.personId,
       agentClient: actor.agentClient,
+      clientId: actor.clientId ?? null,
+      explicit: true,
+      motivation: 'Permanent raderat på din begäran, före de trettio dagarna.',
     });
 
     this.store.redactItemText([item.id]);

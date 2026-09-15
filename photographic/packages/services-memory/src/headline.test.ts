@@ -26,6 +26,30 @@ async function setup() {
   return { ...wired, person, actor, llm: wired.services.llm as FakeLlm };
 }
 
+/**
+ * Saves into a shared room, which means going through the approval queue.
+ *
+ * Every write to a shared room does now, including one the person asked for out loud:
+ * `explicit` is a flag a model sets from what it read, so it cannot be allowed to open a
+ * room other people read. See `requiresApproval`.
+ */
+async function saveInto(
+  wired: Awaited<ReturnType<typeof setup>>,
+  roomId: RoomId,
+  body: string,
+): Promise<void> {
+  const decision = await wired.services.ingest.remember(wired.actor, {
+    roomId,
+    body,
+    kind: 'note',
+    explicit: true,
+  });
+  if (decision.outcome !== 'needs_approval') {
+    throw new Error('Delade rum ska alltid gå via Godkänn-kön.');
+  }
+  await wired.services.ingest.resolveProposal(wired.actor, decision.proposal.id, true);
+}
+
 async function roomWith(
   wired: Awaited<ReturnType<typeof setup>>,
   input: { title: string; description?: string; items?: string[] },
@@ -36,12 +60,7 @@ async function roomWith(
   });
 
   for (const body of input.items ?? []) {
-    await wired.services.ingest.remember(wired.actor, {
-      roomId: room.id,
-      body,
-      kind: 'note',
-      explicit: true,
-    });
+    await saveInto(wired, room.id, body);
   }
 
   return room;
@@ -83,12 +102,7 @@ describe('where a room headline comes from', () => {
 
     const before = wired.llm.calls.summarise;
     await roomWith(wired, { title: 'Villan 2' });
-    await wired.services.ingest.remember(wired.actor, {
-      roomId: room.id,
-      body: 'Peab har offererat 340 000 kr',
-      kind: 'note',
-      explicit: true,
-    });
+    await saveInto(wired, room.id, 'Peab har offererat 340 000 kr');
     await wired.runJobsToCompletion();
 
     expect(await headlineOf(wired, room.id)).toBe('Renovering av villan');

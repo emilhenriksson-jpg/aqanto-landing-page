@@ -155,6 +155,31 @@ async function register(f: Fixture, email: string, name: string) {
   return { person, token };
 }
 
+/**
+ * Saves into a shared room over HTTP, which means clearing the approval it queues.
+ *
+ * Every write into a shared room answers 202 now, including one the person asked for out
+ * loud. `explicit` is a claim a model makes from text it read, and some of that text
+ * arrives inside documents we did not write, so it cannot be the thing that opens a room
+ * other people can read.
+ */
+async function saveIntoRoom(
+  f: Fixture,
+  token: string,
+  body: Record<string, unknown>,
+): Promise<void> {
+  const queued = await f.post('/v1/memory', { ...body, explicit: true }, token);
+  if (queued.status !== 202) {
+    throw new Error(`förväntade 202 från ett delat rum, fick ${queued.status}`);
+  }
+
+  const { proposal } = await queued.json();
+  const accepted = await f.post(`/v1/memory/proposals/${proposal.id}`, { accept: true }, token);
+  if (accepted.status !== 200) {
+    throw new Error(`kunde inte godkänna förslaget: ${accepted.status}`);
+  }
+}
+
 let f: Fixture;
 beforeEach(async () => {
   f = await fixture();
@@ -283,7 +308,11 @@ describe('saving a memory', () => {
       token,
     );
 
-    expect(res.status).toBe(201);
+    // 202, not 201: the room resolved from the spoken name, and then the write queued
+    // because the room is shared. Both halves matter — a 404 here would mean the name
+    // never resolved.
+    expect(res.status).toBe(202);
+    expect((await res.json()).proposal.roomId).toBeTruthy();
   });
 });
 
@@ -486,26 +515,16 @@ describe('rooms and who can see them', () => {
       await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)
     ).json();
 
-    await f.post(
-      '/v1/memory',
-      {
-        roomId: created.room.id,
-        body: 'Vi beslutade att skjuta förvärvet till Q3',
-        kind: 'decision',
-        explicit: true,
-      },
-      emil.token,
-    );
-    await f.post(
-      '/v1/memory',
-      {
-        roomId: created.room.id,
-        body: 'Anna äger due diligence',
-        kind: 'fact',
-        explicit: true,
-      },
-      emil.token,
-    );
+    await saveIntoRoom(f, emil.token, {
+      roomId: created.room.id,
+      body: 'Vi beslutade att skjuta förvärvet till Q3',
+      kind: 'decision',
+    });
+    await saveIntoRoom(f, emil.token, {
+      roomId: created.room.id,
+      body: 'Anna äger due diligence',
+      kind: 'fact',
+    });
 
     const res = await f.get(`/v1/rooms/${created.room.id}/items`, emil.token);
     expect(res.status).toBe(200);
@@ -609,6 +628,8 @@ describe('rooms and who can see them', () => {
     });
 
     expect((await f.post('/v1/memory', { body: 'I mitt personliga rum' }, narrow)).status).toBe(404);
+    // 202 rather than 201: in scope, and queued because the room is shared. A 404 here
+    // would mean the token's scope rejected a room it was issued for.
     expect(
       (
         await f.post(
@@ -617,7 +638,7 @@ describe('rooms and who can see them', () => {
           narrow,
         )
       ).status,
-    ).toBe(201);
+    ).toBe(202);
   });
 });
 
@@ -625,11 +646,10 @@ describe('being invited', () => {
   it('shows the room before asking for an account', async () => {
     const emil = await register(f, 'emil@example.com', 'Emil');
     const created = await (await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)).json();
-    await f.post(
-      '/v1/memory',
-      { roomId: created.room.id, body: 'Vi beslutade att skjuta förvärvet till Q3', explicit: true },
-      emil.token,
-    );
+    await saveIntoRoom(f, emil.token, {
+      roomId: created.room.id,
+      body: 'Vi beslutade att skjuta förvärvet till Q3',
+    });
 
     const invite = await (
       await f.post(

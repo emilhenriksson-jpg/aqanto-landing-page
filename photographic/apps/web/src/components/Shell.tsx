@@ -3,6 +3,9 @@ import { NavLink, Outlet } from 'react-router-dom';
 const NAV = [
   { to: '/', end: true, label: 'Rum', icon: HomeIcon },
   { to: '/rum', end: true, label: 'Alla', icon: GridIcon },
+  // The calendar earns a rail slot: the scope calls it a central part of the app, the
+  // chronological representation of the person's memory, not something internal to the AI.
+  { to: '/kalender', end: false, label: 'Kalender', icon: CalendarIcon },
   { to: '/klienter', end: true, label: 'Klienter', icon: ClientsIcon },
   { to: '/godkann', end: true, label: 'Godkänn', icon: CheckIcon },
 ] as const;
@@ -55,6 +58,16 @@ function GridIcon() {
       <rect x="13" y="4" width="7" height="7" rx="2" stroke="currentColor" strokeWidth="1.6" />
       <rect x="4" y="13" width="7" height="7" rx="2" stroke="currentColor" strokeWidth="1.6" />
       <rect x="13" y="13" width="7" height="7" rx="2" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4" y="5.5" width="16" height="14.5" rx="3" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M4 10.5h16" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8.5 3.5v4M15.5 3.5v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }

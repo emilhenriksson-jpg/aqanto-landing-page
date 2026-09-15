@@ -1,3 +1,4 @@
+export { getCalendarDay, getCalendarEvent } from './calendar.js';
 export { ApiError, apiFetch, apiUpload } from './client.js';
 export { listClients } from './clients.js';
 export {
@@ -23,9 +24,15 @@ export {
 export { listTrash, restoreTrash } from './trash.js';
 export type {
   BriefDto,
+  CalendarDayDto,
+  CalendarEntryDto,
   ClientHealthDto,
+  EventProvenanceDto,
   ForgetResponse,
   HistoryEntryDto,
+  MemoryEventDetailDto,
+  MemoryEventKindDto,
+  MemorySourceDto,
   InvitePreviewDto,
   ItemDto,
   ProfileDto,

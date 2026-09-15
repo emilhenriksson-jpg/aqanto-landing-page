@@ -6,6 +6,7 @@ import type {
   Actor,
   MemberRole,
   Person,
+  PersonId,
   ProjectionPort,
   Room,
   RoomId,
@@ -15,12 +16,15 @@ import type {
 import { matchRoomByName, NotPermittedError } from '@photographic/core';
 
 import { slugify } from './identity.js';
+import type { MemoryIngest } from './ingest.js';
 import { MemoryStore, newId } from './store.js';
 
 export class MemoryRooms implements RoomPort {
   constructor(
     private readonly store: MemoryStore,
     private readonly projection: Pick<ProjectionPort, 'headlinesFor' | 'invalidate'>,
+    /** Leaving a room can take the author's own contributions with it, through the trash. */
+    private readonly ingest: Pick<MemoryIngest, 'softDelete'>,
   ) {}
 
   async create(actor: Actor, input: { title: string; description?: string }): Promise<Room> {
@@ -169,10 +173,154 @@ export class MemoryRooms implements RoomPort {
       .filter((x) => x.person !== undefined);
   }
 
+  /**
+   * Leaves a shared room. The membership ends; the contributions stay.
+   *
+   * This is the most consequential promise in the permission model and it runs the
+   * uncomfortable way round deliberately. If forty notes vanished the moment their author
+   * left, everyone *else's* memory would change behind their backs — decisions citing her
+   * material stop making sense, and their calendars grow holes none of them caused.
+   *
+   * The price is that you do not get back what you wrote into a shared room, which is
+   * only acceptable because it is said beforehand and because `removeContributions`
+   * exists: it goes through the ordinary trash, the other members see `item.deleted` with
+   * a motivation, and an owner can undo it for thirty days. No owner can take that option
+   * away, and nothing here is a silent mass deletion.
+   */
+  async leave(
+    actor: Actor,
+    roomId: RoomId,
+    input: { removeContributions?: boolean } = {},
+  ): Promise<void> {
+    const role = this.store.roleIn(actor.personId, roomId);
+    if (!role) throw new NotPermittedError();
+
+    const room = this.store.rooms.get(roomId);
+    if (!room) throw new NotPermittedError();
+    if (room.kind === 'personal') {
+      throw new NotPermittedError('Du kan inte lämna ditt eget rum.');
+    }
+
+    await this.endMembership(actor, roomId, actor.personId, {
+      removeContributions: input.removeContributions ?? false,
+      removedBy: null,
+    });
+  }
+
+  /** Owner-only. Same mechanics as leaving, decided by someone else. */
+  async removeMember(actor: Actor, roomId: RoomId, personId: PersonId): Promise<void> {
+    if (this.store.roleIn(actor.personId, roomId) !== 'owner') throw new NotPermittedError();
+    if (!this.store.roleIn(personId, roomId)) throw new NotPermittedError();
+    if (personId === actor.personId) {
+      throw new NotPermittedError('Använd "lämna rummet" för att gå ur själv.');
+    }
+
+    // An owner removing someone else never touches their contributions. Deciding that
+    // somebody else's work should disappear is a different act, and it is the one thing
+    // "remove my contributions" exists to keep in the author's own hands.
+    await this.endMembership(actor, roomId, personId, {
+      removeContributions: false,
+      removedBy: actor.personId,
+    });
+  }
+
   async markSeen(actor: Actor, roomId: RoomId): Promise<void> {
     if (!this.store.canRead(actor.personId, roomId)) throw new NotPermittedError();
     const latest = this.store.allEvents().filter((e) => e.roomId === roomId).at(-1);
     this.store.readState.set(`${actor.personId}:${roomId}`, latest?.seq ?? 0);
+  }
+
+  /**
+   * Ends one membership and records it.
+   *
+   * No token revocation is needed and none is done: the actor's reach is intersected
+   * against *current* memberships on every request, so access stops at the next call.
+   * Caching it would be the bug.
+   */
+  private async endMembership(
+    actor: Actor,
+    roomId: RoomId,
+    personId: PersonId,
+    options: { removeContributions: boolean; removedBy: PersonId | null },
+  ): Promise<void> {
+    if (options.removeContributions) {
+      const own = this.store
+        .itemsInRoom(roomId)
+        .filter((item) => item.authorPersonId === personId && item.status === 'active');
+
+      for (const item of own) {
+        await this.ingest.softDelete(actor, item, 'borttaget av författaren när hon lämnade rummet');
+      }
+    }
+
+    const membership = this.store.memberships.find(
+      (m) => m.personId === personId && m.roomId === roomId && m.leftAt === null,
+    );
+    if (membership) membership.leftAt = this.store.now();
+
+    this.store.append({
+      roomId,
+      eventType: 'member.left',
+      payload: {
+        person_id: personId,
+        ...(options.removedBy ? { removed_by: options.removedBy } : {}),
+        contributions: options.removeContributions ? 'removed' : 'kept',
+      },
+      actorPersonId: actor.personId,
+      agentClient: actor.agentClient,
+      clientId: actor.clientId ?? null,
+      explicit: true,
+      motivation: options.removeContributions
+        ? 'Lämnade rummet och tog bort sina egna bidrag.'
+        : 'Medlemskapet upphörde. Bidragen stannar i rummet.',
+    });
+
+    await this.succeedOwnership(actor, roomId, personId);
+    await this.projection.invalidate({ roomId });
+  }
+
+  /**
+   * A room always has an owner, or it has no reason to exist.
+   *
+   * The longest-serving editor inherits, because that is the person most likely to know
+   * what the room is for. With nobody to inherit it, the room is archived — which already
+   * removes it from `accessibleRoomIds` for everyone rather than leaving content nobody
+   * can administer.
+   */
+  private async succeedOwnership(actor: Actor, roomId: RoomId, departed: PersonId): Promise<void> {
+    const active = this.store.memberships.filter((m) => m.roomId === roomId && m.leftAt === null);
+    if (active.some((m) => m.role === 'owner')) return;
+
+    const heir = active
+      .filter((m) => m.role === 'editor')
+      .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime())[0];
+
+    if (heir) {
+      heir.role = 'owner';
+      this.store.append({
+        roomId,
+        eventType: 'room.owner_changed',
+        payload: { person_id: heir.personId, previous_owner: departed, reason: 'succession' },
+        actorPersonId: actor.personId,
+        agentClient: actor.agentClient,
+        explicit: false,
+        motivation: 'Rummets ägare lämnade. Ägarskapet gick till den editor som varit med längst.',
+      });
+      return;
+    }
+
+    const room = this.store.rooms.get(roomId);
+    if (room && room.archivedAt === null) {
+      room.archivedAt = this.store.now();
+      this.store.append({
+        roomId,
+        eventType: 'room.archived',
+        payload: { reason: 'no_owner_remaining' },
+        actorPersonId: actor.personId,
+        agentClient: actor.agentClient,
+        motivation: 'Ingen ägare kvar i rummet.',
+      });
+    }
   }
 
   private memberCount(roomId: RoomId): number {

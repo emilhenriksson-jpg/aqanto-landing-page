@@ -413,6 +413,286 @@ export const DEMO_TRASH: TrashLine[] = [
 ];
 
 /**
+ * The calendar: what Photographic did with what you told it, one day at a time.
+ *
+ * The screen is designed against this shape and `load.ts` maps the live day onto the
+ * same types. Eight kinds, each with its own glyph and its own Swedish label, because a
+ * day where two things were saved privately and one was shared with three people is not
+ * a list of three identical rows.
+ */
+export type MemoryEventKind =
+  | 'saved_private'
+  | 'saved_to_room'
+  | 'shared'
+  | 'updated'
+  | 'moved'
+  | 'deleted'
+  | 'restored'
+  | 'disputed';
+
+export interface DayEvent {
+  seq: number;
+  kind: MemoryEventKind;
+  /** `14:02`, in the person's own timezone. */
+  time: string;
+  shortId: string | null;
+  /** What. Null once the text has been purged. */
+  body: string | null;
+  /** What it said before, for an edit. Shown beside the new value, never instead of it. */
+  previousBody: string | null;
+  roomTitle: string;
+  /** Which room it came from, for a move or a share. */
+  fromRoomTitle: string | null;
+  /** Who did it: "Claude", "Du", "Anna". */
+  who: string;
+  /** Why it was stored where it was stored. */
+  motivation: string | null;
+  /** Where the information came from, before it was a memory. */
+  sourceLabel: string | null;
+  /** Who could read it as of the moment it was shared. */
+  sharedWith: string[];
+  /** The two statements that cannot both be true. */
+  disputes: Array<{ shortId: string | null; body: string | null; authorName: string | null }>;
+  /** Somebody else did this, in a room you share with them. */
+  byOtherMember: boolean;
+  /** The memory has been corrected since. */
+  changed: boolean;
+  redacted: boolean;
+}
+
+export interface DayView {
+  date: string;
+  /** "tisdag 15 september 2026", as a person reads a date. */
+  heading: string;
+  roomTitle: string | null;
+  events: DayEvent[];
+  byOthersCount: number;
+  previousDate: string | null;
+  nextDate: string | null;
+}
+
+/** Glyphs from the scope's own table, plus the eighth row for a disagreement. */
+export const EVENT_GLYPH: Record<MemoryEventKind, string> = {
+  saved_private: '🔒',
+  saved_to_room: '📁',
+  shared: '👥',
+  updated: '✏️',
+  moved: '↔️',
+  deleted: '🗑',
+  restored: '♻️',
+  disputed: '⚠️',
+};
+
+export const EVENT_LABEL: Record<MemoryEventKind, string> = {
+  saved_private: 'Sparat privat',
+  saved_to_room: 'Sparat i rum',
+  shared: 'Delat',
+  updated: 'Uppdaterat',
+  moved: 'Flyttat',
+  deleted: 'Borttaget',
+  restored: 'Återställt',
+  disputed: 'Omtvistat',
+};
+
+export const DEMO_DAY: DayView = {
+  date: '2026-09-15',
+  heading: 'tisdag 15 september 2026',
+  roomTitle: null,
+  byOthersCount: 1,
+  previousDate: '2026-09-14',
+  nextDate: null,
+  events: [
+    {
+      seq: 412,
+      kind: 'saved_private',
+      time: '08:14',
+      shortId: 'p-qm5s',
+      body: 'Dottern heter Vera, 4 år',
+      previousBody: null,
+      roomTitle: 'Ditt rum',
+      fromRoomTitle: null,
+      who: 'Claude',
+      motivation: 'Handlar om dig, och sparas därför bara privat.',
+      sourceLabel: 'Samtal med Claude',
+      sharedWith: [],
+      disputes: [],
+      byOtherMember: false,
+      changed: false,
+      redacted: false,
+    },
+    {
+      seq: 418,
+      kind: 'updated',
+      time: '11:02',
+      shortId: 'r-8k2m',
+      body: 'Lanseringen är 1 november',
+      previousBody: 'Lanseringen är 15 oktober',
+      roomTitle: 'Buyersclub Ledning',
+      fromRoomTitle: null,
+      who: 'Du',
+      motivation: 'Uppgiften stämde inte längre. Den gamla finns kvar i historiken.',
+      sourceLabel: 'Du, i Photographic',
+      sharedWith: [],
+      disputes: [],
+      byOtherMember: false,
+      changed: false,
+      redacted: false,
+    },
+    {
+      seq: 421,
+      kind: 'saved_to_room',
+      time: '13:47',
+      shortId: 'r-3n9p',
+      body: 'Due diligence-paketet skickas till styrelsen 12 juni',
+      previousBody: null,
+      roomTitle: 'Buyersclub Ledning',
+      fromRoomTitle: null,
+      who: 'Anna',
+      motivation: 'Hör till Buyersclub Ledning snarare än till ditt privata minne.',
+      sourceLabel: 'Samtal med ChatGPT',
+      sharedWith: [],
+      disputes: [],
+      byOtherMember: true,
+      changed: false,
+      redacted: false,
+    },
+    {
+      seq: 425,
+      kind: 'shared',
+      time: '15:05',
+      shortId: 'r-6t4w',
+      body: 'Elektrikern heter Micke och nås på 070-1234567',
+      previousBody: null,
+      roomTitle: 'Villan',
+      fromRoomTitle: 'Ditt rum',
+      who: 'Du',
+      motivation: 'Delades i Villan efter att du bekräftat det.',
+      sourceLabel: 'Du, i Photographic',
+      sharedWith: ['Emil', 'Vera'],
+      disputes: [],
+      byOtherMember: false,
+      changed: false,
+      redacted: false,
+    },
+    {
+      seq: 430,
+      kind: 'disputed',
+      time: '16:20',
+      shortId: 'r-9d1k',
+      body: 'Vi siktar på förvärv i Q2',
+      previousBody: null,
+      roomTitle: 'Buyersclub Ledning',
+      fromRoomTitle: null,
+      who: 'Jacob',
+      motivation:
+        'Två uppgifter i Buyersclub Ledning säger olika saker. Ingen av dem har ändrats — du avgör vilken som gäller.',
+      sourceLabel: 'Samtal med Claude',
+      sharedWith: [],
+      disputes: [
+        { shortId: 'r-8k2m', body: 'Vi beslutade att skjuta förvärvet till Q3', authorName: 'Emil' },
+        { shortId: 'r-9d1k', body: 'Vi siktar på förvärv i Q2', authorName: 'Jacob' },
+      ],
+      byOtherMember: true,
+      changed: false,
+      redacted: false,
+    },
+    {
+      seq: 436,
+      kind: 'deleted',
+      time: '18:02',
+      shortId: 'p-old1',
+      body: 'Bor i Malmö',
+      previousBody: null,
+      roomTitle: 'Ditt rum',
+      fromRoomTitle: null,
+      who: 'Du',
+      motivation: 'Flyttade till Stockholm',
+      sourceLabel: 'Du, i Photographic',
+      sharedWith: [],
+      disputes: [],
+      byOtherMember: false,
+      changed: false,
+      redacted: false,
+    },
+  ],
+};
+
+/**
+ * One event zoomed to its source, for reviewing the screen without a backend.
+ *
+ * Deliberately the edit: it is the case the log exists for, so the demo should show both
+ * the correction and what it corrected rather than a save with nothing behind it.
+ */
+export const DEMO_EVENT_DETAIL = {
+  entry: {
+    seq: 418,
+    kind: 'updated' as const,
+    occurredAt: '2026-09-15T09:02:00.000Z',
+    body: 'Lanseringen är 1 november',
+    previousBody: 'Lanseringen är 15 oktober',
+    shortId: 'r-8k2m',
+    itemKind: 'decision',
+    fromRoomTitle: null,
+    toRoomTitle: null,
+    sharedWith: null,
+    disputes: null,
+    byOtherMember: false,
+    redacted: false,
+    provenance: {
+      learnedAt: '2026-09-15T09:02:00.000Z',
+      agentClient: 'claude-desktop',
+      actorName: 'Emil',
+      source: {
+        kind: 'conversation' as const,
+        label: 'Samtal med Claude',
+        ref: 'session-8812',
+        uri: null,
+      },
+      roomId: 'ledning',
+      roomTitle: 'Buyersclub Ledning',
+      roomKind: 'shared' as const,
+      motivation: 'Uppgiften stämde inte längre. Den gamla finns kvar i historiken.',
+      explicit: true,
+      wasApproved: true,
+      changed: false,
+    },
+  },
+  timeline: [],
+  revisions: [
+    {
+      seq: 401,
+      at: '2026-08-28T13:20:00.000Z',
+      body: 'Lanseringen är 15 oktober',
+      previousBody: null,
+      agentClient: 'claude-desktop',
+      motivation: 'Hör till Buyersclub Ledning snarare än till ditt privata minne.',
+    },
+    {
+      seq: 418,
+      at: '2026-09-15T09:02:00.000Z',
+      body: 'Lanseringen är 1 november',
+      previousBody: 'Lanseringen är 15 oktober',
+      agentClient: 'claude-desktop',
+      motivation: 'Uppgiften stämde inte längre. Den gamla finns kvar i historiken.',
+    },
+  ],
+  source: {
+    kind: 'conversation' as const,
+    label: 'Samtal med Claude',
+    ref: 'session-8812',
+    uri: null,
+    at: '2026-09-15T08:55:00.000Z',
+    agentClient: 'claude-desktop',
+    transport: 'mcp',
+    alsoFromHere: [
+      { seq: 419, shortId: 'r-3n9p', body: 'Styrelsen informeras samma vecka' },
+    ],
+  },
+  currentBody: 'Lanseringen är 1 november',
+  trash: null,
+};
+
+/**
  * Sparse personal history — honesty about what changed, not an audit log.
  * Live path: `loadHistoryFromApi` maps GET /v1/history onto this shape.
  */
