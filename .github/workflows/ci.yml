@@ -67,6 +67,9 @@ jobs:
       # exactly like a finished feature, which is how both passed two reviews. Nobody
       # scans for the absence of a caller; this does.
       - run: node scripts/check-job-producers.mjs
+      # A workflow outside the repository root's .github/workflows never runs and nothing
+      # says so. There is one: the off-site document backup, which has executed zero times.
+      - run: node scripts/check-workflow-locations.mjs
 
   typecheck:
     runs-on: ubuntu-latest
@@ -171,22 +174,27 @@ jobs:
       # a mistake in application code cannot reach `DROP TABLE app.event` or disable the
       # triggers that hold the append-only rules. The role existed in neither CI nor local
       # development, so nothing in the pipeline could tell whether a database object was
-      # reachable from it. `0017_lifecycle_atomicity.sql` was never checked against it at
-      # all, and it works today only because `0016` sets `ALTER DEFAULT PRIVILEGES`, which
-      # covers objects created by the role that executed it and nothing else.
+      # reachable from it.
       #
-      # Created *before* the migrations run, which is the order `scripts/deploy.md`
-      # documents and the order that matters: `0016_app_role_grants.sql` is guarded on the
-      # role existing, and the ledger means it never runs a second time. A role created
-      # after `0016` has already applied therefore gets no grants at all, ever.
-      - name: Create the least-privilege role production connects as
+      # The migrations create it now. `0020_app_role_and_grants.sql` creates the role and
+      # grants unguarded, superseding `0016`, which was wrapped in an `IF EXISTS` on the
+      # role and therefore did nothing on a database where the role did not exist yet —
+      # and was then recorded as applied, so it could never run again. Production reached
+      # exactly that state.
+      #
+      # So this deliberately does *not* create the role by hand any more. Letting the
+      # migration do it is what makes CI a test of the production fix rather than a
+      # rehearsal of it. What is left is the one step that genuinely belongs to an
+      # operator, and the one `0020` refuses to do because a password does not belong in a
+      # file in the repository: setting the credential. Same sequence as
+      # `scripts/deploy.md`, with a throwaway value.
+      - name: Migrate, then set the role's password the way deploy.md does
         env:
           PGPASSWORD: photographic
         run: |
-          psql -h 127.0.0.1 -U photographic -d photographic -tAc \
-            "SELECT 1 FROM pg_roles WHERE rolname = 'photographic_app'" | grep -q 1 \
-            || psql -h 127.0.0.1 -U photographic -d photographic -v ON_ERROR_STOP=1 -c \
-                 "CREATE ROLE photographic_app LOGIN PASSWORD 'photographic_app'"
+          pnpm db:migrate
+          psql -h 127.0.0.1 -U photographic -d photographic -v ON_ERROR_STOP=1 -c \
+            "ALTER ROLE photographic_app PASSWORD 'photographic_app'"
 
       # `reset()` refuses a database nobody marked as disposable, because four suites in
       # `packages/db` drop the whole `app` schema and a developer who points them at the

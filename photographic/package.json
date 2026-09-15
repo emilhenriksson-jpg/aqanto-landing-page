@@ -27,7 +27,8 @@
     "dev": "pnpm --filter @photographic/rest run dev",
     "check:migrations": "node scripts/check-migrations.mjs",
     "check:typecheck-coverage": "node scripts/check-typecheck-coverage.mjs",
-    "check:job-producers": "node scripts/check-job-producers.mjs"
+    "check:job-producers": "node scripts/check-job-producers.mjs",
+    "check:workflows": "node scripts/check-workflow-locations.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -1,11 +1,16 @@
 /**
  * Refuses a job handler that nothing enqueues.
  *
- * `jobs.work('expire_invites', ...)` and `jobs.work('purge_trash', ...)` are registered in
- * both composition roots and nothing anywhere calls `jobs.enqueue` with either kind, so
- * neither handler has ever run once. Both read as finished features — the handler exists,
- * it is wired, the code inside it is correct — and that is how they passed two reviews. A
- * registration is not a feature; a registration plus a producer is.
+ * `jobs.work('expire_invites', ...)` and `jobs.work('purge_trash', ...)` were registered
+ * in both composition roots with nothing anywhere calling `jobs.enqueue` for either kind,
+ * so neither handler had ever run once. Both read as finished features — the handler
+ * exists, it is wired, the code inside it is correct — and that is how they passed two
+ * reviews. A registration is not a feature; a registration plus a producer is.
+ *
+ * PR #23 closed both in the Postgres root by seeding them through `scheduleRecurring`, and
+ * this check is what keeps that true and what found the same shape twice more the same
+ * day: `purge_documents` and `reconcile_storage` arrived registered and unproduced, and
+ * the in-memory root still schedules nothing at all.
  *
  * The shape is worth naming because it is not specific to jobs: the dangerous kind of dead
  * code is the kind that looks like live code from the place a reviewer reads. Nobody scans
@@ -68,6 +73,7 @@ function code(text) {
 
 const registrations = [];
 const producers = [];
+const computed = [];
 
 for (const file of sources(ROOT)) {
   const relative = path.relative(ROOT, file);
@@ -77,48 +83,52 @@ for (const file of sources(ROOT)) {
     registrations.push({ kind: match[1], file: relative });
   }
 
-  // Two producer shapes, and missing the second one is how the first version of this
-  // check reported two live handlers as dead: `services.jobs.enqueue({ ... })` is the
-  // port call, and `enqueueJob(db, { ... })` is the helper `packages/db` uses so an
-  // enqueue can join an open transaction. A check that only knew the first said
-  // `embed_item` and `rebuild_projections` had no producer, which was wrong in the
-  // direction that matters most — a green answer about dead code.
-  for (const match of text.matchAll(/(?:\b[\w.]+\.)?enqueue(?:Job)?\s*\(/g)) {
+  // Producers are found by looking for the *kind*, not for the call shape. Three
+  // versions of this check tried to recognise the call and all three were wrong in the
+  // same direction — a confident "this handler is dead" about a handler that was not:
+  //
+  //   `.enqueue({ kind: 'x' })`            the port call
+  //   `enqueueJob(db, { kind: 'x' })`      the helper packages/db uses so an enqueue can
+  //                                        join an open transaction
+  //   `scheduleRecurring([{ kind: 'x' }])` the seeding added when these handlers were
+  //                                        found dead; the kind reaches `enqueue` as a
+  //                                        variable, so no call-shape parser sees it
+  //
+  // So: any `kind: '<literal>'` outside a `.work(` registration counts as producing that
+  // kind. It matches against the registered kinds only, so the many unrelated `kind:`
+  // discriminators in this codebase ('personal', 'shared', 'document') can never collide
+  // with a job kind by accident. Broad on purpose: the cost of a false "alive" is a
+  // handler nobody deleted, and the cost of a false "dead" is a build failure that tells
+  // a person something untrue about their own code.
+  for (const match of text.matchAll(/kind:\s*['"]([a-z0-9_]+)['"]/g)) {
     const lineStart = text.lastIndexOf('\n', match.index) + 1;
-    const line = text.slice(lineStart, text.indexOf('\n', match.index));
-    // Declarations, not calls: the port interface and the two implementations.
-    if (/\b(?:function|async)\s+enqueue/.test(line) || /^\s*enqueue\s*\(input/.test(line)) {
-      continue;
-    }
+    const line = text.slice(lineStart, text.indexOf('\n', match.index) + 1 || undefined);
+    if (line.includes('.work(')) continue;
+    producers.push({ kind: match[1], file: relative });
+  }
 
-    const after = text.slice(match.index, match.index + 400);
-
-    // A call that forwards an object it was handed rather than building one is a
-    // pass-through, not a producer: `PgJobs.enqueue` is `await enqueueJob(this.pool,
-    // input)`. No brace before the closing paren means no literal to read, and counting
-    // it as unresolved would report a parser limitation as a finding.
-    const closing = after.indexOf(')');
-    const brace = after.indexOf('{');
-    if (brace === -1 || (closing !== -1 && closing < brace)) continue;
-
-    const kind = /kind:\s*['"]([a-z0-9_]+)['"]/.exec(after);
-    if (kind) {
-      producers.push({ kind: kind[1], file: relative });
-    } else {
-      // A computed kind cannot be resolved by reading the source, and guessing would make
-      // this check quietly wrong in the direction that matters. Say so instead.
-      producers.push({ kind: null, file: relative });
-    }
+  // A kind that only ever arrives as a variable cannot be read out of the source at all.
+  // Not a failure — `scheduleRecurring` legitimately does this — but it is the reason a
+  // "no producer" verdict below carries a caveat rather than a full stop.
+  for (const match of text.matchAll(/kind:\s*(?!['"])([A-Za-z_$][\w.$]*)/g)) {
+    const before = text.slice(Math.max(0, match.index - 300), match.index);
+    if (/enqueue|schedule/i.test(before)) computed.push({ file: relative, via: match[1] });
   }
 }
 
-const unresolved = producers.filter((p) => p.kind === null);
-const resolved = producers.filter((p) => p.kind !== null);
+const resolved = producers;
 const implementationOf = (file) =>
   Object.entries(IMPLEMENTATIONS).find(([, dir]) => file.startsWith(dir))?.[0] ?? null;
 
 const baseline = JSON.parse(readFileSync(BASELINE_FILE, 'utf8'));
-const allowed = new Map(baseline.known.map((entry) => [entry.kind, entry]));
+/**
+ * Two exemption shapes, keyed the same way the two checks are. `kind` alone means no
+ * producer anywhere; `kind` plus `root` means registered by that implementation's root and
+ * produced only by the other one's.
+ */
+const key = (kind, root) => (root ? `${kind}@${root}` : kind);
+const allowed = new Map(baseline.known.map((entry) => [key(entry.kind, entry.root), entry]));
+const used = new Set();
 
 const problems = [];
 const kinds = [...new Set(registrations.map((r) => r.kind))].sort();
@@ -129,7 +139,9 @@ for (const kind of kinds) {
   const registeredIn = registrations.filter((r) => r.kind === kind);
 
   if (produced.length === 0) {
-    if (!allowed.has(kind)) {
+    if (allowed.has(key(kind, null))) {
+      used.add(key(kind, null));
+    } else {
       dead.push(
         `${kind} — registrerad i ${registeredIn.map((r) => r.file).join(', ')}, ` +
           `enqueue:as ingenstans`,
@@ -142,17 +154,21 @@ for (const kind of kinds) {
   for (const registration of registeredIn) {
     const root = implementationOf(registration.file);
     if (!root) continue;
-    const here = produced.some((p) => implementationOf(p.file) === root);
-    if (!here) {
-      problems.push(
-        `${kind} registreras i ${registration.file} men enqueue:as bara i den andra ` +
-          `implementationen (${produced.map((p) => p.file).join(', ')}).\n` +
-          `  Handlern kan alltså aldrig köra i ${root}-vägen. packages/db och ` +
-          `packages/services-memory bär samma domänregler två gånger, och en jobbtyp som ` +
-          `bara produceras på ena sidan är en funktion som fungerar i tester och inte i ` +
-          `produktion, eller tvärtom.`,
-      );
+    if (produced.some((p) => implementationOf(p.file) === root)) continue;
+
+    if (allowed.has(key(kind, root))) {
+      used.add(key(kind, root));
+      continue;
     }
+    problems.push(
+      `${kind} registreras i ${registration.file} men enqueue:as bara i den andra ` +
+        `implementationen (${[...new Set(produced.map((p) => p.file))].join(', ')}).\n` +
+        `  Handlern kan alltså aldrig köra i ${root}-vägen. packages/db och ` +
+        `packages/services-memory bär samma domänregler två gånger, och en jobbtyp som ` +
+        `bara produceras på ena sidan är en funktion som fungerar i ena vägen och inte i ` +
+        `den andra.\n  Hör den ändå hit just nu, lägg den i ` +
+        `${path.relative(ROOT, BASELINE_FILE)} med "root": "${root}" och ett skäl.`,
+    );
   }
 }
 
@@ -164,13 +180,17 @@ if (dead.length > 0) {
       `granskning. Antingen finns anroparen som skulle ha lagt jobbet i kön, eller så ska ` +
       `registreringen bort.\n` +
       `  Hör den ändå hit just nu, lägg den i ${path.relative(ROOT, BASELINE_FILE)} med ` +
-      `ett skäl. Tester räknas medvetet inte som producenter.`,
+      `ett skäl. Tester räknas medvetet inte som producenter.` +
+      (computed.length > 0
+        ? `\n  Notera: ${computed.length} enqueue-anrop får jobbtypen som en variabel ` +
+          `(${[...new Set(computed.map((c) => c.file))].join(', ')}). Om någon av dem ` +
+          `producerar den här typen ser den här kontrollen det inte — läs den innan du ` +
+          `raderar en handler.`
+        : ''),
   );
 }
 
-const stale = [...allowed.keys()].filter(
-  (kind) => !kinds.includes(kind) || resolved.some((p) => p.kind === kind),
-);
+const stale = [...allowed.keys()].filter((k) => !used.has(k));
 if (stale.length > 0) {
   problems.push(
     `Föråldrade rader i baslinjen: ${stale.join(', ')}.\n` +
@@ -179,18 +199,14 @@ if (stale.length > 0) {
   );
 }
 
-if (unresolved.length > 0) {
-  problems.push(
-    `enqueue-anrop där jobbtypen inte går att läsa ur källan: ` +
-      `${unresolved.map((p) => p.file).join(', ')}.\n` +
-      `  Den här kontrollen kan inte avgöra vad de producerar, så den skulle svara fel om ` +
-      `den gissade. Skriv jobbtypen som en literal, eller utöka parsern.`,
-  );
-}
-
+// Only producers of a kind something actually registers: the literal scan sees every
+// `kind:` discriminator in the repository, and reporting that total would be a number
+// nobody can check.
+const relevant = resolved.filter((p) => kinds.includes(p.kind)).length;
 console.log(
   `${registrations.length} registreringar (${kinds.length} jobbtyper), ` +
-    `${resolved.length} producenter. Kända döda: ${allowed.size}.`,
+    `${relevant} producenter${computed.length > 0 ? ` (+${computed.length} via variabel)` : ''}. ` +
+    `Kända döda: ${allowed.size}.`,
 );
 
 if (problems.length > 0) {

@@ -133,45 +133,36 @@ try {
   const ledgerExists = await client.query<{ ok: boolean }>(
     `SELECT to_regclass('app.schema_migrations') IS NOT NULL AS ok`,
   );
-  const appliedGrantMigrations = ledgerExists.rows[0]?.ok
-    ? (
+  const grantsApplied = ledgerExists.rows[0]?.ok
+    ? ((
         await client.query<{ id: string }>(
-          `SELECT id FROM app.schema_migrations WHERE id LIKE '%app_role%grants%' ORDER BY id`,
+          `SELECT id FROM app.schema_migrations WHERE id LIKE '%app_role_grants%'
+            ORDER BY id LIMIT 1`,
         )
-      ).rows.map((row) => row.id)
-    : [];
-
-  // The unguarded one, which creates the role itself. `%app_role_grants%` matched only the
-  // guarded `0016` and not `0020_app_role_and_grants.sql`, so this file used to advise
-  // writing a migration that already exists.
-  const unguarded = appliedGrantMigrations.find((id) => id.includes('app_role_and_grants'));
-  const guardedOnly = !unguarded && appliedGrantMigrations.length > 0;
+      ).rows[0]?.id ?? null)
+    : null;
 
   /** What to do about missing grants here, which depends on the answer above. */
-  const remediation = unguarded
+  const remediation = grantsApplied
     ? [
-        `${unguarded} är applicerad. Den skapar rollen om den saknas och delar ut`,
-        'rättigheterna villkorslöst, så om något ovan ändå inte går att nå är det inte ett',
-        'glömt handgrepp utan ett fel: antingen har objektet skapats av en annan roll än den',
-        'som migreringen kördes som, eller så har rättigheter återkallats efteråt.',
+        `${grantsApplied} står redan som applicerad i app.schema_migrations, så den körs`,
+        'aldrig igen. Den var villkorad på att rollen fanns, så på en databas där den inte',
+        'fanns gjorde den ingenting — och noterades ändå som körd. Att skapa rollen nu delar',
+        'därför inte ut någonting: den skulle nå noll objekt, tyst, fram till första frågan.',
         '',
-        'Kör `pnpm db:migrate` igen — grants-delen är villkorslös och körs om utan skada — och',
-        'om det inte hjälper, jämför ägaren av objektet med rollen migreringen kördes som.',
+        'Vägen ur det är en senare migrering som skapar rollen och delar ut rättigheterna',
+        'ovillkorligt. `0020_app_role_and_grants.sql` gör precis det:',
+        '',
+        '  pnpm db:migrate',
+        '',
+        'Sätt sedan lösenordet, vilket är operatörens steg och det enda 0020 vägrar göra:',
+        '',
+        "  ALTER ROLE photographic_app PASSWORD '<genererat>';",
+        '',
+        'Står 0020 redan som applicerad och det här ändå faller, är det inte den generella',
+        'luckan — läs listan ovan, den pekar på en enskild migrering.',
       ]
-    : guardedOnly
-      ? [
-          `${appliedGrantMigrations.join(', ')} står som applicerad i app.schema_migrations,`,
-          'men det är den *vaktade* varianten: den delade bara ut rättigheter om rollen redan',
-          'fanns, och eftersom ledgern noterat den körs den aldrig igen. Att bara skapa rollen',
-          'delar därför inte ut någonting — den skulle nå noll av objekten i app, tyst, fram',
-          'till första frågan.',
-          '',
-          'Den nya migreringen finns redan: `0020_app_role_and_grants.sql` skapar rollen om',
-          'den saknas och delar ut rättigheterna villkorslöst. Deploya den och kör',
-          '`pnpm db:migrate`. Skapa inte rollen för hand först — det behövs inte, och det är',
-          'just det handgreppet som gör att någon tror att saken är avklarad.',
-        ]
-      : [
+    : [
         'Grants-migreringen är ännu inte applicerad här, så den vanliga ordningen fungerar:',
         '',
         `  CREATE ROLE ${ROLE} LOGIN PASSWORD '<genererat>';`,
@@ -197,10 +188,10 @@ try {
         '',
         ...remediation,
         '',
-        guardedOnly
-          ? 'Läget här är alltså: rollen saknas och det vaktade grants-steget är förbrukat, ' +
-            'så ingenting går att nå. Det går inte att åtgärda genom att skapa rollen — det ' +
-            'är migreringen ovan som gör båda delarna.'
+        grantsApplied
+          ? 'Tills den migreringen finns är läget här: rollen saknas och grants-steget är ' +
+            'förbrukat, så ingenting går att nå. Det är inte något som går att åtgärda ' +
+            'genom att skapa rollen.'
           : `Lösenordet: trivialt duger för utveckling och CI (${ROLE}/${ROLE} är vad ` +
             'pipelinen använder). Produktionens sätts av operatören, aldrig i en fil här.',
       ].join('\n'),
