@@ -12,7 +12,7 @@
  * had none: implemented, exported, and proving nothing.
  */
 
-import type { Actor, ItemId, RoomId, ShortId } from '@photographic/core';
+import type { Actor, RoomId, ShortId } from '@photographic/core';
 import { divergencesFrom, replayItemLifecycle } from '@photographic/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -78,9 +78,11 @@ beforeEach(async () => {
   await wired.runJobsToCompletion();
 });
 
+// No casts, unlike the Postgres version: the store holds branded ids already, and the
+// difference is the point — one side reads rows of raw strings, this one does not.
 const projection = () =>
   [...wired.store.items.values()].map((item) => ({
-    itemId: item.id as ItemId,
+    itemId: item.id,
     roomId: item.roomId,
     status: item.status,
     body: item.body,
