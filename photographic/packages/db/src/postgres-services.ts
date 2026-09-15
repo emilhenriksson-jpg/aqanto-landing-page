@@ -136,7 +136,9 @@ export async function createPostgresServices(
   const blobs = options.blobs ?? new LocalBlobStore({ root: defaultBlobRoot() });
   const storage = options.storage ?? new PgStorageLedger(pool);
   const documents = new PgDocuments(pool, llm, projection, jobs, blobs, storage);
-  const trash = new PgTrash(pool, ingest, projection);
+  // Documents last of the four: the trash is one surface over memories and documents, so it
+  // needs both halves rather than reimplementing the document side.
+  const trash = new PgTrash(pool, ingest, projection, documents);
   const events = new PgEvents(pool);
   const calendar = new PgCalendar(pool);
   const sessions = new PgSessions(pool);

@@ -116,7 +116,13 @@ describe('the reference implementation agrees with its own log', () => {
 
     const trash = await wired.services.trash.list(emil, { limit: 200 });
 
-    expect(trash.map((entry) => entry.shortId).sort()).toEqual([...fromLog].sort());
+    // The trash is one view over two lifecycles now, and `replayItemLifecycle` derives
+    // only the memory one — so narrowing to `memory` is what keeps the two sides the same
+    // question. Comparing against every entry would fail the moment a document is deleted,
+    // and would fail as a disagreement about the log rather than as the type error it is.
+    const memories = trash.filter((entry) => entry.type === 'memory');
+
+    expect(memories.map((entry) => entry.shortId).sort()).toEqual([...fromLog].sort());
   });
 
   it('rebuilds the profile to the same text after the cache is dropped', async () => {

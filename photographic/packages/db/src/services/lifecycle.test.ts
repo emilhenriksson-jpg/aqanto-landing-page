@@ -21,11 +21,11 @@
  */
 
 import type { Actor, ItemId, ItemStatus, RoomId, ShortId } from '@photographic/core';
-import { divergencesFrom, replayItemLifecycle } from '@photographic/core';
+import { divergencesFrom, isTrashedMemory, replayItemLifecycle } from '@photographic/core';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import type { Pool, PoolClient } from 'pg';
 
 import { createPool, createPostgresServices, reset, type PostgresServices } from '../index.js';
+import { failOnce } from '../testing/fail-once.js';
 
 const pool = createPool();
 
@@ -68,50 +68,6 @@ beforeEach(async () => {
 afterAll(async () => {
   await pool.end();
 });
-
-/**
- * A pool that rejects the next query whose SQL matches, once.
- *
- * Wraps rather than replaces, so everything else — including the transaction plumbing in
- * `pool.ts`, which recognises a real pool by its `totalCount` — behaves exactly as in
- * production. `connect()` hands back a wrapped client because that is where a transaction's
- * statements actually run.
- */
-function failOnce(inner: Pool, matches: RegExp): { pool: Pool; fired: () => boolean } {
-  let armed = true;
-  let fired = false;
-
-  const sqlOf = (args: unknown[]): string => {
-    const first = args[0];
-    if (typeof first === 'string') return first;
-    if (first && typeof first === 'object' && 'text' in first) return String(first.text);
-    return '';
-  };
-
-  const intercept = (target: Pool | PoolClient) =>
-    (...args: unknown[]) => {
-      if (armed && matches.test(sqlOf(args))) {
-        armed = false;
-        fired = true;
-        return Promise.reject(new Error('injected failure'));
-      }
-      return (target.query as (...a: unknown[]) => Promise<unknown>)(...args);
-    };
-
-  const wrap = <T extends Pool | PoolClient>(target: T): T =>
-    new Proxy(target, {
-      get(object, property, receiver) {
-        if (property === 'query') return intercept(object as Pool | PoolClient);
-        if (property === 'connect' && 'connect' in object) {
-          return async () => wrap(await (object as Pool).connect());
-        }
-        const value = Reflect.get(object, property, receiver);
-        return typeof value === 'function' ? value.bind(object) : value;
-      },
-    }) as T;
-
-  return { pool: wrap(inner), fired: () => fired };
-}
 
 /** Writes into a room, approving when the gate queues it. Not what these tests are about. */
 async function save(actor: Actor, roomId: RoomId, body: string): Promise<ShortId> {
@@ -163,7 +119,7 @@ describe('soft delete is one transaction', () => {
     await wired.services.ingest.forget(emil, shortId, personalRoom, 'inte längre sant');
 
     const trash = await wired.services.trash.list(emil);
-    expect(trash.map((entry) => entry.shortId)).toContain(shortId);
+    expect(trash.filter(isTrashedMemory).map((entry) => entry.shortId)).toContain(shortId);
     expect(trash[0]?.deleteReason).toBe('inte längre sant');
     expect(await divergences()).toEqual([]);
   });
@@ -208,10 +164,12 @@ describe('restore and undo are idempotent', () => {
     const shortId = await save(emil, personalRoom, 'Allergisk mot ketchup');
     await wired.services.ingest.forget(emil, shortId, personalRoom);
 
-    await wired.services.trash.restore(emil, shortId, personalRoom);
+    await wired.services.trash.restore(emil, { type: 'memory', shortId }, personalRoom);
     // The second attempt is the retry a lost response produces. `PgTrash` refuses it because
     // the log says the memory is not in the trash any more.
-    await expect(wired.services.trash.restore(emil, shortId, personalRoom)).rejects.toThrow();
+    await expect(
+      wired.services.trash.restore(emil, { type: 'memory', shortId }, personalRoom),
+    ).rejects.toThrow();
 
     expect((await eventTypes(shortId)).filter((type) => type === 'item.restored')).toHaveLength(1);
     expect(await divergences()).toEqual([]);
@@ -328,7 +286,7 @@ describe('the right to delete is not the right to republish', () => {
     await wired.services.ingest.forget(emil, shortId, sharedRoom, 'inte relevant längre');
 
     const trash = await wired.services.trash.list(elias, { roomId: sharedRoom });
-    expect(trash.map((entry) => entry.shortId)).toContain(shortId);
+    expect(trash.filter(isTrashedMemory).map((entry) => entry.shortId)).toContain(shortId);
   });
 
   it('refuses to let that owner move it into another room', async () => {

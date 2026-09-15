@@ -24,7 +24,7 @@ import type {
   RoomId,
   StorageUsageReport,
 } from '@photographic/core';
-import { NotPermittedError, purgeDeadline } from '@photographic/core';
+import { NotPermittedError, purgeDeadline, TRASH_RETENTION_DAYS } from '@photographic/core';
 import type { BlobStore, StorageLedger } from '@photographic/documents';
 import { ingestDocument, storageLimitReached } from '@photographic/documents';
 import { MemoryBlobStore, MemoryStorageLedger } from '@photographic/documents/testing';
@@ -231,6 +231,16 @@ export class MemoryDocuments implements DocumentPort {
       },
       actorPersonId: actor.personId,
       agentClient: actor.agentClient,
+      clientId: actor.clientId ?? null,
+      sessionRef: actor.sessionId,
+      explicit: true,
+      // The person's own phrasing, on the event, because the trash reads its reason from the
+      // log rather than from a column. `PgDocuments` does this through
+      // `trashDocumentWithin`; leaving it off here made the same delete show a reason on one
+      // driver and null on the other, which the shared e2e suite caught.
+      motivation:
+        options.reason?.trim() ||
+        `Dokumentet ligger i papperskorgen i ${TRASH_RETENTION_DAYS} dagar och går att ta tillbaka.`,
     });
 
     await this.projection.invalidate({ roomId: doc.roomId });
@@ -251,6 +261,10 @@ export class MemoryDocuments implements DocumentPort {
       payload: { document_id: documentId, filename: doc.filename },
       actorPersonId: actor.personId,
       agentClient: actor.agentClient,
+      clientId: actor.clientId ?? null,
+      sessionRef: actor.sessionId,
+      explicit: true,
+      motivation: 'Dokumentet är tillbaka i rummet.',
     });
 
     await this.projection.invalidate({ roomId: doc.roomId });

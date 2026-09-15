@@ -137,6 +137,81 @@ export function replayItemLifecycle(events: readonly MemoryEvent[]): Map<ItemId,
   return items;
 }
 
+/** What the log says about one document. `app.document`'s trash columns are the projection. */
+export interface ReplayedDocument {
+  documentId: string;
+  roomId: RoomId;
+  filename: string;
+  /** True when the last lifecycle event was a deletion — what the trash means. */
+  inTrash: boolean;
+}
+
+const DOCUMENT_EVENTS = new Set([
+  'document.uploaded',
+  'document.deleted',
+  'document.restored',
+  'document.purged',
+]);
+
+/**
+ * Replays a document's trash membership.
+ *
+ * Narrower than the item replay on purpose, and the difference is worth stating. A document's
+ * *content* is a blob in object storage plus an extraction the log never carried, so the log
+ * cannot rebuild what a document says. What it can rebuild is the part the trash and the room
+ * listing depend on: which room it belongs to, what it is called, and whether it is currently
+ * deleted. That is the part the write path can leave inconsistent, so that is the part worth
+ * being able to check.
+ *
+ * The same shape as `replayItemLifecycle` because documents now go through the same
+ * transactional lifecycle path, which is the whole reason one trash is possible.
+ */
+export function replayDocumentLifecycle(
+  events: readonly MemoryEvent[],
+): Map<string, ReplayedDocument> {
+  const documents = new Map<string, ReplayedDocument>();
+
+  for (const event of events) {
+    if (!DOCUMENT_EVENTS.has(event.eventType)) continue;
+
+    const raw = event.payload['document_id'];
+    if (typeof raw !== 'string' || raw.length === 0) continue;
+
+    const existing = documents.get(raw);
+
+    switch (event.eventType) {
+      case 'document.uploaded': {
+        documents.set(raw, {
+          documentId: raw,
+          roomId: event.roomId,
+          filename: stringOr(event.payload['filename'], '') ?? '',
+          inTrash: false,
+        });
+        break;
+      }
+
+      case 'document.deleted': {
+        if (existing) existing.inTrash = true;
+        break;
+      }
+
+      case 'document.restored': {
+        if (existing) existing.inTrash = false;
+        break;
+      }
+
+      // Thirty days ran out, or somebody emptied the trash early. The row is gone from
+      // `app.document` as well, so the replay must not report it as anything.
+      case 'document.purged': {
+        documents.delete(raw);
+        break;
+      }
+    }
+  }
+
+  return documents;
+}
+
 /** One place the log and a projection disagree. */
 export interface Divergence {
   itemId: ItemId;
@@ -218,6 +293,74 @@ export function divergencesFrom(
       itemId,
       field: 'presence',
       fromLog: replayed.status,
+      fromProjection: null,
+    });
+  }
+
+  return out;
+}
+
+/** One place the log and `app.document`'s trash columns disagree. */
+export interface DocumentDivergence {
+  documentId: string;
+  field: 'presence' | 'roomId' | 'inTrash';
+  fromLog: string | null;
+  fromProjection: string | null;
+}
+
+/**
+ * The same comparison for documents, over the part of a document the log can answer for.
+ *
+ * `inTrash` is the field that matters: it is what one trash surface is derived from, and it is
+ * the one a non-transactional delete could set without recording. A document whose row says
+ * deleted and whose log says nothing is the shape that made a memory unrestorable, and there
+ * is no reason it would be kinder to a file.
+ */
+export function documentDivergencesFrom(
+  log: Map<string, ReplayedDocument>,
+  projection: readonly { documentId: string; roomId: RoomId; inTrash: boolean }[],
+): DocumentDivergence[] {
+  const out: DocumentDivergence[] = [];
+  const seen = new Set<string>();
+
+  for (const row of projection) {
+    seen.add(row.documentId);
+    const replayed = log.get(row.documentId);
+
+    if (!replayed) {
+      out.push({
+        documentId: row.documentId,
+        field: 'presence',
+        fromLog: null,
+        fromProjection: row.inTrash ? 'deleted' : 'live',
+      });
+      continue;
+    }
+
+    if (replayed.roomId !== row.roomId) {
+      out.push({
+        documentId: row.documentId,
+        field: 'roomId',
+        fromLog: replayed.roomId,
+        fromProjection: row.roomId,
+      });
+    }
+    if (replayed.inTrash !== row.inTrash) {
+      out.push({
+        documentId: row.documentId,
+        field: 'inTrash',
+        fromLog: String(replayed.inTrash),
+        fromProjection: String(row.inTrash),
+      });
+    }
+  }
+
+  for (const [documentId, replayed] of log) {
+    if (seen.has(documentId)) continue;
+    out.push({
+      documentId,
+      field: 'presence',
+      fromLog: replayed.inTrash ? 'deleted' : 'live',
       fromProjection: null,
     });
   }

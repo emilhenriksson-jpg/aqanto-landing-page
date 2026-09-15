@@ -261,6 +261,33 @@ export class MemoryStore {
     return this.lastLifecycleEvent(itemId)?.eventType === 'item.deleted';
   }
 
+  /**
+   * The same derivation for a document, so one trash surface has one rule behind it.
+   *
+   * Separate from `lastLifecycleEvent` rather than generic over the payload key, because the
+   * two event families are named differently and a helper taking `'item_id' | 'document_id'`
+   * would read as if the caller had a choice.
+   */
+  lastDocumentLifecycleEvent(documentId: DocumentId): MemoryEvent | null {
+    for (let i = this.events.length - 1; i >= 0; i -= 1) {
+      const event = this.events[i]!;
+      if (event.payload['document_id'] !== documentId) continue;
+      if (
+        event.eventType === 'document.deleted' ||
+        event.eventType === 'document.restored' ||
+        event.eventType === 'document.purged'
+      ) {
+        return event;
+      }
+    }
+    return null;
+  }
+
+  /** True when the log says this document is sitting in the trash right now. */
+  isDocumentInTrash(documentId: DocumentId): boolean {
+    return this.lastDocumentLifecycleEvent(documentId)?.eventType === 'document.deleted';
+  }
+
   // -------------------------------------------------------------------------
   // Room isolation
   // -------------------------------------------------------------------------
