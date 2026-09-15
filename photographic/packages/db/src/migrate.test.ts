@@ -221,6 +221,72 @@ describe.skipIf(!process.env['DATABASE_URL'] && process.env['CI'] === 'true')(
     }, 120_000);
 
     /**
+     * The gap the tests above could not see, because they all apply the migrations first
+     * and so always have checksums.
+     *
+     * A database that had not run the content-keyed ledger before a renumber landed has a
+     * row with no checksum and no file — and the backfill cannot help, because it fills
+     * checksums in by reading the file named in the row, which is the one file that has
+     * just been renamed away. So the matching fails for precisely the case it was written
+     * for. Reported from a real database rather than found here.
+     */
+    it('accepts an asserted rename for a row that has no checksum', async () => {
+      if (!reachable) return;
+      const pool = await freshDatabase();
+      try {
+        const dir = await migrationsCopy();
+        const ran = await migrate(pool, dir);
+        const last = ran[ran.length - 1];
+        if (last === undefined) throw new Error('no migrations to rename');
+
+        await pool.query('UPDATE app.schema_migrations SET checksum = NULL WHERE id = $1', [last]);
+        const renamed = last.replace(/^\d{4}/, '0099');
+        await rename(path.join(dir, last), path.join(dir, renamed));
+
+        await expect(migrate(pool, dir)).rejects.toThrow(/inte finns på disk/);
+
+        process.env['MIGRATIONS_RENAMED'] = `${last}=${renamed}`;
+        try {
+          expect(await migrate(pool, dir)).toEqual([]);
+        } finally {
+          delete process.env['MIGRATIONS_RENAMED'];
+        }
+
+        const after = await ledger(pool);
+        expect(after.ids).toContain(renamed);
+        expect(after.ids).not.toContain(last);
+        // The claim is made durable as a checksum, so the next rename needs no variable.
+        expect(after.withChecksum).toBe(after.ids.length);
+        expect(await migrate(pool, dir)).toEqual([]);
+      } finally {
+        await pool.end();
+      }
+    }, 120_000);
+
+    it('refuses an asserted rename that does not describe reality', async () => {
+      if (!reachable) return;
+      const pool = await freshDatabase();
+      try {
+        const dir = await migrationsCopy();
+        await migrate(pool, dir);
+
+        for (const [value, expected] of [
+          ['nothing.sql=0001_init.sql', /inte en körd migrering/],
+          ['malformed', /gammalt=nytt/],
+        ] as const) {
+          process.env['MIGRATIONS_RENAMED'] = value;
+          try {
+            await expect(migrate(pool, dir)).rejects.toThrow(expected);
+          } finally {
+            delete process.env['MIGRATIONS_RENAMED'];
+          }
+        }
+      } finally {
+        await pool.end();
+      }
+    }, 120_000);
+
+    /**
      * Not about renames, but it belongs beside them: two migrations sharing a number is
      * what caused four branches to renumber in the first place, and nothing checked it.
      */
