@@ -1032,6 +1032,19 @@ against; flagged rather than assumed working.
   `packages/connect/src/routes.test.ts`. No URL parameter prefills sign-up: `main.tsx`
   reads `/invite/<token>` and `?auth_request=` and nothing else.
 
+  **Two things confirmed against the running system rather than inferred.** Probed
+  `https://mcp.photographic.space/v1/signup/request` before this branch is deployed:
+
+  - `{"email":"…"}` answers `200` with a request id and `"channel":"email"`. That is the
+    hidden path, on production, today.
+  - `{"phone":"070-123 45 67"}` answers `200` — and the old `normalisePhone` stores that
+    as **`+0701234567`**, because it prefixed `+` to a national number without ever
+    reading the trunk zero. That is not an E.164 number and 46elks could not have
+    delivered to it, so the SMS path was already broken for the way a Swede writes their
+    own number. Worse, `+46 70 123 45 67` stored `+46701234567`, so the same person
+    signing up from two tabs became two accounts with two personal rooms. Fixed by the
+    same normalisation as everything else here.
+
   **Swedish numbers, read the way people write them.** `packages/connect/src/phone.ts`
   is a new dependency-free module — the one piece of `@photographic/connect` the browser
   bundle loads, via a `./phone` subpath export — so the field and the endpoint agree on
@@ -1069,6 +1082,12 @@ against; flagged rather than assumed working.
   mail). Monorepo typecheck clean; every package suite green plus `e2e` 62 on
   `HARNESS=memory` and 62 on `HARNESS=postgres`; `apps/onboarding` builds, with the phone
   module in the bundle and no `node:crypto` pulled in behind it.
+
+  Checked on a running screen, not only in tests: `apps/rest` serving the real
+  `apps/onboarding` build at `/login` the way the image does, walked in a browser — an
+  address, then a landline, then `073-456 78 90`, then `+46 73 456 78 90` reaching the same
+  `073-••• 78 90`. Nothing was deployed; `main` still serves the old bundle and this
+  branch is not on it.
 
   **Two things left deliberately alone.** Room invites still carry a `channel: 'email'`
   destination — an invitation is a link somebody shares, not a code that signs anyone in,
