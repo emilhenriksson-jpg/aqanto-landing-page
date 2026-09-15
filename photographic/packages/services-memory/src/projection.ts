@@ -28,6 +28,7 @@ import type {
 import { NotFoundError, NotPermittedError } from '@photographic/core';
 import {
   BRIEF_TOKEN_BUDGET,
+  compassEntriesFrom,
   PROFILE_TOKEN_BUDGET,
   ROOM_HEADLINE_TOKEN_BUDGET,
   SECTION_BUDGETS,
@@ -47,7 +48,13 @@ type SectionName = keyof ProfileSections;
  * they are the only part the model is meant to obey rather than merely know. Flattening
  * the two is how "answer concisely" ends up treated as trivia.
  */
-const SECTION_OF: Record<ItemKind, SectionName> = {
+/**
+ * Which section a kind renders into, or `undefined` when a kind is not part of
+ * `ProfileSections` at all. `compass` is deliberately absent: it renders in its own
+ * block with its own budget (see `renderCompass` in `@photographic/agent`), not mixed
+ * into the standing-instructions section it would otherwise resemble most closely.
+ */
+const SECTION_OF: Partial<Record<ItemKind, SectionName>> = {
   identity: 'identity',
   fact: 'hardFacts',
   preference: 'preferences',
@@ -95,7 +102,12 @@ export class MemoryProjection implements ProjectionPort {
     let included = 0;
 
     for (const item of active) {
+      // Compass items are gathered separately below, into their own budgeted block —
+      // never into a `ProfileSections` bucket, and never counted against
+      // `PROFILE_TOKEN_BUDGET`, which is the profile's ceiling, not the Compass's.
       const name = SECTION_OF[item.kind];
+      if (!name) continue;
+
       const cost = item.tokenEstimate;
       const sectionUsed = perSection.get(name) ?? 0;
 
@@ -110,6 +122,12 @@ export class MemoryProjection implements ProjectionPort {
       included += 1;
     }
 
+    const compass = compassEntriesFrom(
+      active
+        .filter((item) => item.kind === 'compass')
+        .map((item) => ({ shortId: item.shortId, body: item.body, structured: item.structured })),
+    );
+
     const version = (this.versions.get(personId) ?? 0) + 1;
     this.versions.set(personId, version);
 
@@ -117,6 +135,7 @@ export class MemoryProjection implements ProjectionPort {
       personId,
       rendered: '',
       sections,
+      compass,
       tokenCount: 0,
       itemCount: included,
       builtFromSeq: this.latestSeq(),

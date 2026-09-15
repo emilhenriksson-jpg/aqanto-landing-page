@@ -42,6 +42,8 @@ import type {
 } from '@photographic/core';
 import { NotFoundError, NotPermittedError, ValidationError } from '@photographic/core';
 import {
+  COMPASS_KEY_FIELD,
+  COMPASS_PRINCIPLE_MAX_CHARS,
   ROUTING_SAMPLE_SIZE,
   canRemoveMemory,
   dedupeHash,
@@ -49,6 +51,7 @@ import {
   deriveSource,
   estimateTokens,
   generateShortId,
+  isCompassPrincipleKey,
   purgeDeadline,
   requiresApproval,
   joinReason,
@@ -70,6 +73,7 @@ export const MAX_BODY_CHARS = 2000;
  */
 const BASE_SALIENCE: Record<ItemKind, number> = {
   identity: 1,
+  compass: 1,
   instruction: 0.95,
   never: 0.95,
   preference: 0.8,
@@ -122,6 +126,12 @@ export class MemoryIngest implements IngestPort {
       explicit?: boolean;
     } & WriteProvenance,
   ): Promise<WriteDecision> {
+    // Compass writes have exactly one door: `propose`, which never auto-writes. See the
+    // matching guard in `PgIngest.remember` for the full reasoning.
+    if (input.kind === 'compass') {
+      throw new ValidationError('Kompassen ändras bara via ett förslag som personen godkänner.');
+    }
+
     const body = input.body.trim().replace(/\s+/g, ' ');
     if (!body) throw new ValidationError('Tomt minne kan inte sparas.');
     if (body.length > MAX_BODY_CHARS) {
@@ -265,7 +275,14 @@ export class MemoryIngest implements IngestPort {
    */
   async propose(
     actor: Actor,
-    input: { roomId: RoomId; body: string; kind?: ItemKind; reason?: string; source?: string },
+    input: {
+      roomId: RoomId;
+      body: string;
+      kind?: ItemKind;
+      reason?: string;
+      source?: string;
+      structured?: Record<string, unknown>;
+    },
   ): Promise<Proposal> {
     if (!this.store.canWrite(actor.personId, input.roomId)) throw new NotPermittedError();
 
@@ -274,6 +291,33 @@ export class MemoryIngest implements IngestPort {
 
     const kind = input.kind ?? classifyKind(body);
     const siblings = this.store.itemsInRoom(input.roomId).filter((i) => i.status === 'active');
+
+    if (kind === 'compass') {
+      const compassKey = input.structured?.[COMPASS_KEY_FIELD];
+      if (!isCompassPrincipleKey(compassKey)) {
+        throw new ValidationError('Förslaget saknar vilken kompassprincip det gäller.');
+      }
+      if (body.length > COMPASS_PRINCIPLE_MAX_CHARS) {
+        throw new ValidationError(
+          `En kompassprincip är kort — max ${COMPASS_PRINCIPLE_MAX_CHARS} tecken.`,
+        );
+      }
+      // Exact slot match, not the fuzzy word-overlap `neighbours` uses for everything
+      // else: a Compass proposal replaces one of six fixed slots, never adds beside it.
+      const existing = siblings.find(
+        (i) => i.kind === 'compass' && i.structured[COMPASS_KEY_FIELD] === compassKey,
+      );
+      return this.queueProposal(actor, {
+        roomId: input.roomId,
+        intent: 'remember',
+        kind,
+        body,
+        reason: input.reason ?? 'föreslagen ändring av den personliga kompassen',
+        conflictsWith: existing?.id ?? null,
+        structured: input.structured ?? {},
+      });
+    }
+
     const conflicting = this.neighbours(body, siblings)[0]?.id ?? null;
 
     return this.queueProposal(actor, {
@@ -284,6 +328,7 @@ export class MemoryIngest implements IngestPort {
       reason: input.reason ?? (input.source ? `importerat från ${input.source}` : 'importerat minne'),
       conflictsWith: conflicting,
       ...(input.source ? { importedFrom: input.source } : {}),
+      structured: input.structured ?? {},
     });
   }
 
@@ -676,6 +721,7 @@ export class MemoryIngest implements IngestPort {
       // must not be recorded as one.
       supersedes: acrossAuthors ? null : conflicting?.id ?? null,
       previousBody: acrossAuthors ? null : conflicting?.body ?? null,
+      structured: proposal.structured,
     });
 
     if (conflicting && conflicting.status === 'active') {
@@ -813,6 +859,8 @@ export class MemoryIngest implements IngestPort {
       sharedFrom?: { itemId: ItemId; shortId: ShortId; roomId: RoomId } | null;
       sharedWith?: SharedWith[] | null;
       eventType?: 'item.created' | 'item.shared';
+      /** Kind-specific tag, currently only the Compass's `compassKey`. See `Item.structured`. */
+      structured?: Record<string, unknown>;
     },
   ): Promise<Item> {
     const now = this.store.now();
@@ -825,7 +873,7 @@ export class MemoryIngest implements IngestPort {
       roomId: input.roomId,
       kind: input.kind,
       body: input.body,
-      structured: {},
+      structured: input.structured ?? {},
       sensitivity: input.sensitivity,
       status: 'active',
       validFrom: now,
@@ -1143,6 +1191,7 @@ export class MemoryIngest implements IngestPort {
       sourceItemId?: ItemId;
       motivation?: string;
       importedFrom?: string;
+      structured?: Record<string, unknown>;
     },
   ): Proposal {
     const proposal: Proposal = {
@@ -1159,6 +1208,7 @@ export class MemoryIngest implements IngestPort {
       proposedByClient: actor.agentClient,
       status: 'pending',
       createdAt: this.store.now(),
+      structured: input.structured ?? {},
     };
     this.store.proposals.set(proposal.id, proposal);
 
