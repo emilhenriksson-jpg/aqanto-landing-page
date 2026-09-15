@@ -13,6 +13,7 @@
     "test": "node scripts/run-suites.mjs",
     "test:unit": "node scripts/run-suites.mjs unit",
     "test:db": "node scripts/run-suites.mjs db",
+    "test:rest": "node scripts/run-suites.mjs rest",
     "test:e2e": "node scripts/run-suites.mjs e2e-postgres",
     "test:e2e:memory": "node scripts/run-suites.mjs e2e-memory",
     "check:test-doubles": "node scripts/check-test-doubles.mjs",
@@ -21,8 +22,12 @@
     "lint:prune": "eslint . --prune-suppressions",
     "db:migrate": "pnpm --filter @photographic/db run migrate",
     "db:reset": "pnpm --filter @photographic/db run reset",
+    "db:mark-test": "pnpm --filter @photographic/db run mark-test",
     "db:seed": "pnpm --filter @photographic/db run seed",
-    "dev": "pnpm --filter @photographic/rest run dev"
+    "dev": "pnpm --filter @photographic/rest run dev",
+    "check:migrations": "node scripts/check-migrations.mjs",
+    "check:typecheck-coverage": "node scripts/check-typecheck-coverage.mjs",
+    "check:job-producers": "node scripts/check-job-producers.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
