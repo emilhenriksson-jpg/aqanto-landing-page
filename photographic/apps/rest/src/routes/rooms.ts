@@ -59,8 +59,14 @@ export function roomRoutes(): Hono<AppEnv> {
     return c.json({
       room: serialiseRoom(room),
       brief: serialiseBrief(brief),
+      // No `personId`. Nothing in `apps/web` reads one off this list — every route that
+      // acts on a specific member (`removeMember`, leaving) resolves who is calling from
+      // the actor's own token, never from a client-supplied id — and this field is the
+      // one that completed a real account takeover once already (session tokens used to
+      // be verified by shape, so a disclosed `personId` *was* the credential). Handing
+      // out a raw person id the product has no present use for is a cost with no benefit
+      // on the other side of the ledger.
       members: members.map((m) => ({
-        personId: m.person.id,
         displayName: m.person.displayName,
         role: m.role,
       })),

@@ -317,8 +317,8 @@ describe('loadSharedRoomFromApi', () => {
             builtAt: '2026-09-15T00:00:00.000Z',
           },
           members: [
-            { personId: 'p1', displayName: 'Emil', role: 'owner' },
-            { personId: 'p2', displayName: 'Anna', role: 'member' },
+            { displayName: 'Emil', role: 'owner' },
+            { displayName: 'Anna', role: 'member' },
           ],
         });
       }

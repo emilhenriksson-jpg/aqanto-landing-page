@@ -1285,22 +1285,24 @@ describe('importing what another system remembers', () => {
    * future change could reintroduce either half without touching `readSignedSession`.
    */
   describe('a co-member cannot become you (regression)', () => {
-    it('refuses a session forged from a personId disclosed by the room', async () => {
+    it('refuses a forged session, and the room no longer discloses a personId to forge one from', async () => {
       const emil = await register(f, 'emil@example.com', 'Emil');
 
       // A room, and a private memory that must not travel.
       const created = await (await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)).json();
       await f.post('/v1/memory', { body: 'Kodordet är 4711' }, emil.token);
 
-      // Step 1: `GET /v1/rooms/:id` discloses every member's `personId`. Asserted on the
-      // owner's own room rather than through an invite dance, because the disclosure is
-      // the same endpoint and the same field whoever reads it — the vulnerability never
-      // depended on *which* member fetched it, only on the id being handed out at all.
-      // This assertion is here so that removing the disclosure does not silently remove
-      // the reason the rest of this test exists.
+      // Step 1 used to be: `GET /v1/rooms/:id` discloses every member's `personId`. That
+      // disclosure is now closed (see `serialiseRoom`/`roomRoutes` — `members` carries
+      // `displayName` and `role` only), asserted here so a future change cannot silently
+      // reopen it. `emilsId` below comes from the account this test itself created
+      // rather than from the API, because steps 2 and 3 are the regression that still
+      // matters regardless of how a personId became known: it must never be a credential.
       const room = await (await f.get(`/v1/rooms/${created.room.id}`, emil.token)).json();
-      const emilsId = (room.members as Array<{ personId: string }>)[0]?.personId;
-      expect(emilsId).toBe(emil.person.id);
+      for (const member of room.members as Array<Record<string, unknown>>) {
+        expect(member).not.toHaveProperty('personId');
+      }
+      const emilsId = emil.person.id;
 
       // Step 2: the id is not a credential. Every shape the old verifier accepted.
       for (const forged of [
