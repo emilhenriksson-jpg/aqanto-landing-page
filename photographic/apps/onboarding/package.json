@@ -13,6 +13,7 @@
   "dependencies": {
     "@photographic/connect": "workspace:*",
     "@photographic/core": "workspace:*",
+    "@photographic/design-tokens": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

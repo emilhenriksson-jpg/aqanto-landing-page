@@ -21,7 +21,7 @@ Emil is asleep. These were decided autonomously and are cheap to reverse in the 
 
 _Agents append here. Do not edit another package to unblock yourself._
 
-_None open for tokens: lifted to `@photographic/ui-tokens` (apps still separate)._
+_None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tokens.css`); apps/web and apps/onboarding import it._
 
 ## In progress
 
@@ -32,6 +32,10 @@ _None open for tokens: lifted to `@photographic/ui-tokens` (apps still separate)
   is in place; Postgres adapters are assembled and `DATABASE_URL` boots cleanly.
 
 ## Completed
+
+- **orchestrator** — `@photographic/design-tokens`: single `tokens.css` from `DESIGN.md`,
+  imported by `apps/web` and `apps/onboarding` (duplicate local token files removed;
+  apps not merged).
 
 - **orchestrator** — foundation: pnpm workspace, frozen SQL schema (applied and tested
   against local Postgres 16 + pgvector), `@photographic/core` domain types, all ports,

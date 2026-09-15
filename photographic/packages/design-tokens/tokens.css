@@ -1,6 +1,9 @@
 /*
- * The design language, verbatim from DESIGN.md. Nothing else in the app may invent a
+ * The design language, verbatim from DESIGN.md. Nothing in a consuming app may invent a
  * colour, a radius or a shadow: if it is not here, it does not exist.
+ *
+ * Single source for apps/web and apps/onboarding. Import via:
+ *   @import '@photographic/design-tokens/tokens.css';
  */
 
 :root {
@@ -59,6 +62,8 @@
 
   /* Spring, not linear. 200-260ms. */
   --ease-spring: cubic-bezier(0.22, 1.16, 0.32, 1);
+  /* Alias kept for onboarding styles written against an earlier name. */
+  --spring: var(--ease-spring);
   --dur-fast: 200ms;
   --dur-base: 240ms;
   --dur-slow: 260ms;

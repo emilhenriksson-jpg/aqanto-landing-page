@@ -30,9 +30,11 @@ contract is genuinely wrong, raise a blocker; do not edit it.
 | `packages/llm` | real `LlmPort` (OpenAI) + deterministic fake | `llm` agent |
 | `packages/connect` | sign-up, install links, connect verification, import | orchestrator (done) |
 | `packages/agent` | tool definitions and session instructions | orchestrator (done) |
+| `packages/design-tokens` | shared CSS tokens from `DESIGN.md` | orchestrator |
 | `apps/rest` | HTTP API | `rest` agent |
 | `apps/mcp` | MCP server | `mcp` agent |
 | `apps/web` | web app | `web` agent |
+| `apps/onboarding` | sign-up / invite / connect screens | orchestrator |
 | `apps/voice` | Realtime voice client | `voice` agent |
 
 ## Non-negotiables

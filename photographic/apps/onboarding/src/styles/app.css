@@ -1,4 +1,4 @@
-@import './tokens.css';
+@import '@photographic/design-tokens/tokens.css';
 
 *,
 *::before,

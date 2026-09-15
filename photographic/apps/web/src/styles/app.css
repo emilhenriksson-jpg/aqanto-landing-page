@@ -1,9 +1,10 @@
 /*
- * App chrome for the consumer surface. Tokens come from tokens.css; type and colour
- * follow DESIGN.md and match apps/onboarding so the two apps share one language.
+ * App chrome for the consumer surface. Tokens come from @photographic/design-tokens;
+ * type and colour follow DESIGN.md and match apps/onboarding so the two apps share
+ * one language.
  */
 
-@import './tokens.css';
+@import '@photographic/design-tokens/tokens.css';
 
 /* ------------------------------------------------------------------ layout */
 

@@ -1,0 +1,18 @@
+{
+  "name": "@photographic/design-tokens",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared CSS design tokens from DESIGN.md for web and onboarding.",
+  "exports": {
+    "./tokens.css": "./tokens.css"
+  },
+  "files": [
+    "tokens.css"
+  ],
+  "scripts": {
+    "typecheck": "node --input-type=module -e \"import { accessSync } from 'node:fs'; accessSync('tokens.css')\"",
+    "test": "node --test test/tokens.test.mjs",
+    "build": "node --input-type=module -e \"import { accessSync } from 'node:fs'; accessSync('tokens.css')\""
+  }
+}

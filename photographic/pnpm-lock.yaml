@@ -60,6 +60,9 @@ importers:
       '@photographic/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@photographic/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
       react:
         specifier: ^19.0.0
         version: 19.3.0
@@ -189,6 +192,9 @@ importers:
       '@photographic/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@photographic/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
       react:
         specifier: ^19.0.0
         version: 19.3.0
@@ -363,6 +369,8 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.2)(jsdom@30.0.1)(lightningcss@1.33.0)
+
+  packages/design-tokens: {}
 
   packages/documents:
     dependencies:
