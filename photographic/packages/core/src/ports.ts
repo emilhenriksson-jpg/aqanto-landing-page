@@ -293,6 +293,57 @@ export interface RetrievalPort {
 // Documents
 // ---------------------------------------------------------------------------
 
+/**
+ * Why a document has no searchable text. `pending` means the extractor has not run yet;
+ * everything else is terminal until the document is re-extracted.
+ *
+ * None of these fail an upload. A scanned contract with no text layer is a normal file
+ * to be handed, and losing someone's document because we could not parse it is the one
+ * outcome that is never acceptable — so the bytes are stored either way and this says
+ * what happened to the text.
+ */
+export type ExtractionStatus = 'pending' | 'extracted' | 'unsupported' | 'empty' | 'failed';
+
+/**
+ * What a document is, as everything above this port sees it.
+ *
+ * `text` and `summary` are separate fields and never fall back to one another. `text` is
+ * what we extracted from the file; `summary` is what a model wrote about it. The product
+ * promise is that the original is always reachable, and a single field that sometimes
+ * holds the source and sometimes holds a paraphrase is how that promise quietly stops
+ * being true.
+ *
+ * Not yet on `DocumentPort`, which still returns the narrower shape both
+ * implementations were written against. Widening it is the next step of the document
+ * work; the vocabulary is here so migration 0010's columns have names in TypeScript.
+ */
+export interface DocumentSummary {
+  id: DocumentId;
+  roomId: RoomId;
+  filename: string;
+  mimeType: string;
+  byteSize: number;
+  checksum: string;
+  uploadedBy: PersonId;
+  createdAt: Date;
+  extraction: ExtractionStatus;
+  /** Swedish, shown to the uploader. Null unless extraction failed. */
+  extractionError: string | null;
+  /** Swedish. Truncation and skipped pages are the uploader's business. */
+  warnings: string[];
+  pageCount: number | null;
+  chunkCount: number;
+  /** AI-generated. Null until the `summarise_document` job has run. */
+  summary: string | null;
+}
+
+/** Storage against the product limit. See `STORAGE_LIMIT_BYTES`. */
+export interface StorageUsageReport {
+  bytesUsed: number;
+  limitBytes: number;
+  objectCount: number;
+}
+
 export interface DocumentPort {
   upload(
     actor: Actor,

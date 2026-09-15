@@ -74,6 +74,25 @@ export function daysRemaining(purgeAfter: Date, now: Date): number {
   return Math.max(0, Math.ceil((purgeAfter.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
 }
 
+/**
+ * How much a person may store. Ten gigabytes, as a product limit rather than a
+ * reserved quota.
+ *
+ * Nothing is allocated up front: a person using 80 MB costs 80 MB, and this number can
+ * be raised for a plan or lowered before launch without touching a stored object. The
+ * enforcement point is the upload path — checked before the document row exists,
+ * because a limit checked anywhere later is a limit that was never enforced.
+ */
+export const STORAGE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024;
+
+/**
+ * Largest single file we accept.
+ *
+ * Well below the storage limit on purpose. This one is about what extraction can chew
+ * through in a request, not about how much a person may keep.
+ */
+export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
+
 /** Length above which a "small fact" is no longer small enough to auto-write. */
 export const AUTO_WRITE_MAX_CHARS = 240;
 
