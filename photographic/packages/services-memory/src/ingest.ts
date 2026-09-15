@@ -235,6 +235,7 @@ export class MemoryIngest implements IngestPort {
     actor: Actor,
     shortId: ShortId,
     roomId: RoomId,
+    reason?: string,
   ): Promise<{ item: Item; undoToken: string }> {
     if (!this.store.canWrite(actor.personId, roomId)) throw new NotPermittedError();
 
@@ -252,6 +253,7 @@ export class MemoryIngest implements IngestPort {
     item.deletedBy = actor.personId;
     item.deletedByClient = actor.agentClient;
     item.purgeAfter = purgeDeadline(now);
+    item.deleteReason = reason?.trim() || null;
     this.store.undoTokens.set(undoToken, item.id);
 
     this.store.append({

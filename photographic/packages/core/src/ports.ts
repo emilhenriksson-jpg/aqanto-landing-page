@@ -173,8 +173,19 @@ export interface IngestPort {
 
   update(actor: Actor, shortId: ShortId, roomId: RoomId, body: string): Promise<Item>;
 
-  /** Soft delete, always reversible. A model deleting the wrong memory loses the user. */
-  forget(actor: Actor, shortId: ShortId, roomId: RoomId): Promise<{ item: Item; undoToken: string }>;
+  /**
+   * Soft delete, always reversible. A model deleting the wrong memory loses the user.
+   *
+   * `reason` is the person's own phrasing, shown in the trash. It is what makes the
+   * trash readable a week later: "borttaget" against forty entries is a list to
+   * re-derive, while "flyttade från Stockholm" is an answer.
+   */
+  forget(
+    actor: Actor,
+    shortId: ShortId,
+    roomId: RoomId,
+    reason?: string,
+  ): Promise<{ item: Item; undoToken: string }>;
   undo(actor: Actor, undoToken: string): Promise<Item>;
 
   listProposals(actor: Actor): Promise<Proposal[]>;

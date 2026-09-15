@@ -131,6 +131,7 @@ export function memoryRoutes(): Hono<AppEnv> {
       actor,
       shortId as ShortId,
       roomId,
+      c.req.query('reason'),
     );
 
     return c.json({
