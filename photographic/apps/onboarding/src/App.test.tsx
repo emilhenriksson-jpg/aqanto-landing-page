@@ -111,7 +111,9 @@ describe('signing up', () => {
 
   it('goes straight to connecting rather than to a dashboard', async () => {
     const user = userEvent.setup();
-    render(<App api={new FakeApi()} />);
+    // A returning person, so the (skippable) first-sign-in name prompt does not stand
+    // between the code and connecting — that prompt is its own describe block below.
+    render(<App api={new FakeApi({ created: false })} />);
 
     await user.type(screen.getByLabelText('Mobilnummer'), PHONE);
     await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
@@ -143,6 +145,88 @@ describe('signing up', () => {
     await user.click(await screen.findByRole('button', { name: 'Använd ett annat nummer' }));
 
     expect(screen.getByLabelText('Mobilnummer')).toBeInTheDocument();
+  });
+});
+
+describe('the first-name prompt', () => {
+  /** Types the number and the code; stops right after verification. */
+  const verify = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.type(screen.getByLabelText('Mobilnummer'), PHONE);
+    await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
+    await user.type(await screen.findByLabelText('Kod'), '424242');
+    await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
+  };
+
+  it('asks only on first sign-in, never for a returning person', async () => {
+    const user = userEvent.setup();
+    render(<App api={new FakeApi({ created: false })} />);
+
+    await verify(user);
+
+    expect(screen.queryByText('Vad heter du?')).toBeNull();
+    expect(await screen.findByRole('heading', { name: 'Koppla din AI' })).toBeInTheDocument();
+  });
+
+  it('appears after the code, not before, and is not a wall', async () => {
+    const user = userEvent.setup();
+    render(<App api={new FakeApi()} />);
+
+    await verify(user);
+
+    expect(await screen.findByText('Vad heter du?')).toBeInTheDocument();
+    // Skippable in the most literal sense: no field is required to move past it.
+    expect(screen.getByRole('button', { name: 'Hoppa över' })).toBeEnabled();
+  });
+
+  it('skipping moves straight on without calling the API', async () => {
+    const user = userEvent.setup();
+    const api = new FakeApi();
+    render(<App api={api} />);
+
+    await verify(user);
+    await user.click(await screen.findByRole('button', { name: 'Hoppa över' }));
+
+    expect(await screen.findByRole('heading', { name: 'Koppla din AI' })).toBeInTheDocument();
+    expect(api.namedFirst).toEqual([]);
+  });
+
+  it('submitting empty is the same as skipping', async () => {
+    const user = userEvent.setup();
+    const api = new FakeApi();
+    render(<App api={api} />);
+
+    await verify(user);
+    await user.click(await screen.findByRole('button', { name: 'Fortsätt' }));
+
+    expect(await screen.findByRole('heading', { name: 'Koppla din AI' })).toBeInTheDocument();
+    expect(api.namedFirst).toEqual([]);
+  });
+
+  it('saves a name that is filled in, then continues', async () => {
+    const user = userEvent.setup();
+    const api = new FakeApi();
+    render(<App api={api} />);
+
+    await verify(user);
+    await user.type(await screen.findByLabelText('Förnamn'), 'Jacob');
+    await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
+
+    expect(await screen.findByRole('heading', { name: 'Koppla din AI' })).toBeInTheDocument();
+    expect(api.namedFirst).toEqual(['Jacob']);
+  });
+
+  it('surfaces a failure without losing the typed name or blocking the way forward', async () => {
+    const user = userEvent.setup();
+    render(<App api={new FakeApi({ failSetFirstNameWith: 'Något gick fel.' })} />);
+
+    await verify(user);
+    await user.type(await screen.findByLabelText('Förnamn'), 'Jacob');
+    await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Något gick fel.');
+    expect(screen.getByLabelText('Förnamn')).toHaveValue('Jacob');
+    // Still reachable: "Hoppa över" never depends on the save having worked.
+    expect(screen.getByRole('button', { name: 'Hoppa över' })).toBeEnabled();
   });
 });
 

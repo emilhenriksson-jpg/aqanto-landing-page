@@ -23,12 +23,16 @@ export interface FakeApiOptions {
   failVerifyWith?: string;
   /** A parked authorization request. Absent means expired or never existed. */
   authorization?: AuthorizationRequest;
+  /** Whether `verifyCode` reports a brand-new account. Defaults to true. */
+  created?: boolean;
+  failSetFirstNameWith?: string;
 }
 
 export class FakeApi implements Api {
   readonly requested: Array<{ phone: string; inviteToken?: string }> = [];
   readonly started: ClientId[] = [];
   readonly answered: Array<{ requestId: string; approved: boolean }> = [];
+  readonly namedFirst: string[] = [];
   session: string | null = null;
   polls = 0;
 
@@ -58,7 +62,7 @@ export class FakeApi implements Api {
     if (input.code !== '424242') throw new ApiError('Fel kod.', 401);
     return {
       session: { token: 'session-1', expiresAt: new Date().toISOString() },
-      created: true,
+      created: this.options.created ?? true,
       person: { id: 'person-1', displayName: null },
       personalRoom: { id: 'room-1', title: 'Mitt rum' },
       joinedRoom: this.options.invite
@@ -66,6 +70,14 @@ export class FakeApi implements Api {
         : null,
       next: 'connect' as const,
     };
+  }
+
+  async setFirstName(firstName: string) {
+    if (this.options.failSetFirstNameWith) {
+      throw new ApiError(this.options.failSetFirstNameWith, 400);
+    }
+    this.namedFirst.push(firstName);
+    return { firstName };
   }
 
   async connect(): Promise<ConnectPayload> {

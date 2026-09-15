@@ -7,12 +7,15 @@ import { Approve } from './screens/Approve.js';
 import { Connect } from './screens/Connect.js';
 import { Health } from './screens/Health.js';
 import { InviteLanding } from './screens/InviteLanding.js';
+import { Name } from './screens/Name.js';
 import { Signup } from './screens/Signup.js';
 import { Verify } from './screens/Verify.js';
 
 export type Step =
   | { name: 'invite'; token: string }
   | { name: 'signup'; inviteToken?: string }
+  /** First sign-in only — skippable, and never shown again after this session. */
+  | { name: 'name' }
   | { name: 'connect' }
   | { name: 'verify'; client: ClientDescriptor }
   /** Arrived by redirect from an AI client's authorization request. */
@@ -53,12 +56,15 @@ export function App({
           onDone={(result) => {
             api.setSession(result.session.token);
             setJoined(result.joinedRoom);
-            // `next` is always `connect`: creating an account and connecting an AI are
-            // one flow, so there is no dashboard in between.
-            setStep({ name: 'connect' });
+            // First sign-in only. A returning person already decided — skipped it or set
+            // it from the account screen — and asking again would be the wall the name
+            // prompt is explicitly not allowed to be.
+            setStep(result.created ? { name: 'name' } : { name: 'connect' });
           }}
         />
       )}
+
+      {step.name === 'name' && <Name api={api} onDone={() => setStep({ name: 'connect' })} />}
 
       {step.name === 'approve' && (
         <Approve api={api} requestId={step.requestId} {...(navigate ? { navigate } : {})} />
