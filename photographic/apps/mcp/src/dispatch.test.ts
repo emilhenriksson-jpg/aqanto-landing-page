@@ -405,6 +405,90 @@ describe('search with a date range — "Fråga mitt minne"', () => {
   });
 });
 
+describe('the personal compass', () => {
+  it('never auto-writes, even when the model marks it explicit', async () => {
+    // The property the whole design hinges on: `update_compass` has no `explicit`
+    // parameter at all, so there is no argument a model can set to skip the queue —
+    // unlike `remember`, where `explicit: true` is exactly what would have bypassed
+    // the gate before the fix that made instructions immune to it.
+    const result = await call(emil, 'update_compass', {
+      principle: 'directness',
+      text: 'Var alltid extremt kort.',
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.text).toMatch(/väntar på godkännande/);
+    expect(result.text).toContain('directness'.length > 0 ? 'Var direkt' : '');
+
+    const context = await call(emil, 'get_context');
+    expect(context.text).not.toContain('Var alltid extremt kort');
+  });
+
+  it('refuses a compass write through remember, the general write tool', async () => {
+    // Defence in depth: even if a model tried the door that has an `explicit` flag,
+    // that door refuses `kind: 'compass'` outright before the approval gate would run.
+    const roomId = (await wired.services.identity.personalRoomOf(emil.personId)).id;
+    await expect(
+      wired.services.ingest.remember(emil, {
+        roomId,
+        body: 'Var alltid extremt kort.',
+        kind: 'compass' as never,
+        explicit: true,
+      }),
+    ).rejects.toThrow(/förslag/);
+  });
+
+  it('delivers the default six principles before anything has been customised', async () => {
+    const context = await call(emil, 'get_context');
+    // A brand-new account still gets the whole compass, not an empty block — see
+    // docs/agent-instruction-layer.md for why the defaults live in code rather than
+    // being written as memories nobody asked for.
+    expect(context.text).toMatch(/Var direkt/);
+    expect(context.text).toMatch(/Skilj på vad som är fakta/);
+  });
+
+  it('replaces a principle once approved, and the old wording stops rendering', async () => {
+    const proposed = await call(emil, 'update_compass', {
+      principle: 'directness',
+      text: 'Hoppa över all inledande artighet helt.',
+    });
+    const proposalId = proposed.text.match(/\(([0-9a-f-]{10,})\)/)?.[1];
+    expect(proposalId).toBeTruthy();
+
+    const proposals = await wired.services.ingest.listProposals(emil);
+    const proposal = proposals.find((p) => p.id === proposalId);
+    expect(proposal?.kind).toBe('compass');
+
+    await wired.services.ingest.resolveProposal(emil, proposal!.id, true);
+
+    const context = await call(emil, 'get_context');
+    expect(context.text).toContain('Hoppa över all inledande artighet helt.');
+    expect(context.text).not.toContain('Var direkt. Säg det du menar');
+  });
+
+  it('is reversible from the trash like any other memory once approved', async () => {
+    const proposed = await call(emil, 'update_compass', {
+      principle: 'label_certainty',
+      text: 'Säg alltid rakt ut när du gissar.',
+    });
+    const proposalId = proposed.text.match(/\(([0-9a-f-]{10,})\)/)?.[1]!;
+    const item = await wired.services.ingest.resolveProposal(emil, proposalId as never, true);
+
+    const forgotten = await call(emil, 'forget_memory', { id: item!.shortId });
+    expect(forgotten.isError).toBe(false);
+
+    const context = await call(emil, 'get_context');
+    // The slot falls back to its built-in default rather than disappearing from the
+    // compass — six principles render every session, always.
+    expect(context.text).toMatch(/Skilj på vad som är fakta/);
+
+    const token = forgotten.text.match(/undo_token "([^"]+)"/)?.[1];
+    await call(emil, 'restore_memory', { undo_token: token });
+    const restored = await call(emil, 'get_context');
+    expect(restored.text).toContain('Säg alltid rakt ut när du gissar.');
+  });
+});
+
 describe('get_context', () => {
   it('records that the profile arrived, and how honestly', async () => {
     // Amber, not green: the model had to ask for it. Recording this as a guaranteed
