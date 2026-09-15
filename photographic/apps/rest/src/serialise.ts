@@ -254,6 +254,17 @@ export function serialiseBundle(bundle: ContextBundle, rendered: string) {
     // its own from the sections will drift from the one the MCP server sends, and then
     // the product behaves differently depending on which door you came in through.
     rendered,
+    /**
+     * What was asked for, next to what was produced.
+     *
+     * `MIN_HONOURABLE_BUDGET_TOKENS` refuses the values no package can meet, but it is
+     * measured from the un-droppable *text* — the preamble, the Compass, the rules — and
+     * a person's own profile keeps at least one item and their whole room list on top of
+     * that. So a budget above the floor can still be exceeded by a particular person's
+     * package, and the honest thing is to say so per response rather than to imply the
+     * number was met. `tokenCount` is measured from `rendered`, so the pair is checkable.
+     */
+    budgetTokens: bundle.budgetTokens,
     tokenCount: bundle.tokenCount,
     bundleVersion: bundle.bundleVersion,
     builtAt: bundle.builtAt.toISOString(),

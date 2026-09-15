@@ -218,12 +218,48 @@ export interface HistoryEntry {
   roomTitle: string;
   shortId: ShortId | null;
   body: string | null;
+  /**
+   * What kind of memory it is, when the event says.
+   *
+   * Only `item.created` and `item.shared` carry `kind` in their payload, so an `updated`
+   * or `deleted` line has `null` here and a caller that needs the kind has to find the
+   * creation event for the same short id. Null rather than a guess: the alternative is a
+   * join per row on a feed read, and "unknown" is the safe answer for a rule that turns
+   * on the kind — see `openThreadsFor`, which excludes rather than assumes.
+   */
+  itemKind: ItemKind | null;
   /** Which AI did it, or `web`/`voice` when the person did it themselves. */
   agentClient: AgentClient | null;
   actorName: string | null;
   /** True when this passed through an explicit approval rather than landing silently. */
   wasApproved: boolean;
   redacted: boolean;
+}
+
+/**
+ * A memory that was mentioned and then never followed up on.
+ *
+ * The third thing `docs/agent-instruction-layer.md` separated out as "not tone, and
+ * needing machinery an instruction cannot create": *"'Ask how something went' needs the
+ * calendar. The model has to know that something was said three weeks ago and hasn't
+ * been followed up on — that's a query over history, not a disposition."*
+ *
+ * This is that query. It is the difference between a model that recites what it knows
+ * and one that picks up a thread, and nothing in the session package marked it — so a
+ * decision saved three weeks ago with nothing after it looked exactly like a permanent
+ * fact about the person.
+ */
+export interface OpenThread {
+  shortId: ShortId;
+  roomId: RoomId;
+  roomTitle: string;
+  body: string;
+  /** Only ever `decision` or `note`. See `openThreadsFor` for why the others cannot be open. */
+  kind: ItemKind;
+  /** The last thing that happened to it, which is what makes it look unfinished. */
+  lastTouchedAt: Date;
+  /** Whole days since, so a renderer does not do date arithmetic. */
+  daysSince: number;
 }
 
 /** The answer to "how do you know that about me?". */
@@ -632,6 +668,26 @@ export interface ProfileSections {
 export interface RenderedItem {
   shortId: ShortId;
   body: string;
+  /**
+   * Which kind it is, where the section holds more than one.
+   *
+   * Set only for `currentFocus`, which is fed by both `decision` and `note`. That made it
+   * the one section where a model could not tell a decision from a passing thought while
+   * the heading claimed both were current — the failure that makes a model confidently
+   * wrong about someone's life, which is the kind that loses trust fastest. Null
+   * everywhere else, where the section name already says what the items are.
+   */
+  kind?: ItemKind | null;
+  /**
+   * When it was saved, where staleness is the thing a reader needs to judge.
+   *
+   * Set only for `currentFocus`, for the same reason: "Håller på med just nu" is the
+   * section most likely to have stopped being true, and a bare bullet gives a model no
+   * way to hedge the right line and assert the rest. Deliberately *not* set on identity,
+   * facts, preferences, instructions or `never` — a date on "Allergisk mot ketchup" is
+   * noise, and noise is what stops a date meaning anything where it matters.
+   */
+  at?: Date | null;
 }
 
 export interface Brief {
@@ -696,6 +752,15 @@ export interface ContextBundle {
    * it comes from today and why that read sits behind a seam.
    */
   recent: HistoryEntry[];
+  /**
+   * Loose ends: things mentioned and then not followed up on. See `openThreadsFor`.
+   *
+   * Separate from `recent` and ranked above it, because they answer opposite questions.
+   * `recent` is what happened; this is what *stopped* happening, which is the only part
+   * of the package that gives a model something to open a conversation with rather than
+   * something to recite.
+   */
+  open: OpenThread[];
   activeRoom: ActiveRoomContext | null;
   /**
    * The ceiling this bundle was assembled against, carried so that rendering it again

@@ -19,6 +19,7 @@ import type {
   HistoryPort,
   Item,
   ItemId,
+  ItemKind,
   MemoryChange,
   MemoryChangeStep,
   MemoryEvent,
@@ -104,6 +105,21 @@ export const ACTION_OF: Record<string, HistoryAction> = {
 };
 
 export const DEFAULT_HISTORY_LIMIT = 100;
+
+const ITEM_KINDS = new Set<string>([
+  'identity',
+  'fact',
+  'preference',
+  'instruction',
+  'decision',
+  'note',
+  'never',
+  'compass',
+]);
+
+function isItemKind(value: unknown): value is ItemKind {
+  return typeof value === 'string' && ITEM_KINDS.has(value);
+}
 
 export class MemoryHistory implements HistoryPort {
   constructor(private readonly store: MemoryStore) {}
@@ -325,6 +341,8 @@ export class MemoryHistory implements HistoryPort {
       // Null once purged. The entry survives so the feed can still show that something
       // was removed; the text does not, because that is what the trash promised.
       body: redacted ? null : body,
+      // Present on `item.created` and `item.shared` only; see `HistoryEntry.itemKind`.
+      itemKind: isItemKind(event.payload['kind']) ? event.payload['kind'] : null,
       agentClient: event.agentClient,
       actorName: event.actorPersonId
         ? this.store.persons.get(event.actorPersonId)?.displayName ?? null

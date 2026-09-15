@@ -393,9 +393,26 @@ function toEntry(row: EventRow & { room_title: string; actor_name: string | null
     roomTitle: row.room_title,
     shortId,
     body: redacted ? null : body,
+    // Present on `item.created` and `item.shared` only; see `HistoryEntry.itemKind`.
+    itemKind: isItemKind(event.payload['kind']) ? event.payload['kind'] : null,
     agentClient: event.agentClient,
     actorName: row.actor_name,
     wasApproved: event.approvedBy !== null,
     redacted,
   };
+}
+
+const ITEM_KINDS = new Set<string>([
+  'identity',
+  'fact',
+  'preference',
+  'instruction',
+  'decision',
+  'note',
+  'never',
+  'compass',
+]);
+
+function isItemKind(value: unknown): value is ItemKind {
+  return typeof value === 'string' && ITEM_KINDS.has(value);
 }

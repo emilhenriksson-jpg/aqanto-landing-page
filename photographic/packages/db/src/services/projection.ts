@@ -150,7 +150,19 @@ export class PgProjection implements ProjectionPort {
       if (total + cost > PROFILE_TOKEN_BUDGET) continue;
       if (sectionUsed + cost > SECTION_BUDGETS[name]) continue;
 
-      sections[name].push({ shortId: item.shortId, body: item.body } satisfies RenderedItem);
+      // `currentFocus` is the one section holding two kinds, and the one where a stale
+      // line does real damage — so those items carry their kind and their date. See
+      // `RenderedItem`.
+      sections[name].push(
+        name === 'currentFocus'
+          ? ({
+              shortId: item.shortId,
+              body: item.body,
+              kind: item.kind,
+              at: item.createdAt,
+            } satisfies RenderedItem)
+          : ({ shortId: item.shortId, body: item.body } satisfies RenderedItem),
+      );
       perSection.set(name, sectionUsed + cost);
       total += cost;
       included += 1;

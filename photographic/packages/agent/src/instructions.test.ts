@@ -15,6 +15,7 @@ import type {
 import { occursOnlyInsideRoomContent } from './boundary.js';
 import {
   INSTRUCTIONS_TOKEN_BUDGET,
+  MIN_HONOURABLE_BUDGET_TOKENS,
   estimateTokens,
   renderInstructions,
   renderProfile,
@@ -60,6 +61,7 @@ function bundle(overrides: Partial<ContextBundle> = {}): ContextBundle {
     profile: profile(),
     rooms: [],
     recent: [],
+    open: [],
     activeRoom: null,
     budgetTokens: INSTRUCTIONS_TOKEN_BUDGET,
     tokenCount: 0,
@@ -78,6 +80,7 @@ function recentEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
     roomTitle: 'Buyersclub Ledning',
     shortId: 'p-aaaa' as ShortId,
     body: 'Vi beslutade att skjuta förvärvet till Q3',
+    itemKind: 'decision',
     agentClient: 'claude-desktop',
     actorName: 'Emil',
     wasApproved: false,
@@ -390,6 +393,148 @@ describe('the session instructions', () => {
     expect(small.length).toBeLessThan(large.length);
   });
 
+  it('names the loose end, and says Photographic has heard nothing rather than that it is undone', () => {
+    // The distinction is the whole reason this block is safe to include. The person may
+    // well have finished the thing and not mentioned it, so a model saying "har du hunnit
+    // med X?" is right either way while one saying "X är fortfarande öppet" is wrong half
+    // the time.
+    const rendered = renderInstructions(
+      bundle({
+        open: [
+          {
+            shortId: 'p-peab' as ShortId,
+            roomId: 'room-2' as RoomId,
+            roomTitle: 'Villan',
+            body: 'Vi skulle höra av oss till Peab om köksofferten',
+            kind: 'decision',
+            lastTouchedAt: new Date(Date.now() - 21 * 86_400_000),
+            daysSince: 21,
+          },
+        ],
+      }),
+    );
+
+    expect(rendered).toContain('Peab');
+    expect(rendered).toContain('p-peab');
+    expect(rendered).toContain('21 dagar');
+    expect(rendered).toMatch(/inte hört\s+något sedan dess/);
+    expect(rendered).toMatch(/betyder inte att det är ogjort/);
+    // Other people wrote these in a shared room, so the same fence applies as everywhere.
+    expect(occursOnlyInsideRoomContent(rendered, 'Peab')).toBe(true);
+  });
+
+  it('gives up "recent" before the loose end, at every size where only one fits', () => {
+    // Between "here are four things that happened" and "this has been waiting three
+    // weeks", the second is what a person notices — so `recent` is what gives way.
+    //
+    // Swept rather than pinned to one profile size: the exact count at which the budget
+    // runs out moves whenever a rule or a default Compass principle is edited, and a test
+    // that has to be re-tuned for that is a test that gets deleted. The invariant is the
+    // implication, at every size.
+    const loose = {
+      shortId: 'p-peab' as ShortId,
+      roomId: 'room-2' as RoomId,
+      roomTitle: 'Villan',
+      body: 'Vi skulle höra av oss till Peab om köksofferten',
+      kind: 'decision' as const,
+      lastTouchedAt: new Date(Date.now() - 21 * 86_400_000),
+      daysSince: 21,
+    };
+
+    let sawOnlyOne = false;
+
+    for (let facts = 0; facts <= 80; facts += 4) {
+      const rendered = renderInstructions(
+        bundle({
+          profile: profile({
+            hardFacts: Array.from({ length: facts }, (_, i) => item(`Faktum nummer ${i} `.repeat(4))),
+          }),
+          open: [loose],
+          recent: [recentEntry({ body: 'Något helt annat som hände nyligen' })],
+        }),
+      );
+
+      const hasOpen = rendered.includes('Peab');
+      const hasRecent = rendered.includes('Något helt annat');
+
+      expect(estimateTokens(rendered)).toBeLessThanOrEqual(INSTRUCTIONS_TOKEN_BUDGET);
+      // The whole property: `recent` never survives a package the loose end did not.
+      if (hasRecent) expect(hasOpen, `at ${facts} facts`).toBe(true);
+      if (hasOpen && !hasRecent) sawOnlyOne = true;
+    }
+
+    // And the sweep actually passed through the interesting region, rather than being
+    // vacuously true because both always fit or neither ever did.
+    expect(sawOnlyOne).toBe(true);
+  });
+
+  it('writes "recent" as a thread rather than as a changelog', () => {
+    // It used to render `- 2026-09-14: sparade — Emil: …`, four lines of it. Nobody says
+    // "on the fourteenth of September I mentioned"; a relative day is how a person thinks
+    // about when, and "sparade" on every line says nothing because saving is what this
+    // product does.
+    const now = new Date('2026-09-15T12:00:00Z');
+    const rendered = renderInstructions(
+      bundle({
+        builtAt: now,
+        recent: [
+          recentEntry({
+            action: 'saved',
+            roomTitle: 'Villan',
+            occurredAt: new Date('2026-09-14T10:00:00Z'),
+            body: 'Elektrikern kommer på torsdag',
+          }),
+        ],
+      }),
+    );
+
+    expect(rendered).toContain('- igår, Villan: Elektrikern kommer på torsdag');
+    expect(rendered).not.toContain('2026-09-14');
+    expect(rendered).not.toContain('sparade');
+  });
+
+  it('still names the verb when the verb is the information', () => {
+    const now = new Date('2026-09-15T12:00:00Z');
+    const rendered = renderInstructions(
+      bundle({
+        builtAt: now,
+        recent: [
+          recentEntry({
+            action: 'deleted',
+            roomTitle: 'Villan',
+            occurredAt: new Date('2026-09-14T10:00:00Z'),
+          }),
+        ],
+      }),
+    );
+
+    expect(rendered).toContain('tog bort');
+  });
+
+  it('publishes a floor that is what the un-droppable blocks actually cost', () => {
+    // The number an API can refuse below. Measured from the reserved text rather than
+    // written down, so it cannot drift when a rule or a default Compass principle is
+    // edited — which is the only way a published minimum stays true.
+    const floor = MIN_HONOURABLE_BUDGET_TOKENS;
+
+    // Sanity, in both directions: a floor of zero would mean the reservation logic had
+    // vanished, and a floor above the default budget would mean the default itself is
+    // unhonourable.
+    expect(floor).toBeGreaterThan(200);
+    expect(floor).toBeLessThan(INSTRUCTIONS_TOKEN_BUDGET);
+
+    // And it is honest about itself: asking for exactly the floor gets a string that
+    // fits, while asking for less than it does not — which is why the API refuses
+    // rather than accepting a number it will miss.
+    const atFloor = renderInstructions(bundle({ budgetTokens: floor, profile: full.profile }));
+    expect(estimateTokens(atFloor)).toBeLessThanOrEqual(floor);
+
+    const belowFloor = renderInstructions(
+      bundle({ budgetTokens: Math.floor(floor / 2), profile: full.profile }),
+    );
+    expect(estimateTokens(belowFloor)).toBeGreaterThan(Math.floor(floor / 2));
+  });
+
   it('stays inside the budget', () => {
     const huge = bundle({
       profile: profile({
@@ -443,12 +588,64 @@ describe('the session instructions', () => {
     expect(rendered).toContain('Utmana alltid mina idéer');
     expect(rendered).not.toContain('Notering 199');
   });
+
+  it('tells a decision from a note, and dates both, in the one section that mixes them', () => {
+    // `currentFocus` is fed by both `decision` and `note`, and the heading used to assert
+    // that everything under it was current. That made it the section most likely to make
+    // a model confidently wrong about someone's life — a wrong fact is annoying, a wrong
+    // claim about what someone is *doing* reads as not knowing them.
+    const now = new Date('2026-09-15T12:00:00Z');
+    const rendered = renderInstructions(
+      bundle({
+        builtAt: now,
+        profile: profile({
+          currentFocus: [
+            {
+              shortId: 'p-dec1' as ShortId,
+              body: 'Förvärvet skjuts till Q3',
+              kind: 'decision',
+              at: new Date('2026-09-14T09:00:00Z'),
+            },
+            {
+              shortId: 'p-not1' as ShortId,
+              body: 'Kolla upp leverantörsavtalet',
+              kind: 'note',
+              at: new Date('2026-08-20T09:00:00Z'),
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(rendered).toContain('[beslut · igår] Förvärvet skjuts till Q3');
+    expect(rendered).toMatch(/\[anteckning · för \d+ veckor sedan\] Kolla upp leverantörsavtalet/);
+    // The heading stopped claiming currency for both and hands the judgement over.
+    expect(rendered).toContain('På gång');
+    expect(rendered).not.toContain('Håller på med just nu');
+    expect(rendered).toMatch(/kan ha slutat gälla/);
+  });
+
+  it('does not date the sections where a date would be noise', () => {
+    // A date on "Allergisk mot ketchup" is noise, and noise is exactly what stops a date
+    // meaning anything where it matters. Only `currentFocus` carries one.
+    const rendered = renderInstructions(
+      bundle({
+        profile: profile({
+          hardFacts: [item('Allergisk mot ketchup', 'p-aaaa')],
+          identity: [item('Emil, 41, bor i Göteborg', 'p-bbbb')],
+        }),
+      }),
+    );
+
+    expect(rendered).toContain('- Allergisk mot ketchup (p-aaaa)');
+    expect(rendered).not.toMatch(/\[.*\] Allergisk mot ketchup/);
+  });
 });
 
 describe('the "recent" block', () => {
   it('is absent when nothing has happened yet', () => {
     const rendered = renderInstructions(bundle({ recent: [] }));
-    expect(rendered).not.toMatch(/Det senaste som hände/);
+    expect(rendered).not.toMatch(/Var ni var senast/);
   });
 
   it('names the room and a short preview of what happened, newest first', () => {
@@ -461,7 +658,7 @@ describe('the "recent" block', () => {
       }),
     );
 
-    expect(rendered).toMatch(/Det senaste som hände/);
+    expect(rendered).toMatch(/Var ni var senast/);
     expect(rendered).toContain('Personligt');
     expect(rendered).toContain('Buyersclub Ledning');
     expect(rendered.indexOf('Personligt')).toBeLessThan(rendered.indexOf('Buyersclub Ledning'));
@@ -536,7 +733,7 @@ describe('the "recent" block', () => {
     // 'gives every room a sentence' case); "recent" did not, and that is deliberate —
     // it competes for slack only, never for space something else already claimed.
     expect(rendered).toContain('Ledningsgruppen, beslut och underlag');
-    expect(rendered).not.toMatch(/Det senaste som hände/);
+    expect(rendered).not.toMatch(/Var ni var senast/);
     expect(estimateTokens(rendered)).toBeLessThanOrEqual(INSTRUCTIONS_TOKEN_BUDGET);
   });
 
@@ -548,7 +745,7 @@ describe('the "recent" block', () => {
       budgetTokens: 40,
     });
 
-    expect(rendered).not.toMatch(/Det senaste som hände/);
+    expect(rendered).not.toMatch(/Var ni var senast/);
   });
 
   it('stays inside the budget even with several recent entries', () => {

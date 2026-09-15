@@ -42,6 +42,43 @@ export const SINCE_LAST_SEEN_TOKEN_BUDGET = 400;
 export const SINCE_LAST_SEEN_SCAN_LIMIT = 200;
 
 /**
+ * How many loose ends reach a session. See `openThreadsFor`.
+ *
+ * Two, and the smallness is the design. This is a conversational opening, not a to-do
+ * list: a model handed six of these will read them out as a list, which is the exact
+ * behaviour that makes a product feel like software rather than like being remembered.
+ * One or two is something a person picks up; six is a standup.
+ */
+export const OPEN_THREAD_LIMIT = 2;
+
+/**
+ * How long something has to sit untouched before it counts as dropped rather than as
+ * in progress.
+ *
+ * A week. Asking "har du hunnit med X?" about something saved yesterday reads as not
+ * having been listening, which is worse than not asking.
+ */
+export const OPEN_THREAD_MIN_AGE_DAYS = 7;
+
+/**
+ * And how long before it stops being a thread and becomes the past.
+ *
+ * Ninety days. A note from eight months ago is not unfinished business, and raising it
+ * is the behaviour that makes a model feel like it is reading a file on you rather than
+ * remembering a conversation. It also bounds the log read.
+ */
+export const OPEN_THREAD_MAX_AGE_DAYS = 90;
+
+/**
+ * What the loose-ends block may cost.
+ *
+ * Small, and spent from the same slack `recent` comes out of — but ahead of it. Between
+ * "here are four things that happened" and "this one thing has been waiting three
+ * weeks", the second is what a person notices, so `recent` is what gives way first.
+ */
+export const OPEN_THREAD_TOKEN_BUDGET = 110;
+
+/**
  * The whole room overview, every room the person can reach.
  *
  * Small on purpose. The overview exists so a model knows what rooms there are, not so it

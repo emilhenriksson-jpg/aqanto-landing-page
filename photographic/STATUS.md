@@ -605,9 +605,82 @@ anything (found by the third review; verified rather than taken on trust):
 Also bounded the catch-up read (`SINCE_LAST_SEEN_SCAN_LIMIT`), which scanned every event
 since `last_seen_seq` on the session-start path for a list cut to a token budget anyway.
 
-**Found while in there, not fixed:** `?budget=` accepts values below roughly 1200 tokens
-and cannot honour them, because the rules and the Compass are reserved and never given
-up. The floor should either be the schema's minimum or the parameter should say so.
+### Och sedan: från dossier till öppning
+
+The plumbing above delivers what it computes. Judged as a person rather than as a budget,
+the *contents* were still a description of somebody rather than a way into a conversation:
+every block said something settled, so a model reading them could only recite. Three
+changes, in the order they were worth doing.
+
+**1. Vad personen lämnade hängande.** The one thing nothing marked. This is the third item
+`docs/agent-instruction-layer.md` set aside as needing machinery an instruction cannot
+create — *"'Ask how something went' needs the calendar. The model has to know that
+something was said three weeks ago and hasn't been followed up on"* — so this is finishing
+an idea the project already had.
+
+`openThreadsFor` derives it from the log alone: no new write, no table, no model call, and
+nothing anybody has to remember to set. A memory is open when its kind implies an outcome
+(`decision` or `note` only — "Allergisk mot ketchup" is not waiting on anything, and
+listing it teaches a model the block is noise), **nothing has happened to it since** (the
+newest event is `saved` or `updated`; a delete, a supersede or a dispute *is* a follow-up),
+it is at least a week old (something saved yesterday is this week's work, and asking about
+it reads as not having been listening), and at most ninety days old (older than that is
+the past, and raising it is what makes a model feel like it is reading a file on you).
+
+Two lines, hard cap. A model handed six of these reads them out as a list, which is the
+exact behaviour the block exists to avoid. And the preamble says *Photographic har inte
+hört något sedan dess — det betyder inte att det är ogjort*, because the person may well
+have finished the thing and not mentioned it: "har du hunnit med X?" is right either way,
+"X är fortfarande öppet" is wrong half the time.
+
+Ranked **above** `recent` in the slack both are spent from. Between "here are four things
+that happened" and "this one thing has been waiting three weeks", the second is what a
+person notices, so `recent` is what gives way. Asserted as a sweep across profile sizes
+rather than pinned to one, because the size at which the budget runs out moves whenever a
+rule is edited and a test that needs re-tuning for that is a test that gets deleted.
+
+**2. `recent` reads as a thread rather than a changelog.** It rendered
+`- 2026-09-14: sparade — Emil: Allergisk mot ketchup`, four lines of it. Nobody says "on
+the fourteenth of September I mentioned"; they say "i fredags". So the time is relative
+(`relativeSwedishDay`, deterministic and offline — this is a voice turn), the room comes
+before the verb because where a thing happened is what orients a reader, and a plain save
+drops the verb entirely since saving is what this product does. The verb survives only
+where it carries information: changed, removed, replaced.
+
+Deliberately **not** a summarised sentence. That needs the summariser on a job rather than
+on the read path, plus somewhere to cache it, and shipping a summary before the thing being
+summarised is the wrong order — the same argument this repo already made about week and
+month rollups. The rendering change is what the complaint was actually about.
+
+**3. `Håller på med just nu` stopped claiming a note and a decision are the same thing.**
+That section is fed by both `decision` and `note`, and the heading asserted currency for
+everything under it. It was the section most likely to make a model confidently wrong about
+a person's life — and a wrong fact is annoying where a wrong claim about what somebody is
+*doing* reads as not knowing them at all.
+
+`RenderedItem` gained optional `kind` and `at`, set for `currentFocus` and nowhere else:
+`- [beslut · igår] Förvärvet skjuts till Q3 (p-7k2m)`. A date on "Allergisk mot ketchup"
+would be noise, and noise is exactly what stops a date meaning anything where it matters.
+The heading is now *På gång — beslut och anteckningar, daterade. Det äldsta kan ha slutat
+gälla; fråga hellre än att påstå*, which hands the judgement to the reader instead of making
+a claim the data cannot support.
+
+### `?budget=` vägrar det den inte kan hålla
+
+Accepting a value it cannot meet is a small lie, and one only found by measuring the
+response. The old minimum was 100; `MIN_HONOURABLE_BUDGET_TOKENS` measures the
+never-dropped text — preamble, Compass, confirmation style, data boundary — and comes out
+at **497**. Below that the schema now refuses with a 400 naming the minimum, rather than
+answering with a string twice the size of the number asked for.
+
+Measured from the text rather than written down, so it cannot drift when a rule or a
+default principle is edited. **And the honest caveat, stated per response rather than
+hidden:** 497 is the floor for the un-droppable *text*, while a particular person's package
+also keeps at least one profile item and their whole room list, so a budget above the floor
+can still be exceeded by their own content. `GET /v1/context` therefore returns
+`budgetTokens` next to `tokenCount`, and `tokenCount` is measured from the string the
+caller was handed — so the pair is checkable instead of the number being implied to have
+been met.
 
 ### Sökkvalitet — ommätt mot tester som kan misslyckas
 
@@ -717,11 +790,14 @@ räknas som arbete kvar.
 
 ### Grönt
 
-Monorepo typecheck rent. `packages/core` 113, `packages/agent` 72, `packages/db` 132
+Monorepo typecheck rent. `packages/core` 142, `packages/agent` 79, `packages/db` 151
 (2 skippade: `LIVE_SUPABASE` och en gammal nyckel-gate), `packages/llm` 9,
-`packages/services-memory` 10, `apps/mcp` 65, `apps/rest` 114, `apps/web` 75,
-`e2e` 64 på `HARNESS=memory` och 64 på `HARNESS=postgres`. Postgres 16 + pgvector
-installerades i den här sandlådan för att köra Postgres-sviterna; migration 0020 applicerad.
+`packages/services-memory` 10, `apps/mcp` 65, `apps/rest` 161, `apps/web` 75,
+`e2e` 66 på `HARNESS=memory` och 66 på `HARNESS=postgres`; övriga paket oförändrade och
+gröna. Postgres 16 + pgvector installerades i den här sandlådan för att köra
+Postgres-sviterna; migration 0020 applicerad. Rebasat på `main` efter att 0016/0017 landat
+där, med en konflikt (`apps/rest/src/app.test.ts`, båda grenarna la till ett `describe` på
+samma rad) som löstes genom att behålla båda.
 
 ### Territorium
 

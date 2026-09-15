@@ -60,6 +60,7 @@ function entry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
     roomTitle: 'Emil',
     shortId: 'p-old1' as ShortId,
     body: 'Bor i Stockholm',
+    itemKind: 'fact',
     agentClient: 'claude-desktop' as AgentClient,
     actorName: 'Emil',
     wasApproved: true,

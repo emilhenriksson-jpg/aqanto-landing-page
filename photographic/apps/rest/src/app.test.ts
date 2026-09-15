@@ -8,6 +8,7 @@
  * returns whatever the test wants.
  */
 
+import { estimateTokens, MIN_HONOURABLE_BUDGET_TOKENS } from '@photographic/agent';
 import { SUPPORTED_SCOPES } from '@photographic/auth';
 import type { PersonId, Person, SessionId } from '@photographic/core';
 import type { ConnectDeps } from '@photographic/connect';
@@ -728,6 +729,41 @@ describe('a token cannot confirm a share on a person’s behalf', () => {
     expect(items.items.map((item: { body: string }) => item.body)).toContain(
       'Allergisk mot ketchup',
     );
+  });
+});
+
+describe('the context budget an API can honour', () => {
+  it('refuses a budget below the floor instead of quietly exceeding it', async () => {
+    // `?budget=500` used to be validated, documented and answered with a string well
+    // over the budget it named: the preamble, the Compass, the confirmation style and the
+    // data boundary are reserved and never given up, and they cost roughly ten times the
+    // old minimum of 100. A small lie, and one only found by measuring the response.
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+
+    const res = await f.get(`/v1/context?budget=${MIN_HONOURABLE_BUDGET_TOKENS - 1}`, token);
+
+    expect(res.status).toBe(400);
+    // The message names the minimum, so the next request can be right.
+    expect(JSON.stringify(await res.json())).toMatch(/minst \d+/);
+  });
+
+  it('reports what was asked for next to what it sent, so neither has to be assumed', async () => {
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+    await f.post('/v1/memory', { body: 'Allergisk mot ketchup', explicit: true }, token);
+    await f.wired.runJobsToCompletion();
+
+    const asked = MIN_HONOURABLE_BUDGET_TOKENS + 900;
+    const res = await f.get(`/v1/context?budget=${asked}`, token);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.budgetTokens).toBe(asked);
+    // `tokenCount` describes the string the caller was actually handed, rather than one
+    // rendered against a different ceiling — which is what the bundle carrying its own
+    // budget bought. The floor covers the un-droppable text; a person's own profile can
+    // push the real minimum higher, so the pair being checkable is the honest part.
+    expect(json.tokenCount).toBe(estimateTokens(json.rendered));
+    expect(json.tokenCount).toBeLessThanOrEqual(asked);
   });
 });
 

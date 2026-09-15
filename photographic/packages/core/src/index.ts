@@ -12,5 +12,6 @@ export * from './recent.js';
 export * from './replay.js';
 export * from './ask.js';
 export * from './changes.js';
+export * from './open.js';
 export * from './swedish.js';
 export * from './compass.js';

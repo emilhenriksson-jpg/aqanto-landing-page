@@ -5,7 +5,13 @@
  */
 
 import type { Actor, BundlePort, ContextBundle, HistoryPort, ProjectionPort, RoomId, RoomPort } from '@photographic/core';
-import { BUNDLE_TOKEN_BUDGET, RECENT_ACTIVITY_LIMIT, estimateTokens, recentActivityFor } from '@photographic/core';
+import {
+  BUNDLE_TOKEN_BUDGET,
+  RECENT_ACTIVITY_LIMIT,
+  estimateTokens,
+  openThreadsFor,
+  recentActivityFor,
+} from '@photographic/core';
 import { renderInstructions } from '@photographic/agent';
 
 export class PgBundle implements BundlePort {
@@ -22,6 +28,8 @@ export class PgBundle implements BundlePort {
     const profile = await this.projection.getProfile(actor.personId);
     const rooms = await this.rooms.listForPerson(actor);
     const recent = await recentActivityFor(this.history, actor, RECENT_ACTIVITY_LIMIT);
+    // Loose ends, from the same log through its own seam. See `openThreadsFor`.
+    const open = await openThreadsFor(this.history, actor, new Date());
 
     const activeRoom = input.activeRoomId
       ? await this.projection.activeRoomContext(actor, input.activeRoomId)
@@ -32,10 +40,11 @@ export class PgBundle implements BundlePort {
       profile,
       rooms,
       recent,
+      open,
       activeRoom,
       budgetTokens: input.budgetTokens ?? BUNDLE_TOKEN_BUDGET,
       tokenCount: 0,
-      bundleVersion: `${profile.version}.${rooms.length}.${activeRoom ? 1 : 0}.${recent.length}`,
+      bundleVersion: `${profile.version}.${rooms.length}.${activeRoom ? 1 : 0}.${recent.length}.${open.length}`,
       builtAt: new Date(),
     };
 

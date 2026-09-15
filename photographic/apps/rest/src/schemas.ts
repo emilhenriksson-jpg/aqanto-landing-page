@@ -8,6 +8,7 @@
  * making it name a room for that would be friction paid on every single write.
  */
 
+import { MIN_HONOURABLE_BUDGET_TOKENS } from '@photographic/agent';
 import { ROOM_HEADLINE_TOKEN_BUDGET, isCalendarDate } from '@photographic/core';
 import { z } from 'zod';
 
@@ -221,9 +222,35 @@ export const historyQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
+/**
+ * `budget` is refused below the floor rather than accepted and missed.
+ *
+ * The minimum used to be 100, which the renderer cannot honour for anybody: the
+ * preamble, the Compass, the confirmation style and the data boundary are reserved and
+ * never given up, and they cost roughly ten times that on their own. So
+ * `?budget=500` was validated, documented, and answered with a string well over the
+ * budget it named — a small lie, and the kind that is only discovered by measuring the
+ * response.
+ *
+ * Refused rather than silently clamped, because a caller asking for a small package
+ * usually has a reason (a client with a hard prompt limit), and handing them a larger one
+ * while reporting success is the outcome they can least afford. The message names the
+ * minimum so the next request can be right.
+ *
+ * `MIN_HONOURABLE_BUDGET_TOKENS` is measured from the reserved text, so this cannot
+ * drift when a rule or a default Compass principle is edited.
+ */
 export const contextQuerySchema = z.object({
   room: uuid.optional(),
-  budget: z.coerce.number().int().min(100).max(8000).optional(),
+  budget: z.coerce
+    .number()
+    .int()
+    .min(
+      MIN_HONOURABLE_BUDGET_TOKENS,
+      `budget måste vara minst ${MIN_HONOURABLE_BUDGET_TOKENS}: reglerna, kompassen och datagränsen kan inte tas bort och kostar så mycket`,
+    )
+    .max(8000)
+    .optional(),
 });
 
 /**

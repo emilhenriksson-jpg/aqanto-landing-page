@@ -13,7 +13,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 
-import { askMemory, memoryChanges, RECENT_ACTIVITY_LIMIT } from '@photographic/core';
+import {
+  askMemory,
+  memoryChanges,
+  openThreadsFor,
+  RECENT_ACTIVITY_LIMIT,
+} from '@photographic/core';
 
 // Wired by the orchestrator once the implementation packages land.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -187,7 +192,7 @@ describe('a person and their memory', () => {
       // about the last few minutes.
       const client = await harness.connectMcpClient(await harness.tokenFor(email));
 
-      expect(client.instructions).toMatch(/Det senaste som hände/);
+      expect(client.instructions).toMatch(/Var ni var senast/);
       // The instruction saved earlier in this suite ("Utmana alltid mina idéer") is
       // recent enough to be one of the last few things that happened to this person.
       expect(client.instructions).toMatch(/Utmana/);
@@ -689,6 +694,94 @@ describe('sharing a room with someone else', () => {
 
     const asked = await memoryChanges(harness.services, jacobActor, { query: 'sover' });
     expect(JSON.stringify(asked)).not.toContain('sover dåligt');
+  });
+
+  /**
+   * The loose-ends block, on real data through both backends.
+   *
+   * Worth an end-to-end test rather than a unit one because the rule depends on two
+   * things only the real log carries: the item kind, which lives in an `item.created`
+   * payload rather than on the event row, and the *absence* of anything newer. A fake
+   * history can be made to say either.
+   */
+  itWhenWired('tells a model what was mentioned and then dropped, and what was not', async () => {
+    const emil = await harness.personByEmail(emilEmail);
+    const actor = harness.actorFor(emil);
+    const room = await harness.services.identity.personalRoomOf(emil.id);
+
+    // A decision from three weeks ago, nothing since. `remember` timestamps with the
+    // harness clock, so this is backdated through the log rather than by hand.
+    const threeWeeksAgo = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000);
+    const decision = await harness.services.ingest.remember(actor, {
+      roomId: room.id,
+      body: 'Vi skulle höra av oss till Peab om köksofferten',
+      kind: 'decision',
+      explicit: true,
+    });
+    if (decision.outcome !== 'auto') throw new Error('expected an automatic save');
+
+    // A durable fact of the same age, which must never appear as a loose end: it is not
+    // waiting on anything, and a model asked to follow it up learns the block is noise.
+    const fact = await harness.services.ingest.remember(actor, {
+      roomId: room.id,
+      body: 'Allergisk mot ketchup sedan barnsben',
+      kind: 'fact',
+      explicit: true,
+    });
+    if (fact.outcome !== 'auto') throw new Error('expected an automatic save');
+
+    await harness.runJobsToCompletion();
+
+    // Both were saved just now, so nothing is old enough to be a loose end yet — which
+    // is itself the rule working: something saved today is this week's work.
+    expect(await openThreadsFor(harness.services.history, actor, new Date())).toEqual([]);
+
+    // Asked as though three weeks had passed.
+    const laterStill = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000);
+    const open = await openThreadsFor(harness.services.history, actor, laterStill);
+
+    expect(open.some((thread: { shortId: string }) => thread.shortId === decision.item.shortId)).toBe(
+      true,
+    );
+    expect(open.every((thread: { shortId: string }) => thread.shortId !== fact.item.shortId)).toBe(
+      true,
+    );
+    expect(JSON.stringify(open)).not.toContain('ketchup');
+    expect(threeWeeksAgo.getTime()).toBeLessThan(Date.now());
+
+    // And a follow-up closes it: deleting is a thing that happened to it, so it stops
+    // reading as neglected rather than staying on the list forever.
+    await harness.services.ingest.forget(actor, decision.item.shortId, room.id, 'ringde dem');
+    await harness.runJobsToCompletion();
+
+    const afterFollowUp = await openThreadsFor(harness.services.history, actor, laterStill);
+    expect(
+      afterFollowUp.every((thread: { shortId: string }) => thread.shortId !== decision.item.shortId),
+    ).toBe(true);
+  });
+
+  itWhenWired('keeps a loose end as private as the memory it belongs to', async () => {
+    const emil = await harness.personByEmail(emilEmail);
+    const jacob = await harness.personByEmail(jacobEmail);
+    const emilActor = harness.actorFor(emil);
+    const jacobActor = harness.actorFor(jacob, 'cursor');
+    const emilRoom = await harness.services.identity.personalRoomOf(emil.id);
+
+    const saved = await harness.services.ingest.remember(emilActor, {
+      roomId: emilRoom.id,
+      body: 'Skulle boka in samtalet om huslånet',
+      kind: 'decision',
+      explicit: true,
+    });
+    if (saved.outcome !== 'auto') throw new Error('expected an automatic save');
+    await harness.runJobsToCompletion();
+
+    const later = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000);
+    const theirs = await openThreadsFor(harness.services.history, jacobActor, later);
+
+    // Same choke point as search, "recent" and the chain: this reads through
+    // `HistoryPort.list`, which scopes inside the query rather than filtering after.
+    expect(JSON.stringify(theirs)).not.toContain('huslånet');
   });
 
   itWhenWired('treats text written by other people as data, never as instructions', async () => {
