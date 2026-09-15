@@ -425,6 +425,57 @@ export interface CalendarDay {
   nextDate: string | null;
 }
 
+/**
+ * One value a memory has held, as a step in a chain that may cross items.
+ *
+ * `MemoryRevision` already answers this for a single `app.item`. This is the same
+ * question asked of the whole correction chain: a contradiction does not edit the old
+ * memory, it writes a new one and supersedes the old, so "vad sa det förut" lives on a
+ * different row with a different short id — which is why a per-item timeline cannot
+ * answer "hur har det här ändrats över tid" on its own.
+ */
+export interface MemoryChangeStep {
+  seq: EventSeq;
+  at: Date;
+  /** What it said after this step. Null once the text has been purged from the log. */
+  body: string | null;
+  /** What it said before. Null for the value it was first saved with. */
+  previousBody: string | null;
+  /** Which memory carried this value. A supersede moves the chain to a new short id. */
+  shortId: ShortId | null;
+  /** `saved`, `updated` or `superseded` — how this value came to be the current one. */
+  action: HistoryAction;
+  agentClient: AgentClient | null;
+  actorName: string | null;
+  /** Where the information came from, before Photographic saw it. */
+  source: MemorySource | null;
+  motivation: string | null;
+}
+
+/**
+ * How one thing the person told us has changed, end to end.
+ *
+ * The scope's own example: 15 oktober became 1 november, and the history has to show
+ * both. A memory that can only state its current value is a database; one that can show
+ * how it got there is a memory. `shortId` is always the *head* of the chain — what the
+ * memory says now — because that is the id a person or a model can act on.
+ */
+export interface MemoryChange {
+  shortId: ShortId;
+  roomId: RoomId;
+  roomTitle: string;
+  /** What it says now. A chain is only ever returned for a memory that still exists. */
+  currentBody: string;
+  itemKind: ItemKind;
+  /** Oldest first. Always at least one: the original save. */
+  steps: MemoryChangeStep[];
+  firstSavedAt: Date;
+  /** When the value last actually changed. Equals `firstSavedAt` if it never has. */
+  lastChangedAt: Date;
+  /** `steps.length - 1`. Zero means "saved once, never corrected". */
+  changeCount: number;
+}
+
 /** One value a memory has held, with the value it replaced. */
 export interface MemoryRevision {
   seq: EventSeq;

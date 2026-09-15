@@ -24,6 +24,7 @@ import type {
   HistoryEntry,
   Invite,
   Item,
+  MemoryChange,
   MemoryEventDetail,
   Person,
   Profile,
@@ -256,6 +257,38 @@ export function serialiseBundle(bundle: ContextBundle, rendered: string) {
     tokenCount: bundle.tokenCount,
     bundleVersion: bundle.bundleVersion,
     builtAt: bundle.builtAt.toISOString(),
+  };
+}
+
+/**
+ * A memory's chain of values, oldest step first.
+ *
+ * `currentBody` is always present: a chain is only ever returned for a memory that
+ * still exists, so there is no "deleted" case to represent here. `previousBody` is null
+ * on the first step and `body` is null only for a step whose text has been purged.
+ */
+export function serialiseMemoryChange(change: MemoryChange) {
+  return {
+    shortId: change.shortId,
+    roomId: change.roomId,
+    roomTitle: change.roomTitle,
+    kind: change.itemKind,
+    currentBody: change.currentBody,
+    changeCount: change.changeCount,
+    firstSavedAt: change.firstSavedAt.toISOString(),
+    lastChangedAt: change.lastChangedAt.toISOString(),
+    steps: change.steps.map((step) => ({
+      seq: step.seq,
+      at: step.at.toISOString(),
+      body: step.body,
+      previousBody: step.previousBody,
+      shortId: step.shortId,
+      action: step.action,
+      agentClient: step.agentClient,
+      actorName: step.actorName,
+      motivation: step.motivation,
+      source: step.source,
+    })),
   };
 }
 

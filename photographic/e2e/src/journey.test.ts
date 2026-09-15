@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 
-import { askMemory, RECENT_ACTIVITY_LIMIT } from '@photographic/core';
+import { askMemory, memoryChanges, RECENT_ACTIVITY_LIMIT } from '@photographic/core';
 
 // Wired by the orchestrator once the implementation packages land.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -579,6 +579,116 @@ describe('sharing a room with someone else', () => {
 
     expect(hits.every((hit: { roomId: string }) => hit.roomId !== emilPersonalRoom.id)).toBe(true);
     expect(hits.some((hit: { text: string }) => hit.text.includes('privat fakta om Emil'))).toBe(false);
+  });
+
+  /**
+   * "Hur har X ändrats över tid", through the whole stack on both backends.
+   *
+   * The scope's own example — 15 oktober becoming 1 november — and the reason it needs
+   * an end-to-end test rather than a unit one: the chain is produced by the real write
+   * path (a contradiction queues, accepting it writes a new memory and supersedes the
+   * old), so the previous value ends up on a different row with a different short id.
+   * A per-item timeline would report "never changed" and be wrong about the fact while
+   * right about the row.
+   */
+  itWhenWired('answers how something changed, with the value it replaced', async () => {
+    const emil = await harness.personByEmail(emilEmail);
+    const actor = harness.actorFor(emil);
+    const room = await harness.services.identity.personalRoomOf(emil.id);
+
+    const saved = await harness.services.ingest.remember(actor, {
+      roomId: room.id,
+      body: 'Styrelsemötet ligger den 15 oktober',
+      kind: 'fact',
+    });
+    expect(saved.outcome).toBe('auto');
+
+    const correction = await harness.services.ingest.remember(actor, {
+      roomId: room.id,
+      body: 'Styrelsemötet ligger inte den 15 oktober',
+      kind: 'fact',
+    });
+    expect(correction.outcome).toBe('needs_approval');
+    const resulting = await harness.services.ingest.resolveProposal(
+      actor,
+      correction.proposal.id,
+      true,
+    );
+    await harness.runJobsToCompletion();
+
+    const chains = await memoryChanges(harness.services, actor, { query: 'styrelsemötet' });
+    const chain = chains.find((c: { shortId: string }) => c.shortId === resulting!.shortId);
+
+    expect(chain).toBeTruthy();
+    expect(chain!.changeCount).toBe(1);
+    expect(chain!.steps.map((step: { body: string | null }) => step.body)).toEqual([
+      'Styrelsemötet ligger den 15 oktober',
+      'Styrelsemötet ligger inte den 15 oktober',
+    ]);
+    // The correction keeps what it corrected beside it, and says where it came from.
+    expect(chain!.steps[1]!.previousBody).toBe('Styrelsemötet ligger den 15 oktober');
+    expect(chain!.steps[0]!.source).not.toBeNull();
+
+    // Asked with the wording that is *gone* — the phrasing a person actually uses when
+    // they remember the old answer. A plain search cannot find it: a superseded item is
+    // excluded by design and the current memory does not contain it.
+    const byOldWording = await memoryChanges(harness.services, actor, { query: '15 oktober' });
+    expect(
+      byOldWording.some((c: { shortId: string }) => c.shortId === resulting!.shortId),
+    ).toBe(true);
+
+    /**
+     * And the leak, on real data: once the memory is deleted there is no chain, and the
+     * superseded body does not come back even when the question quotes it. Fixed twice
+     * before in this repo (`recent.ts`, `ask.ts`), both times with an action allowlist
+     * that cannot apply here — this feature exists to show exactly those bodies, so the
+     * rule is about the head of the chain instead.
+     */
+    await harness.services.ingest.forget(actor, resulting!.shortId, room.id, 'flyttat igen');
+    await harness.runJobsToCompletion();
+
+    for (const query of ['styrelsemötet', '15 oktober']) {
+      const afterDelete = await memoryChanges(harness.services, actor, { query });
+      expect(
+        afterDelete.some((c: { shortId: string }) => c.shortId === resulting!.shortId),
+      ).toBe(false);
+      expect(JSON.stringify(afterDelete)).not.toContain('15 oktober');
+    }
+  });
+
+  itWhenWired('keeps a chain as private as the memory it belongs to', async () => {
+    const emil = await harness.personByEmail(emilEmail);
+    const jacob = await harness.personByEmail(jacobEmail);
+    const emilActor = harness.actorFor(emil);
+    const jacobActor = harness.actorFor(jacob, 'cursor');
+    const emilRoom = await harness.services.identity.personalRoomOf(emil.id);
+
+    const saved = await harness.services.ingest.remember(emilActor, {
+      roomId: emilRoom.id,
+      body: 'Emil sover dåligt inför resan',
+      kind: 'note',
+    });
+    if (saved.outcome !== 'auto') throw new Error('expected an automatic save');
+
+    const correction = await harness.services.ingest.remember(emilActor, {
+      roomId: emilRoom.id,
+      body: 'Emil sover inte dåligt inför resan',
+      kind: 'note',
+    });
+    if (correction.outcome !== 'needs_approval') throw new Error('expected the correction to queue');
+    const resulting = await harness.services.ingest.resolveProposal(
+      emilActor,
+      correction.proposal.id,
+      true,
+    );
+    await harness.runJobsToCompletion();
+
+    // A short id from a room-mate is a request, not a grant — the same rule search and
+    // "recent" already prove, asserted again for the one read that returns replaced text.
+    expect(await harness.services.history.changes(jacobActor, [resulting!.shortId])).toEqual([]);
+
+    const asked = await memoryChanges(harness.services, jacobActor, { query: 'sover' });
+    expect(JSON.stringify(asked)).not.toContain('sover dåligt');
   });
 
   itWhenWired('treats text written by other people as data, never as instructions', async () => {

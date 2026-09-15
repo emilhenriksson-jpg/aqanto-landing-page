@@ -30,6 +30,7 @@ import type {
   ItemKind,
   MemberRole,
   HistoryEntry,
+  MemoryChange,
   MemoryEvent,
   MemoryEventDetail,
   MemorySource,
@@ -626,6 +627,32 @@ export interface HistoryPort {
 
   /** The answer to "how do you know that about me?". */
   provenance(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<Provenance | null>;
+
+  /**
+   * Every value a memory has held, following supersede links across items.
+   *
+   * `provenance` answers this for one `app.item`, which is not the same question: a
+   * correction does not edit the old memory, it writes a new one and supersedes the old,
+   * so the previous value lives on a different row under a different short id. Give this
+   * *any* short id in a chain — the current one or a long-superseded one — and it
+   * resolves the chain it belongs to.
+   *
+   * **A chain is only ever returned for a head that is currently `active` and readable.**
+   * That is the whole safety property of this method and it is deliberately enforced
+   * here, in the storage query, rather than left to a caller: the steps contain text a
+   * person has since replaced, and the one thing that must not happen is a superseded
+   * body resurfacing for a memory that has since been deleted. A head in the trash, or
+   * purged, or in a room the actor cannot read, returns nothing at all — not an empty
+   * chain, no entry. `memoryChanges` in `changes.ts` refuses the same case again for the
+   * same reason, because one reason is not enough for a leak that has been fixed twice.
+   *
+   * Order is by `lastChangedAt`, most recently changed first.
+   */
+  changes(
+    actor: Actor,
+    shortIds: ShortId[],
+    input?: { limit?: number },
+  ): Promise<MemoryChange[]>;
 }
 
 // ---------------------------------------------------------------------------

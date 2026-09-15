@@ -3,7 +3,19 @@
  * see `MemoryHistory` for the allowlist reasoning.
  */
 
-import type { Actor, HistoryAction, HistoryEntry, HistoryPort, MemoryEvent, Provenance, RoomId, ShortId } from '@photographic/core';
+import type {
+  Actor,
+  HistoryAction,
+  HistoryEntry,
+  HistoryPort,
+  ItemKind,
+  MemoryChange,
+  MemoryChangeStep,
+  MemoryEvent,
+  Provenance,
+  RoomId,
+  ShortId,
+} from '@photographic/core';
 import type { Pool } from 'pg';
 
 import { queryOne, queryRows } from '../pool.js';
@@ -129,6 +141,203 @@ export class PgHistory implements HistoryPort {
       timeline,
     };
   }
+
+  /**
+   * Every value a memory has held, across the supersede chain. See `HistoryPort.changes`.
+   *
+   * Two recursive walks and then the events. `forward` follows `superseded_by` from each
+   * supplied short id to the end of its chain, so any id in a chain resolves to the same
+   * head; `chain` then walks back from that head collecting every item that was ever
+   * replaced by something in it. The `UNION` (rather than `UNION ALL`) is what makes a
+   * cycle terminate instead of running forever — `superseded_by` is application-written
+   * and a loop is a bug, not an impossibility.
+   *
+   * The head must be `active`, in a room the actor can read. That is the safety property
+   * of this method: the steps below contain text the person has replaced, and returning
+   * them for something in the trash would resurface a body a deletion was supposed to
+   * take out of view.
+   */
+  async changes(
+    actor: Actor,
+    shortIds: ShortId[],
+    input: { limit?: number } = {},
+  ): Promise<MemoryChange[]> {
+    if (shortIds.length === 0) return [];
+
+    const scope = await accessibleRoomIds(this.pool, actor.personId);
+    if (scope.length === 0) return [];
+
+    const heads = await queryRows<{
+      head_id: string;
+      short_id: string;
+      room_id: string;
+      room_title: string;
+      kind: ItemKind;
+      body: string;
+      created_at: Date;
+      members: string[];
+    }>(
+      this.pool,
+      `WITH RECURSIVE seed AS (
+         SELECT i.id, i.superseded_by
+         FROM app.item i
+         WHERE i.short_id = ANY($1::text[]) AND i.room_id = ANY($2::uuid[])
+       ),
+       forward AS (
+         SELECT id, superseded_by FROM seed
+         UNION
+         SELECT i.id, i.superseded_by
+         FROM app.item i
+         JOIN forward f ON i.id = f.superseded_by
+       ),
+       head AS (
+         SELECT DISTINCT f.id FROM forward f WHERE f.superseded_by IS NULL
+       ),
+       chain AS (
+         SELECT h.id AS head_id, h.id AS member_id FROM head h
+         UNION
+         SELECT c.head_id, i.id
+         FROM app.item i
+         JOIN chain c ON i.superseded_by = c.member_id
+       )
+       SELECT i.id AS head_id, i.short_id, i.room_id, r.title AS room_title, i.kind,
+              i.body, i.created_at,
+              array_agg(DISTINCT c.member_id::text) AS members
+       FROM chain c
+       JOIN app.item i ON i.id = c.head_id
+       JOIN app.room r ON r.id = i.room_id
+       WHERE i.status = 'active' AND i.room_id = ANY($2::uuid[])
+       GROUP BY i.id, i.short_id, i.room_id, r.title, i.kind, i.body, i.created_at
+       LIMIT $3`,
+      [shortIds, scope, input.limit ?? 25],
+    );
+
+    if (heads.length === 0) return [];
+
+    const memberIds = [...new Set(heads.flatMap((head) => head.members))];
+
+    const eventRows = await queryRows<
+      EventRow & { room_title: string; actor_name: string | null; item_id: string }
+    >(
+      this.pool,
+      `SELECT ${EVENT_COLUMNS_PREFIXED}, r.title AS room_title, p.display_name AS actor_name,
+              (e.payload ->> 'item_id') AS item_id
+       FROM app.event e
+       JOIN app.room r ON r.id = e.room_id
+       LEFT JOIN app.person p ON p.id = e.actor_person_id
+       WHERE e.event_type = ANY($1::text[])
+         AND (e.payload ->> 'item_id') = ANY($2::text[])
+       ORDER BY e.seq ASC`,
+      [VALUE_EVENT_TYPES, memberIds],
+    );
+
+    const byItem = new Map<string, Array<(typeof eventRows)[number]>>();
+    for (const row of eventRows) {
+      const list = byItem.get(row.item_id) ?? [];
+      list.push(row);
+      byItem.set(row.item_id, list);
+    }
+
+    return heads
+      .map((head) => {
+        const events = head.members
+          .flatMap((id) => byItem.get(id) ?? [])
+          .sort((a, b) => Number(a.seq) - Number(b.seq));
+
+        const steps = collapseValueSteps(events.map((row) => toChangeStep(row)));
+        if (steps.length === 0) return null;
+
+        return {
+          shortId: head.short_id as ShortId,
+          roomId: head.room_id as RoomId,
+          roomTitle: head.room_title,
+          currentBody: head.body,
+          itemKind: head.kind,
+          steps,
+          firstSavedAt: steps[0]!.at,
+          lastChangedAt: steps.at(-1)!.at,
+          changeCount: steps.length - 1,
+        } satisfies MemoryChange;
+      })
+      .filter((chain): chain is MemoryChange => chain !== null)
+      .sort((a, b) => b.lastChangedAt.getTime() - a.lastChangedAt.getTime());
+  }
+}
+
+/**
+ * The event types that set a value, as opposed to happening around one.
+ *
+ * `item.restored` is absent on purpose: coming back from the trash does not change what
+ * a memory says, and listing it as a change would make "hur har det ändrats" answer with
+ * an administrative act.
+ */
+const VALUE_EVENT_TYPES: readonly string[] = [
+  'item.created',
+  'item.shared',
+  'item.updated',
+  'item.superseded',
+];
+
+function toChangeStep(
+  row: EventRow & { room_title: string; actor_name: string | null },
+): MemoryChangeStep {
+  const event = mapEvent(row);
+  const redacted = event.payload['redacted'] === true;
+  const body = typeof event.payload['body'] === 'string' ? event.payload['body'] : null;
+  const previous = typeof event.payload['previous'] === 'string' ? event.payload['previous'] : null;
+  const shortId =
+    typeof event.payload['short_id'] === 'string' ? (event.payload['short_id'] as ShortId) : null;
+
+  return {
+    seq: event.seq,
+    at: event.occurredAt,
+    body: redacted ? null : body,
+    previousBody: redacted ? null : previous,
+    shortId,
+    action: ACTION_OF[event.eventType] ?? 'updated',
+    agentClient: event.agentClient,
+    actorName: row.actor_name,
+    source: mapSource(row),
+    motivation: event.motivation,
+  };
+}
+
+/**
+ * One step per distinct value, not one per event that mentioned it.
+ *
+ * A correction writes two events for one transition: `item.created` for the memory that
+ * replaces (carrying `supersedes` and the text it replaced) and `item.superseded` for the
+ * memory being replaced (carrying the same pair the other way round). Both are true and
+ * both are needed — `resolveDispute` produces *only* the second, because the winner
+ * already existed — but rendering both makes a single correction read as two.
+ *
+ * So consecutive steps that arrive at the same body collapse into one, keeping the
+ * earlier event's provenance (the write that caused it) and the previous value from
+ * whichever of the two recorded it. Deliberately keyed on the body rather than on the
+ * event pair: it holds whether the pair was written in one transaction, in the other
+ * order, or one without the other.
+ */
+export function collapseValueSteps(steps: MemoryChangeStep[]): MemoryChangeStep[] {
+  const out: MemoryChangeStep[] = [];
+
+  for (const step of steps) {
+    const previousStep = out.at(-1);
+
+    if (previousStep && previousStep.body !== null && previousStep.body === step.body) {
+      out[out.length - 1] = {
+        ...previousStep,
+        previousBody: previousStep.previousBody ?? step.previousBody,
+        // The superseded memory's short id is the more useful of the two here: it is what
+        // `list_history` can still be pointed at to see where the old value came from.
+        shortId: previousStep.shortId ?? step.shortId,
+      };
+      continue;
+    }
+
+    out.push(step);
+  }
+
+  return out;
 }
 
 function toEntry(row: EventRow & { room_title: string; actor_name: string | null }): HistoryEntry {

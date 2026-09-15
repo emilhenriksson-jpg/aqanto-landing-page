@@ -502,6 +502,81 @@ describe('searching memory — "Fråga mitt minne"', () => {
   });
 });
 
+describe('how a memory changed — ?changes=1', () => {
+  const before = 'Styrelsemötet ligger den 15 oktober';
+  const after = 'Styrelsemötet ligger inte den 15 oktober';
+
+  /** Saves, then corrects — which queues, and accepting it supersedes the original. */
+  async function correctedFact(personId: PersonId, token: string): Promise<string> {
+    await f.post('/v1/memory', { body: before, kind: 'fact', explicit: true }, token);
+
+    const queued = await f.post('/v1/memory', { body: after, kind: 'fact', explicit: true }, token);
+    if (queued.status !== 202) {
+      throw new Error(`förväntade ett förslag för korrigeringen, fick ${queued.status}`);
+    }
+    const { proposal } = await queued.json();
+
+    // Approved by the person, not by the client that queued it.
+    const accepted = await f.post(
+      `/v1/memory/proposals/${proposal.id}`,
+      { accept: true },
+      await f.signInFirstParty(personId),
+    );
+    const { item } = await accepted.json();
+    return item.shortId;
+  }
+
+  it('returns the chain of values rather than ranked hits', async () => {
+    const { person, token } = await register(f, 'emil@example.com', 'Emil');
+    const shortId = await correctedFact(person.id, token);
+
+    const res = await f.get('/v1/search?q=styrelsem%C3%B6tet&changes=1', token);
+    const json = await res.json();
+
+    expect(json.hits).toBeUndefined();
+    const chain = json.changes.find((c: { shortId: string }) => c.shortId === shortId);
+    expect(chain).toBeTruthy();
+    expect(chain.changeCount).toBe(1);
+    expect(chain.currentBody).toBe(after);
+    expect(chain.steps.map((s: { body: string }) => s.body)).toEqual([before, after]);
+    expect(chain.steps[1].previousBody).toBe(before);
+    expect(chain.steps[0].source).toBeTruthy();
+  });
+
+  it('finds the chain by the wording the memory no longer uses', async () => {
+    const { person, token } = await register(f, 'emil@example.com', 'Emil');
+    const shortId = await correctedFact(person.id, token);
+
+    const json = await (await f.get('/v1/search?q=15%20oktober&changes=1', token)).json();
+
+    expect(json.changes.some((c: { shortId: string }) => c.shortId === shortId)).toBe(true);
+  });
+
+  it('has nothing for a deleted memory, and does not quote what it used to say', async () => {
+    const { person, token } = await register(f, 'emil@example.com', 'Emil');
+    const shortId = await correctedFact(person.id, token);
+    await f.del(`/v1/memory/${shortId}`, token);
+
+    for (const q of ['styrelsem%C3%B6tet', '15%20oktober']) {
+      const json = await (await f.get(`/v1/search?q=${q}&changes=1`, token)).json();
+      expect(json.changes).toEqual([]);
+      expect(JSON.stringify(json)).not.toContain('15 oktober');
+    }
+  });
+
+  it('never returns a chain from a room the caller cannot reach', async () => {
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    await correctedFact(emil.person.id, emil.token);
+
+    const jacob = await register(f, 'jacob@example.com', 'Jacob');
+    const json = await (
+      await f.get('/v1/search?q=styrelsem%C3%B6tet&changes=1', jacob.token)
+    ).json();
+
+    expect(json.changes).toEqual([]);
+  });
+});
+
 describe('context, which is the whole point', () => {
   it('hands over a rendered profile and records that it was delivered', async () => {
     const { token } = await register(f, 'emil@example.com', 'Emil');

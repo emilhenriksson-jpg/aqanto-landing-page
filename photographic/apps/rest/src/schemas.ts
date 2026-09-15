@@ -145,6 +145,14 @@ export const searchSchema = z
     since: z.coerce.date().optional(),
     until: z.coerce.date().optional(),
     sort: z.enum(['relevance', 'oldest', 'newest']).optional(),
+    /**
+     * "Hur har X ändrats över tid": the supersede chain rather than ranked hits. Takes
+     * `1`/`true` from a query string, since there are no booleans in a URL.
+     */
+    changes: z
+      .union([z.literal('1'), z.literal('true'), z.literal('0'), z.literal('false')])
+      .transform((value) => value === '1' || value === 'true')
+      .optional(),
     limit: z.coerce.number().int().min(1).max(50).optional(),
   })
   .refine((value) => Boolean(value.q) || Boolean(value.since) || Boolean(value.until), {
