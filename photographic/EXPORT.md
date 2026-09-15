@@ -158,6 +158,29 @@ Medlemskap i delade rum avslutas, så ett raderat konto inte räknas som medlem.
 är enda stället som kan svara på vad som hände — och en radering ingen kan visa att den
 kördes är inte mycket till radering.
 
+## Beslut 3: nedladdningslänken är engångs
+
+**Beslut: en länk gäller i en timme, konsumeras av en nedladdning som blev klar, och får
+göras om inom 15 minuter om överföringen bröts. En förbrukad länk svarar exakt som en som
+aldrig funnits.**
+
+0013 valde medvetet motsatsen: `use_count` räknades men begränsades aldrig, och länken
+levde i sju dagar. Motiveringen var resumering — en flergigabytes nedladdning som dör
+halvvägs på en telefon är normalfallet, och en engångslänk gör det till "begär igen och
+vänta". Den motiveringen handlar om ett verkligt problem men betalar för mycket för det.
+Arkivet är den mest koncentrerade filen i hela produkten: allt en person någonsin berättat
+för systemet, i en fil. En veckolång URL som går att spela om, vidarebefordra eller läsa ut
+ur en inkorg är en värre exponering än vilket enskilt minne som helst.
+
+Så länken är engångs i den mening som betyder något: `consumed_at` skrivs när överföringen
+faktiskt blev klar — routen anropar `complete()` efter sista byten, inte innan — och först
+då är länken död. Bröts överföringen är `consumed_at` fortfarande null och `first_used_at`
+öppnar ett kort fönster där samma länk får användas igen. Fem försök är taket.
+
+Konsekvensen är värd att säga: nedladdningen går genom vår process i stället för via en
+signerad Supabase-URL. En signerad URL är en kapabilitet vi inte kan återkalla eller räkna,
+och då kan den inte vara engångs. Vi betalar bandbredd för att kunna hålla löftet.
+
 ## Den upptäckt som kostade en migration
 
 Raderingen gick inte att implementera alls mot det befintliga schemat, och det visade sig
@@ -192,12 +215,20 @@ Omorganiseras triggern måste båda luckorna följa med, annars går kontoraderi
 
 ## Ärligt om det som inte är klart
 
-**Arkivet buffras en gång innan det laddas upp.** `buildExportArchive` strömmar hela
-vägen, men `BlobStore.put` tar bytes — det är vad både Supabase Storages REST-API och en
-S3 single-part PUT vill ha. Så arkivet är resident en kort stund i `PgExports.run`.
-`ZipWriter` vägrar allt över 4 GB, vilket gör det begränsat snarare än obegränsat, men
-rätt lösning är multipart-uppladdning bakom porten. Det är nästa steg, inte ett gjort
-steg.
+**Arkivet strömmar nu hela vägen, utom mot Supabase Storage.** `BlobStore` har fått
+`createUpload` och `getStream`, så `PgExports.run` skriver zippen till lagringen medan den
+byggs och nedladdningen strömmar tillbaka utan att arkivet någonsin ligger i processen.
+`ZipWriter` skriver zip64 där det behövs, så 4 GB-taket är borta och 10 GB-löftet går att
+hålla; ett verifierat 10 GB-arkiv läses korrekt av `python3 -m zipfile`
+(`PHOTOGRAPHIC_NEAR_LIMIT_GB=10 PHOTOGRAPHIC_NEAR_LIMIT_DISK=1`).
+
+Undantaget är värt att säga rakt ut: `S3BlobStore` gör en riktig multipart-uppladdning,
+`LocalBlobStore` skriver direkt till fil, men Supabase Storages REST-API tar bara en
+request med känd längd. Där spoolas arkivet till disk och strömmas upp därifrån — inget
+processminne, men taket blir maskinens disk (`SUPABASE_EXPORT_SPOOL_MAX_BYTES`, som
+standard 2 GB) och det vägrar med en instruktion i stället för att fylla disken.
+**För full 10 GB-export i produktion ska `BLOB_S3_*` peka på en S3-kompatibel endpoint —
+Supabase publicerar en för samma bucket.**
 
 **`export.created` syns inte i historiken än.** Händelsen skrivs till loggen, som är
 sanningen, men `app.activity`-vyn filtrerar på händelsetyp och känner inte igen den. Vyn

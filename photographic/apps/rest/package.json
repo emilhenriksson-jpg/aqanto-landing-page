@@ -23,6 +23,7 @@
     "@photographic/delivery": "workspace:*",
     "@photographic/llm": "workspace:*",
     "@photographic/mcp": "workspace:*",
+    "@photographic/ops": "workspace:*",
     "@photographic/services-memory": "workspace:*",
     "hono": "^4.6.14",
     "zod": "^3.24.1",

@@ -51,6 +51,13 @@ export function historyRoutes(): Hono<AppEnv> {
       savedAt: provenance.savedAt.toISOString(),
       savedByClient: provenance.savedByClient,
       approvedByName: provenance.approvedByName,
+      // Section 4 of the scope asks six questions, and a timeline answers four of them.
+      // These are the other two — where the information came from before it was a
+      // memory, and why it was stored where it was — and they were being computed and
+      // then dropped here, which is why nothing outside the calendar could show them.
+      motivation: provenance.motivation,
+      source: provenance.source,
+      changed: provenance.changed,
       timeline: provenance.timeline.map(serialiseHistoryEntry),
     });
   });

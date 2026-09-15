@@ -8,6 +8,7 @@ import {
   mapCompassEntry,
   mapInvitePreview,
   mapProposal,
+  mapProvenance,
   mapRoomDocument,
   mapRoomSummary,
   mapTrashEntry,
@@ -61,6 +62,7 @@ describe('API → UI mapping', () => {
       profileDelivered: true,
       deliveryMethod: 'mcp_instructions',
       degraded: false,
+      revoked: false,
     });
     expect(client).toMatchObject({
       id: 'claude-desktop',
@@ -97,6 +99,7 @@ describe('API → UI mapping', () => {
     const item = mapProposal({
       id: 'prop-1',
       roomId: 'room-1',
+      intent: 'remember',
       kind: 'instruction',
       body: 'utmana alltid mina idéer',
       reason: 'Instruktioner kräver godkännande.',
@@ -106,9 +109,87 @@ describe('API → UI mapping', () => {
     expect(item).toMatchObject({
       id: 'prop-1',
       clientLabel: 'Claude',
+      intent: 'remember',
       kind: 'instruction',
       body: 'utmana alltid mina idéer',
+      roomId: 'room-1',
     });
+  });
+
+  /*
+   * The regression this mapping existed to cause: `roomId` and `intent` were dropped
+   * here, so the queue rendered "vill spara" over a request to put something in front of
+   * other people, and the card could not name the room it would land in.
+   */
+  it('keeps the intent and names the room a share would land in', () => {
+    const item = mapProposal(
+      {
+        id: 'prop-2',
+        roomId: 'room-ledning',
+        intent: 'share',
+        kind: 'note',
+        body: 'Peab har offererat 340 000 kr',
+        reason: 'Allt som skrivs till ett delat rum avgörs av dig.',
+        proposedByClient: 'chatgpt-web',
+        createdAt: '2026-09-15T12:00:00.000Z',
+      },
+      new Map([
+        [
+          'room-ledning',
+          { title: 'Buyersclub Ledning', kind: 'shared' as const, audience: ['Anna', 'Jacob'], audienceCount: 3 },
+        ],
+      ]),
+    );
+
+    expect(item).toMatchObject({
+      intent: 'share',
+      clientLabel: 'ChatGPT',
+      roomTitle: 'Buyersclub Ledning',
+      roomKind: 'shared',
+      audience: ['Anna', 'Jacob'],
+    });
+  });
+
+  it('maps provenance into sentences, and finds the event to zoom into', () => {
+    const answer = mapProvenance(
+      {
+        shortId: 'p-h58j',
+        body: 'Emil, 34, bor i Stockholm',
+        roomTitle: 'Ditt rum',
+        savedAt: '2026-09-02T09:14:00.000Z',
+        savedByClient: 'claude-desktop',
+        approvedByName: null,
+        motivation: 'Handlar om vem du är.',
+        source: { kind: 'conversation', label: 'Samtal med Claude', ref: 'sess-1', uri: null },
+        changed: false,
+        timeline: [
+          {
+            seq: 41,
+            action: 'saved',
+            occurredAt: '2026-09-02T09:14:00.000Z',
+            roomId: 'room-1',
+            roomTitle: 'Ditt rum',
+            shortId: 'p-h58j',
+            body: 'Emil, 34, bor i Stockholm',
+            agentClient: 'claude-desktop',
+            actorName: 'Emil',
+            wasApproved: false,
+            redacted: false,
+          },
+        ],
+      },
+      'personal',
+    );
+
+    expect(answer).toMatchObject({
+      shortId: 'p-h58j',
+      who: 'Claude',
+      sourceLabel: 'Samtal med Claude',
+      motivation: 'Handlar om vem du är.',
+      roomTitle: 'Ditt rum',
+      seq: 41,
+    });
+    expect(answer.when).toContain('2 september 2026');
   });
 
   it('maps a default compass entry with a Swedish label and no id', () => {

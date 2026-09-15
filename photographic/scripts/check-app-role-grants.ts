@@ -146,13 +146,21 @@ try {
   const remediation = grantsApplied
     ? [
         `${grantsApplied} står redan som applicerad i app.schema_migrations, så den körs`,
-        'aldrig igen och `pnpm db:migrate` är en no-op. Att bara skapa rollen delar därför',
-        'inte ut någonting: den skulle nå noll av objekten i app, tyst, fram till första',
-        'frågan.',
+        'aldrig igen. Den var villkorad på att rollen fanns, så på en databas där den inte',
+        'fanns gjorde den ingenting — och noterades ändå som körd. Att skapa rollen nu delar',
+        'därför inte ut någonting: den skulle nå noll objekt, tyst, fram till första frågan.',
         '',
-        'Rätt väg här är en **ny** migrering som skapar rollen och delar ut rättigheterna i',
-        'samma steg — den skrivs av den som äger deployvägen, och `scripts/deploy.md` är',
-        'där sekvensen ska stå. Kör den med `pnpm db:migrate` när den finns.',
+        'Vägen ur det är en senare migrering som skapar rollen och delar ut rättigheterna',
+        'ovillkorligt. `0020_app_role_and_grants.sql` gör precis det:',
+        '',
+        '  pnpm db:migrate',
+        '',
+        'Sätt sedan lösenordet, vilket är operatörens steg och det enda 0020 vägrar göra:',
+        '',
+        "  ALTER ROLE photographic_app PASSWORD '<genererat>';",
+        '',
+        'Står 0020 redan som applicerad och det här ändå faller, är det inte den generella',
+        'luckan — läs listan ovan, den pekar på en enskild migrering.',
       ]
     : [
         'Grants-migreringen är ännu inte applicerad här, så den vanliga ordningen fungerar:',

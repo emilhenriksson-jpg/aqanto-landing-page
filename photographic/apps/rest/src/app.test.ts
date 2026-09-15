@@ -432,6 +432,12 @@ describe('the record', () => {
 
     expect(json.savedByClient).toBe('claude-desktop');
     expect(json.timeline.map((e: { action: string }) => e.action)).toEqual(['saved']);
+    // Two of section 4's six questions. The handler was computing both and then dropping
+    // them, which is why nothing outside the calendar could answer "varifrån kom det?".
+    expect(json.source).toMatchObject({ kind: 'conversation' });
+    expect(json.source.label).toContain('Claude');
+    expect(json).toHaveProperty('motivation');
+    expect(json.changed).toBe(false);
   });
 
   it('says not found for a memory that belongs to someone else', async () => {
@@ -1387,5 +1393,62 @@ describe('limits', () => {
     expect(res.status).toBe(404);
     // Response time is a side channel that leaks "exists but not yours" for free.
     expect(Date.now() - started).toBeGreaterThanOrEqual(55);
+  });
+});
+
+/**
+ * One OAuth origin, even though one process answers on two hostnames.
+ *
+ * The issuer, the registered redirect URIs and the `resource` a client sends all derive
+ * from `PUBLIC_URL`. If the apex also served `/oauth/*` and the metadata documents, a
+ * client could discover the authorization server under a name the issuer never mentions,
+ * authorize against one origin and hold tokens minted for another — which surfaces as an
+ * intermittent auth failure rather than as a misconfiguration anyone would look for.
+ */
+describe('the apex is not a second OAuth origin', () => {
+  function apexApp() {
+    return createApp({
+      services: createMemoryServices().services,
+      config: resolveConfig({
+        publicUrl: 'https://mcp.photographic.test',
+        apexHost: 'photographic.test',
+        environment: 'test',
+        notFoundFloorMs: 0,
+      }),
+      logger: silentLogger(),
+    });
+  }
+
+  // GET-reachable only: `/oauth/token` and `/oauth/register` are POST, and a GET to
+  // them is a 404 on either hostname, which would make the comparison meaningless.
+  const oauthPaths = [
+    '/oauth/authorize',
+    '/.well-known/oauth-authorization-server',
+    '/.well-known/oauth-protected-resource',
+  ];
+
+  it('refuses the OAuth surface on the apex hostname', async () => {
+    for (const path of oauthPaths) {
+      const response = await apexApp().request(`https://photographic.test${path}`);
+      expect(response.status, path).toBe(404);
+    }
+  });
+
+  it('leaves the same paths reachable on the issuer hostname', async () => {
+    for (const path of oauthPaths) {
+      const response = await apexApp().request(`https://mcp.photographic.test${path}`);
+      expect(response.status, path).not.toBe(404);
+    }
+  });
+
+  /**
+   * The product served on the apex calls these same-origin, and signing in there depends
+   * on it, so the refusal must not reach past the OAuth surface.
+   */
+  it('leaves /v1 and /health working on the apex', async () => {
+    for (const path of ['/health', '/v1/rooms']) {
+      const response = await apexApp().request(`https://photographic.test${path}`);
+      expect(response.status, path).not.toBe(404);
+    }
   });
 });

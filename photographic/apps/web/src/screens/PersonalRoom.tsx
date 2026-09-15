@@ -5,6 +5,7 @@ import { forgetMemory, isDemoMode, undoMemory } from '../api/index.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
 import { DocumentsSection } from '../components/DocumentsSection.js';
 import { MemoryRow } from '../components/MemoryRow.js';
+import { PendingApprovals } from '../components/PendingApprovals.js';
 import { StorageMeter } from '../components/StorageMeter.js';
 import { TokenMeter } from '../components/TokenMeter.js';
 import { Wordmark } from '../components/Wordmark.js';
@@ -126,6 +127,12 @@ function PersonalRoomReady({
         </div>
       </header>
 
+      {/*
+        First thing under the hero, on the screen the app opens on. A decision the person
+        has not seen is the one reason this room is not showing everything it could.
+      */}
+      <PendingApprovals />
+
       <div className="sections">
         {sections.map((section) => (
           <section
@@ -144,6 +151,8 @@ function PersonalRoomReady({
                   <MemoryRow
                     key={item.shortId}
                     item={item}
+                    roomId={room.id}
+                    roomKind="personal"
                     onForget={forget}
                     onRestore={restore}
                   />

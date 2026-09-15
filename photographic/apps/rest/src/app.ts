@@ -52,9 +52,16 @@ import { documentRoutes } from './routes/documents.js';
 import { historyRoutes } from './routes/history.js';
 import { memoryRoutes } from './routes/memory.js';
 import { oauthRoutes } from './routes/oauth.js';
+import { opsRoutes, type QueueSource } from './routes/ops.js';
 import { publicInviteRoutes, roomRoutes } from './routes/rooms.js';
 import { trashRoutes } from './routes/trash.js';
-import { AUTH_APP_ROUTES, mountWebApp, PRODUCT_APP_ROUTES } from './web-app.js';
+import {
+  APEX_ROOT_ROUTES,
+  AUTH_APP_ROUTES,
+  mountWebApp,
+  PRODUCT_APP_ROUTES,
+  requestHost,
+} from './web-app.js';
 
 export interface AppDeps {
   services: Services;
@@ -116,6 +123,15 @@ export interface AppDeps {
    */
   exports?: ExportService | null;
   accounts?: AccountService | null;
+
+  /**
+   * Queue depth, stuck claims and failures, for `GET /v1/ops/queue`.
+   *
+   * Absent without a database: the in-memory queue is this process's own array, and
+   * reporting its depth would answer a question about the harness rather than about the
+   * product.
+   */
+  queue?: QueueSource | null;
 }
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
@@ -188,6 +204,51 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   // would return a 401 without that header, and every client would need setting up by
   // hand. The handler receives the request unmodified and matches on the path suffix, so
   // the prefix lives here and in no second place.
+  /**
+   * One OAuth origin, and it is `mcp.`.
+   *
+   * The apex answers on the same process, so without this it would serve `/oauth/*`,
+   * `/mcp` and both metadata documents too — a second origin for the same authorization
+   * server, reached by a hostname the issuer never mentions. That is not a cosmetic
+   * duplication: the issuer, the registered redirect URIs and the `resource` a client
+   * sends all derive from `PUBLIC_URL`, so a client that discovered the apex would
+   * authorize against one origin and hold tokens minted for another, and the mismatch
+   * would surface as an intermittent auth failure rather than as a misconfiguration.
+   *
+   * 404 rather than a redirect, deliberately. A redirect would make the apex a working
+   * alias and invite clients to keep using it; the point is that exactly one name is the
+   * endpoint. `/v1/*` and `/health` are untouched, because the product served on the apex
+   * calls them same-origin and signing in there depends on it.
+   */
+  if (config.apexHost) {
+    const apexHost = config.apexHost;
+    const oauthOnly = [
+      '/oauth',
+      '/mcp',
+      OAUTH_PATHS.protectedResourceMetadata,
+      OAUTH_PATHS.authorizationServerMetadata,
+    ];
+
+    app.use('*', async (c, next) => {
+      const path = c.req.path;
+      const claimed = oauthOnly.some(
+        (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+      );
+      if (claimed && requestHost(c.req.header('host'), c.req.url) === apexHost) {
+        return c.json(
+          {
+            error: {
+              code: 'not_found',
+              message: `Den vägen finns bara på ${new URL(config.publicUrl).host}.`,
+            },
+          },
+          404,
+        );
+      }
+      return next();
+    });
+  }
+
   if (deps.mcp) {
     const mcp = deps.mcp;
     app.all('/mcp', (c) => mcp.fetch(c.req.raw));
@@ -384,6 +445,10 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   authenticated.route('/', accountRoutes({ exports: deps.exports ?? null }));
   authenticated.route('/', deletionRoutes({ accounts: deps.accounts ?? null }));
 
+  // First-party too, though for a different reason: it says nothing about anyone's
+  // memory, and there is no client that has any business asking.
+  authenticated.route('/', opsRoutes({ queue: deps.queue ?? null }));
+
   app.route('/v1', authenticated);
 
   // ---------------------------------------------------------------------------
@@ -397,8 +462,22 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   // The auth app is listed first so it stays authoritative for `/login` even if the
   // product app were ever given an overlapping route: the OAuth round trip depends on
   // that page and nothing else should be able to take it.
+  // The apex serves the auth bundle at `/` and the product everywhere else, so a person
+  // typing `photographic.space` meets sign-in rather than a screen that needs a session.
+  // Listed before the product mount because the first mount owning a path wins, and both
+  // claim `/`; the host filter is what keeps `mcp.` answering there with the product.
   mountWebApp(
     app,
+    ...(config.webDist && config.apexHost
+      ? [
+          {
+            name: 'onboarding-apex',
+            dist: config.webDist,
+            routes: APEX_ROOT_ROUTES,
+            hosts: [config.apexHost],
+          },
+        ]
+      : []),
     ...(config.webDist
       ? [{ name: 'onboarding', dist: config.webDist, routes: AUTH_APP_ROUTES }]
       : []),

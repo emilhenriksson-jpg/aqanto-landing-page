@@ -21,6 +21,8 @@ import {
   ValidationError,
   type RoomId,
 } from '@photographic/core';
+import { Readable } from 'node:stream';
+
 import { formatBytes } from '@photographic/documents';
 import { Hono } from 'hono';
 
@@ -41,7 +43,21 @@ export interface ExportService {
     actor: ReturnType<typeof getActor>,
     id: string,
   ): Promise<{ token: string; expiresAt: Date } | null>;
-  resolveDownload(token: string): Promise<{ filename: string; bytes: Uint8Array } | null>;
+  /**
+   * Claims a download link and hands back the archive as a stream.
+   *
+   * A stream rather than bytes because the archive can be gigabytes and this process has
+   * two of memory: reading it in to hand it to a response would take down the machine
+   * everyone else is using. `complete` is called once the bytes have actually been
+   * delivered, which is what spends the single-use token.
+   */
+  resolveDownload(token: string): Promise<{
+    filename: string;
+    byteSize: number | null;
+    checksum: string | null;
+    stream: AsyncIterable<Uint8Array>;
+    complete: () => Promise<void>;
+  } | null>;
 }
 
 export interface ExportJobView {
@@ -166,17 +182,32 @@ export function publicExportRoutes(deps: AccountRouteDeps): Hono<AppEnv> {
     if (!deps.exports) return unavailable(c);
 
     const archive = await deps.exports.resolveDownload(c.req.param('token'));
-    // Unknown, expired and already-deleted are one answer. The difference tells whoever
-    // guessed a link what kind of guess it was.
+    // Unknown, expired, already spent and already-deleted are one answer. The difference
+    // tells whoever guessed or reused a link what kind of guess it was.
     if (!archive) return notFound(c, 'Länken gäller inte längre.');
 
-    return c.body(archive.bytes as unknown as ArrayBuffer, 200, {
-      'content-type': 'application/zip',
-      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(archive.filename)}`,
-      'content-length': String(archive.bytes.byteLength),
-      'x-content-type-options': 'nosniff',
-      // Never cached: this is someone's entire memory and the URL is a bearer token.
-      'cache-control': 'no-store',
+    // Piped from storage rather than assembled here. The token is spent when the last
+    // byte has gone out and not before, so a transfer that broke can be retried inside
+    // its window instead of costing the person a new link.
+    const body = Readable.toWeb(
+      Readable.from(deliver(archive.stream, archive.complete)),
+    ) as unknown as ReadableStream;
+
+    return new Response(body, {
+      status: 200,
+      headers: {
+        'content-type': 'application/zip',
+        'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(archive.filename)}`,
+        // Known from the export row, so the browser can show real progress on a download
+        // that may take a while. Absent rather than wrong if the row does not have it.
+        ...(archive.byteSize === null ? {} : { 'content-length': String(archive.byteSize) }),
+        // The archive-wide digest, so a person can verify what they received against what
+        // the app told them was produced.
+        ...(archive.checksum === null ? {} : { 'x-photographic-sha256': archive.checksum }),
+        'x-content-type-options': 'nosniff',
+        // Never cached: this is someone's entire memory and the URL is a bearer token.
+        'cache-control': 'no-store',
+      },
     });
   });
 
@@ -288,6 +319,21 @@ export function deletionRoutes(deps: AccountRouteDeps): Hono<AppEnv> {
   });
 
   return routes;
+}
+
+/**
+ * Passes the archive through, and spends the link only once it has all arrived.
+ *
+ * A client that disconnects halfway leaves `complete` uncalled, which is the whole point:
+ * the link stays usable for its short window rather than being burned by a download that
+ * never happened.
+ */
+async function* deliver(
+  stream: AsyncIterable<Uint8Array>,
+  complete: () => Promise<void>,
+): AsyncGenerator<Uint8Array> {
+  for await (const chunk of stream) yield chunk;
+  await complete();
 }
 
 /** Typed by the person, in Swedish, on the path that cannot be undone. */
