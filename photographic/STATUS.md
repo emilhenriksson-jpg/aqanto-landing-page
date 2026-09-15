@@ -1102,3 +1102,244 @@ against; flagged rather than assumed working.
   and it is not part of signup or login. And `apps/web` was not touched at all: it is not
   served in production yet and the deploy track is fixing that separately, so nothing here
   changes SPA mounting or server routing.
+
+## write-path — the approval gate and the log as the truth
+
+Findings 2, 3, 5, 6 and 8 of `docs/review-second-opinion.md`, plus the `/v1/import` scope
+hole and the dead `replay` from the English addendum. Branch
+`cursor/write-path-approval-gate-and-log-atomicity-1aca`.
+
+### Verified before changed, including one framing that needed adjudicating
+
+A different reviewer had praised the approval ordering in `packages/core/src/policy.ts` as
+the strongest security thinking in the repo, so the bypass was checked before anything was
+touched. Both were right about different flags and **`policy.ts` was not weakened**:
+`requiresApproval` genuinely tests `explicit` last and only against the 240-character rule.
+The hole was `confirmed`, a different boolean on a different path — `share` and `move` —
+where the caller supplied its own claim that a human had agreed.
+
+Everything below was reproduced against the code before being changed. The one thing that
+did **not** need changing is recorded under "What the review got wrong" at the end.
+
+### The approval gate cannot be bypassed by a token any more
+
+`confirmed` is gone from `IngestPort.share` / `move`, from `placementSchema` and from the
+routes. It was an optional boolean any caller holding `memory.write` could set, and
+`confirmed: true` placed or moved immediately instead of queueing a proposal — so a
+connected model, or anyone with a stolen token, could copy private material into a shared
+room with nobody approving it.
+
+The database trigger did not catch this and could not have: it checks
+`placement_explicit`, which `placeShare` sets to `true` itself. The trigger proves that
+some code path claimed a placement was explicit; it has never been able to prove a human
+agreed. That distinction is now written where the trigger is described.
+
+`share` and `move` **stay** reachable with `memory.write`, deliberately. A model asking
+"ska det här ligga i Buyersclub Ledning?" is the reason the queue exists, and a queue whose
+entrance automation cannot reach is not a gate, it is a wall. What moved is the *answer*:
+`POST /memory/proposals/:id` was already first-party and CSRF-protected, and it is now the
+only path by which a memory reaches a room it was not written into.
+
+`placementSchema` is `.strict()`, so a caller still sending `confirmed: true` gets a 400
+rather than being quietly answered as though it had asked for something else.
+
+### The right to delete is not the right to republish
+
+`canRemoveMemory` returns `true` for an owner, and `resolvePlacement` called it while
+raising the message *"Bara den som skrev uppgiften kan flytta eller dela den"*. The message
+was the correct rule; the check was the wrong one, so an owner could relocate a member's
+words into a room that member never chose.
+
+Split into `canRepublishMemory` (author only, no exception for owners). Taking something
+*out* of a room is visible to everyone reading it and reversible for thirty days, and that
+is what owning a room buys. Putting it somewhere new hands the text to an audience that
+could not see it before, and no trash takes a disclosure back. An owner who wants a
+contribution gone still has `forget`.
+
+### Human decisions are one class, not five routes patched one at a time
+
+The real conclusion, and the reason this was worth generalising: the first-party rule had
+been applied to three of five decisions the product reserves for a person, and each
+omission looked defensible alone. `POST /memory/disputes/resolve` was on the wrong side of
+it — despite `trust-and-permissions.md` 2.2 saying a dispute is settled "aldrig av en
+modell, och aldrig av ett MCP-anrop" — and the absence of an MCP tool was the whole
+enforcement. A token talking to REST does not need a tool.
+
+`HUMAN_DECISION_ROUTES` now names the class (answer a proposal, settle a dispute, export,
+delete an account) and `FIRST_PARTY_ONLY_ROUTES` is built from it. `scope.test.ts` checks
+it three ways: every entry exists in the live route table, none of them also appears in
+`SCOPED_ROUTES`, and each one refuses a token holding **every** supported scope. Two of
+them are additionally asserted by name rather than by iterating the list, because a test
+that loops a list disappears when someone shortens the list.
+
+The tests are written against a stolen or over-scoped token rather than prompt injection,
+which is the honest threat model here: there is no MCP tool for share, move or dispute
+resolution, so a model that read a hostile PDF cannot reach any of them through its
+declared surface.
+
+### A read-only token could write through `POST /v1/import`
+
+Reproduced: a token carrying exactly `DEFAULT_SCOPE` — which omits `memory.write` by
+design — is correctly refused on `POST /v1/memory` and used to get 201 from `POST
+/v1/import` with three proposals queued. Nothing was ever saved without approval, so the
+containment held; what a read-only connection gained was the ability to fill somebody's
+Godkänn queue with text of its choosing, which `policy.ts` itself calls the failure that
+makes every other safeguard decorative.
+
+Two things were wrong, not one. The route was missing from `SCOPED_ROUTES`, and adding it
+there would not have helped: `connectRoutes` was mounted straight onto `app` while the
+scope table is registered on the authenticated sub-app, so the guard would never have run.
+The authenticated half of the connect flow is now mounted **inside** that group, so one
+table covers every authenticated route. `POST /v1/connect/verify` and `/connect/status`
+were in the same position and are covered too.
+
+**The exemption list is the part worth reading.** It survived review because it carried a
+plausible sentence — these routes "run before a token exists" — that nobody re-checked
+against `app.ts`. An entry now names the mechanism that guards it, and the claim is
+*asserted*: each exempt route is called with no `Authorization` header and must not answer
+401. That test would have failed the day `/v1/import` was added. Two entries turned out to
+be for a route that has never existed (`GET /v1/connect/verify`), which is a fair measure
+of how much attention the list was getting; there is now a staleness assertion for the
+exemptions as well as for the guards. `scope.test.ts` also mounts `connect` deps now —
+without them the import routes were absent from the route table it reads, so nothing it
+checked could have contradicted the exemption.
+
+### Denied access to a room looks like a room that does not exist
+
+`scopeFor()` returned an empty scope for an unreadable room and `day()` carried on to a
+completely unscoped `SELECT title FROM app.room`. A protected room answered 200 with its
+own title; a fictional id answered 200 with `null`. Room names are frequently the sensitive
+part — "Vårdplan", "Uppsägningar" — and the difference between the two answers made the id
+space enumerable.
+
+Both now raise `NotFoundError` before anything reads a title, in both implementations. The
+HTTP test uses two real people and asserts the status **and** the absence of the title
+**and** that the two response bodies are byte-identical: either assertion alone passes for
+the wrong reason.
+
+Grading note, since the reviews disagreed: this is a real break of "nekad åtkomst ser ut som
+obefintlig" but it needs the room's uuid, so the realistic exploiter is a former member or
+someone with an id from a screenshot rather than a stranger. It sits below the `confirmed`
+bypass, which needed only a valid token.
+
+### Lifecycle transitions are one transaction each
+
+`softDelete()` updated `app.item` and appended `item.deleted` separately; `restore()`
+mirrored it; `undo()` cleared its token *before* restoring. `app.trash` derives membership
+from the latest lifecycle event, not from `item.status`, so a failure between two statements
+left a memory gone from its room, absent from every trash and unrecoverable — and an
+interrupted undo burned the one token whose entire purpose is to be the way back.
+
+All of it moved into `packages/db/src/services/lifecycle.ts`, one transaction per
+transition, with the state change conditional in SQL. That conditional is what makes restore
+and undo idempotent: a retry after a lost response appends nothing rather than writing a
+second `item.restored`, and `undo` claims the token and the state in one `WHERE`.
+
+Accepting a proposal was the same shape one level up — marked `accepted`, *then* applied, so
+an interruption left an accepted queue entry with no memory and no retry, and two
+simultaneous approvals could both pass the pending check. The status change is now the claim,
+and the memory, its event, the `resulting_item` pointer and `proposal.accepted` commit with
+it or roll back with it.
+
+Account deletion became resumable steps rather than a dozen statements with no memory of how
+far they got: a `progress` record written with each step's own SQL, and a lease rather than a
+flag, so two sweeps cannot run one deletion and a sweep that died recovers without anyone
+noticing. A worker that catches its own error hands the lease straight back, so a transient
+object-storage failure does not leave a person half-deleted for the length of the lease.
+
+### "Ta bort mina bidrag" was the worst of it, and it was not a race
+
+`removeContributions()` was a bulk `UPDATE app.item SET status = 'deleted'` with
+`purge_after` set and **no `item.deleted` event**, no undo token and no transaction — under
+a comment quoting "ingen tyst massradering". No event means no row in `app.trash`, while
+`purge_after` counted down anyway, so a departing person's contributions to shared rooms
+disappeared with nothing in the other members' history, no way for an owner to restore what
+they never saw leave, and a hard delete thirty days later. Every time the path ran.
+
+Now one `softDeleteWithin` per contribution, each in its own transaction, **with the
+departing person as the event's actor** — the other members are entitled to know whose
+contributions left and that it was a choice, and this step runs before the tombstone so the
+attribution is still there to record. A transaction per item rather than one around all of
+them, because the loop only selects what is not already in the trash, which makes it
+resumable and is what lets the deletion sweep retry it safely.
+
+Authorship now comes from `app.item.author_person_id` rather than from a join against
+`item.created` actors — the column *is* that projection, added in 0003, and the old comment
+saying it did not exist was stale. `countContributions` was counting a different set from
+the one `removeContributions` removed (every item the person had touched any event about,
+including other people's), so "kept" and "removed" were answers to different questions.
+
+### A test that was passing while the behaviour was broken
+
+`account.test.ts`'s "removes them instead when the person chose that" asserted
+`item.status = 'deleted'`, `purge_after` set and a `delete_reason` — all three of which the
+broken bulk update set correctly. Its own comment claimed the removal went "through the
+ordinary trash… so an owner can restore within thirty days", and nothing in it asked. It is
+now asserted through `TrashPort.list()` and `TrashPort.restore()`, in both directions, plus
+a test that the room's owner can actually get the material back. Nothing in the new
+`lifecycle.test.ts` reads `item.status` at all.
+
+### `EventPort.replay` is live code now, and `AGENTS.md` says what it can rebuild
+
+`replay` was implemented on both backends and had no callers, while non-negotiable 2
+promised that `item`, `profile`, `brief` and embeddings are "projections that a replay can
+rebuild". An untested invariant that the whole product rests on is the same as an unmade
+one.
+
+`replayItemLifecycle` in `packages/core/src/replay.ts` rebuilds each memory's room, status,
+current body and trash membership from `app.event` alone, and `divergencesFrom` beside it
+reports every place the log and `app.item` disagree. `lifecycle.test.ts` asserts an empty
+divergence list after **every** transition it exercises, including after each injected
+failure — which is one assertion covering the whole class of bug this branch is about.
+`AGENTS.md` now states what a replay does and does not rebuild (salience, use counts and
+embeddings are recomputed rather than replayed; a purged memory is deliberately gone) rather
+than implying a full rebuild, and spells out the append-only exceptions that already existed.
+
+### Coverage
+
+New: `packages/db/src/services/lifecycle.test.ts` (14, Postgres, with injected failures
+between statements), `packages/core/src/replay.test.ts` (14, every expectation hand-written
+rather than computed from the function under test). Extended: `apps/rest/src/app.test.ts`
+(+7 — the calendar with two real people, and the placement surface from the side a stolen
+token is on), `apps/rest/src/scope.test.ts` (+13), `packages/db/src/services/account.test.ts`
+(+6, rewritten off `item.status`).
+
+Each new guarantee was checked by breaking it on purpose and watching the test fail: the
+non-transactional soft delete, the unscoped calendar title, `/v1/import` out of the scope
+table, and dispute resolution off the first-party list.
+
+Migration **0016** (`lifecycle_atomicity`): widens the `proposal.intent` check to include
+`move`, adds `account_deletion.progress` and `claimed_at`. Numbered from 0016 because `main`
+carries migrations through 0015.
+
+### `intent: 'move'`, which nobody had reported
+
+A queued move carried `intent: 'share'`, so approving "flytta p-7k2m till Buyersclub
+Ledning" ran the share path: the original stayed in the personal room and a *copy* appeared
+in the shared one. Harmless while `confirmed: true` was the usual path and load-bearing the
+moment the queue became the only path, so it is fixed here rather than filed.
+
+### What the review got wrong
+
+- **The `policy.ts` ordering was never the hole.** `requiresApproval` already tests
+  `explicit` last. Unchanged.
+- **`app.item` has an author column.** `account.ts`'s comment said it did not and derived
+  authorship from the log; 0003 added `author_person_id`. The comment was stale, not the
+  code.
+- **Finding 3 is not critical.** It needs the room's uuid; see the grading note above.
+
+### Files outside this task's area, for merge sequencing
+
+- `apps/rest/src/app.ts` — the authenticated half of the connect flow moved into the
+  authenticated group. Needed for the `/v1/import` scope fix to have any effect. Small and
+  localised, but it is the file the deploy track is also editing for SPA mounting.
+- `AGENTS.md` — non-negotiable 2 rewritten (the replay promise and the append-only
+  exceptions).
+- `packages/core/src/policy.ts`, `ports.ts`, `domain.ts`, `index.ts` and the new `replay.ts`
+  — `AGENTS.md` calls `packages/core` frozen. Touched deliberately, because splitting
+  `canRemoveMemory` and removing `confirmed` from the port are both contract changes the
+  fix requires.
+- `packages/db/src/services/projection.ts` and `jobs.ts` — each gained a free function so a
+  transaction can do the same work (`invalidateProjections`, `enqueueJob`), plus
+  `markHeadlineStale`. No behaviour change for existing callers.
+- Did **not** touch `wiring.ts`, `session.ts`, `migrate.ts` or any web screen.

@@ -38,6 +38,8 @@ function event(
     motivation: null,
     explicit: false,
     source: null,
+    fromRoomId: null,
+    toRoomId: null,
   };
 }
 
