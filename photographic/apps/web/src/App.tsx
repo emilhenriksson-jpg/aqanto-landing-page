@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Shell } from './components/Shell.js';
 import { Approvals } from './screens/Approvals.js';
 import { ClientHealth } from './screens/ClientHealth.js';
+import { FragaMittMinne } from './screens/FragaMittMinne.js';
 import { Handelse } from './screens/Handelse.js';
 import { InvitePreview } from './screens/InvitePreview.js';
 import { Kalender } from './screens/Kalender.js';
@@ -14,8 +15,9 @@ import { Historik } from './screens/Historik.js';
 
 /**
  * Consumer app: open it and you are standing inside your personal room.
- * Secondary nav is rooms, the calendar, client health, and approvals — not a dashboard.
- * Historik and Papperskorg live off quiet personal-room footer links (not rail icons).
+ * Secondary nav is rooms, the calendar, "Fråga mitt minne", client health, and approvals
+ * — not a dashboard home. Historik and Papperskorg live off quiet personal-room footer
+ * links (not rail icons).
  *
  * Invite landing sits outside the shell: recipients are not logged in yet.
  *
@@ -31,6 +33,7 @@ export function AppRoutes() {
         <Route path="rum/:roomId" element={<SharedRoom />} />
         <Route path="klienter" element={<ClientHealth />} />
         <Route path="godkann" element={<Approvals />} />
+        <Route path="fraga" element={<FragaMittMinne />} />
         <Route path="papperskorg" element={<Trash />} />
         <Route path="historik" element={<Historik />} />
         {/*

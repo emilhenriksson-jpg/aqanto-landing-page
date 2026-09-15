@@ -16,6 +16,7 @@
 
 import { wrapRoomContent } from '@photographic/agent';
 import type {
+  AskHit,
   HistoryEntry,
   Item,
   Proposal,
@@ -158,6 +159,74 @@ export function renderSearch(hits: SearchHit[], roomTitles: Map<RoomId, string>)
       : '';
 
   return `${kept.length} träffar:\n\n${blocks.join('\n\n')}${tail}`;
+}
+
+/**
+ * "Fråga mitt minne": the same grouped-by-room shape as `renderSearch`, plus a third
+ * kind of line — a calendar entry has no short id and nothing to search inside, it has
+ * a date and something that happened.
+ *
+ * A separate function rather than teaching `renderSearch` a third `SearchHit` variant.
+ * `search_memory` without a time window is the tool's overwhelmingly common call and
+ * already exercised by every existing test that expects exactly that wording; this only
+ * runs when the model asked a date-scoped question, which `renderSearch` never has.
+ */
+export function renderAsk(hits: AskHit[], input: { since?: Date; until?: Date }): string {
+  if (hits.length === 0) {
+    const window = dateWindow(input.since, input.until);
+    return [
+      `Inga träffar${window ? ` ${window}` : ''}. Det betyder att inget sparades eller hände då,`,
+      'inte att frågan var fel.',
+      '',
+      'Sök inte igen med omformulerad fråga mer än en gång. Säg till personen att du inte',
+      'hittar något från den perioden.',
+    ].join('\n');
+  }
+
+  const { kept, dropped } = withinBudget(hits, (hit) => hit.text);
+  const byRoom = new Map<RoomId, AskHit[]>();
+  for (const hit of kept) {
+    const list = byRoom.get(hit.roomId);
+    if (list) list.push(hit);
+    else byRoom.set(hit.roomId, [hit]);
+  }
+
+  const blocks = [...byRoom].map(([, group]) => {
+    const title = group[0]!.roomTitle || 'okänt rum';
+    const lines = group.map(askLine);
+    return wrapRoomContent(lines.join('\n\n'), { label: title });
+  });
+
+  const tail =
+    dropped > 0
+      ? [
+          '',
+          `${dropped} fler träffar fick inte plats. Snäva in frågan, ett rum, eller en kortare`,
+          'tidsperiod om personen behöver en fullständig lista.',
+        ].join('\n')
+      : '';
+
+  const window = dateWindow(input.since, input.until);
+  return `${kept.length} träffar${window ? ` ${window}` : ''}:\n\n${blocks.join('\n\n')}${tail}`;
+}
+
+function askLine(hit: AskHit): string {
+  if (hit.kind === 'event') {
+    const when = hit.occurredAt ? date(hit.occurredAt) : 'okänt datum';
+    const action = hit.action ? (ACTION_TEXT[hit.action] ?? hit.action) : 'hände';
+    const id = hit.shortId ? ` ${hit.shortId}` : '';
+    return hit.text ? `${when} · ${action}${id}: ${hit.text}` : `${when} · ${action}${id}`;
+  }
+
+  const handle = hit.shortId ?? (hit.documentId ? 'ur ett dokument' : 'utan id');
+  return `[${handle}] ${hit.text}`;
+}
+
+function dateWindow(since?: Date, until?: Date): string {
+  if (!since && !until) return '';
+  if (since && until) return `mellan ${date(since).slice(0, 10)} och ${date(until).slice(0, 10)}`;
+  if (since) return `sedan ${date(since).slice(0, 10)}`;
+  return `fram till ${date(until!).slice(0, 10)}`;
 }
 
 export function renderTrash(entries: TrashEntry[]): string {

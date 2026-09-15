@@ -782,3 +782,72 @@ against; flagged rather than assumed working.
   shared local Postgres does not survive `pnpm -r test`'s parallelism across packages
   that each call `reset(pool)` or expect a stable schema, which is pre-existing and not
   new here).
+## fraga-mitt-minne — one search across memory, rooms and the calendar
+
+- **fraga-mitt-minne** — "Fråga mitt minne" (scope §7): one search, across private
+  memory, every room the person can reach, and the calendar, answering "vad bestämde vi
+  om Photographic igår", "vad pratade jag om förra måndagen", "när började vi diskutera
+  det här", "hur har Buyersclubs strategi förändrats i år", "vad gjorde du med
+  informationen jag gav dig igår".
+  `askMemory()` in `packages/core/src/ask.ts` composes two ports that already enforce
+  room isolation — `RetrievalPort.search` (items + document chunks, unchanged) and
+  `HistoryPort.list` (the calendar) — into one ranked `AskHit[]`, rather than adding a
+  third place that could get the choke point wrong. Nothing new queries a table
+  directly. Deliberately did not touch document ingestion, chunking, or a new FTS
+  index — chunk hits pass through exactly as `RetrievalPort.search` already returns
+  them; a date-scoped ask specifically omits them, honestly, because a chunk carries no
+  date yet (`SearchHit.createdAt` is `null` for a chunk, non-null for an item — the
+  platform track's index is what will change that, on their schedule).
+  `sort: 'oldest'` answers "when did this start" by reaching into history even with no
+  explicit date range, because the first mention of something may since have been
+  deleted or only survive as a later edit — the current item's `createdAt` alone cannot
+  always answer that.
+  Shipped as an *extension* of `search_memory`, not a ninth tool: `since`/`until`/`sort`
+  are new optional parameters, and a plain query with none of them takes the exact code
+  path and rendering (`renderSearch`) the tool has always used, unchanged — every
+  existing test for it still passes untouched. Only a date-scoped or oldest-first call
+  routes through `askMemory` and a new `renderAsk`. Mirrored the same way on
+  `GET /v1/search` (now accepts `since`/`until`/`sort`, `q` now optional) and on a new
+  web screen, `/fraga`, a fifth rail icon — a search box, four quick date chips (Idag /
+  Igår / Den här veckan / I år), results linking back to the room they came from.
+  Two leaks found and closed while building the calendar side, both by the same
+  allowlist (`ASK_BODY_ALLOWED` in `ask.ts` — `saved`/`updated`/`restored` only, the
+  same shape as `HistoryPort`'s own `ACTION_OF` allowlist and for the same reason): a
+  *proposed* instruction still waiting in the Godkänn-kön must not read as decided, and
+  a *deleted* memory's text must not resurface. The second one needed more than the
+  allowlist alone — a memory saved and later deleted inside the same searched window
+  still carried its old `saved` event, which is itself an allowed action, so
+  `collapseToLatestPerItem` keeps only the newest event per memory within the fetched
+  window before the allowlist ever runs. Caught by a unit test before it reached e2e.
+  Did not touch `apps/rest/src/wiring.ts`, domain migrations, the event-log schema,
+  OAuth/scope/`resolveByName`, or the public MCP tool schema. Touched: `packages/core`
+  (the new type + `ask.ts` + `createdAt` threaded onto `SearchHit` in both
+  `RetrievalPort` implementations — a memory-item concern, not a chunking one),
+  `packages/agent`/`apps/mcp` (tool schema + dispatch + `renderAsk`), `apps/rest`
+  (schema + route + serialiser), `apps/web` (new screen + api client + demo data),
+  and one two-line fix in the platform track's own unused-so-far `@photographic/retrieval`
+  package so it kept compiling against the widened `SearchHit` (`toSearchHit` now
+  threads `createdAt` through — nothing about their ranking or indexing changed).
+  Coverage: `packages/core/src/ask.test.ts` (16, the composition itself — date bounds,
+  the oldest-first reach into history, per-arm score normalisation, room-id fan-out,
+  both body leaks and the collapse that closes the second one), `apps/mcp/src/dispatch.test.ts`
+  (+6, against real `MemoryServices` with a controllable clock — a date window, sort
+  oldest, cross-room isolation, the confused-deputy boundary, the empty-request
+  refusal, the deleted-body leak end to end), `apps/rest/src/app.test.ts` (+5, the same
+  shapes over HTTP), `apps/web` (+10 across two files, demo and live, including that a
+  result links to the right room). `e2e/src/journey.test.ts` (+2, both harnesses): one
+  proving a single ask surfaces both a matching memory and the calendar event that
+  recorded it, one proving that ask is exactly as blind to a room-mate's private room
+  as search already is. Typecheck clean; e2e 26 memory + 26 postgres.
+  **Honestly weak, not hidden:** ranking is still the pre-existing lexical stand-in on
+  Postgres (real embeddings only rank in the in-memory reference implementation via
+  `FakeLlm`), so a query has to share actual words with what was saved — "vad bestämde
+  vi" will not find "Vi beslutade" on its own. "How has X changed" only sees
+  `item.updated` events; `item.superseded` is not emitted yet (a track-2 gap already on
+  record), so a clean correction chain does not exist to show. A calendar-scoped
+  history scan is capped at 300 events per room before filtering — a very long-lived
+  room's oldest mentions can fall outside that window, and `collapseToLatestPerItem`
+  above only sees what was fetched, so a deletion that lands just after an `until`
+  bound is not there to suppress the save that precedes it inside the window. And "what
+  did you do with what I told you" for something later deleted says *that* it was
+  deleted, never *what* — a deliberate privacy trade-off, not an oversight.

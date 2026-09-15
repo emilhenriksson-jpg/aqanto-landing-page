@@ -37,6 +37,8 @@ interface Candidate {
   text: string;
   documentId: import('@photographic/core').DocumentId | null;
   embedding: number[] | null;
+  /** When an item was saved. `null` for a chunk — see `SearchHit.createdAt`. */
+  createdAt: Date | null;
 }
 
 export class MemoryRetrieval implements RetrievalPort {
@@ -92,6 +94,7 @@ export class MemoryRetrieval implements RetrievalPort {
         score,
         documentId: candidate.documentId,
         disputed: this.isDisputed(candidate.id),
+        createdAt: candidate.createdAt,
       }));
 
     return this.withDisputedPartners(hits);
@@ -176,6 +179,7 @@ export class MemoryRetrieval implements RetrievalPort {
         text: item.body,
         documentId: null,
         embedding: this.store.embeddings.get(item.id) ?? null,
+        createdAt: item.createdAt,
       });
     }
 
@@ -189,6 +193,10 @@ export class MemoryRetrieval implements RetrievalPort {
         text: chunk.text,
         documentId: chunk.documentId,
         embedding: chunk.embedding,
+        // Document ingestion does not expose a "when" through search yet — see
+        // `SearchHit.createdAt`. Not this package's concern to add: chunking and its
+        // schema belong to the platform track.
+        createdAt: null,
       });
     }
 

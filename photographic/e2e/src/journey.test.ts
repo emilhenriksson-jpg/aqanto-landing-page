@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 
-import { RECENT_ACTIVITY_LIMIT } from '@photographic/core';
+import { askMemory, RECENT_ACTIVITY_LIMIT } from '@photographic/core';
 
 // Wired by the orchestrator once the implementation packages land.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -194,6 +194,27 @@ describe('a person and their memory', () => {
       expect(bundle.recent.length).toBeLessThanOrEqual(RECENT_ACTIVITY_LIMIT);
     },
   );
+
+  itWhenWired('answers "Fråga mitt minne" across private memory and the calendar at once', async () => {
+    // Scope §7: "vad bestämde vi om Photographic igår" needs both a text match and a
+    // date, in one list, with the seeded ketchup fact and the calendar entry recording
+    // that it was saved both findable through the same call.
+    const actor = await harness.actorForEmail(email, 'claude-desktop');
+
+    const hits = await askMemory(harness.services, actor, {
+      query: 'ketchup',
+      since: new Date(Date.now() - 60 * 60 * 1000),
+    });
+
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.some((hit: { kind: string }) => hit.kind === 'memory')).toBe(true);
+    expect(hits.some((hit: { kind: string }) => hit.kind === 'event')).toBe(true);
+    // Every hit carries what it takes to link back to where it came from.
+    for (const hit of hits) {
+      expect(hit.roomId).toBeTruthy();
+      expect(hit.roomTitle).toBeTruthy();
+    }
+  });
 
   itWhenWired('lets a model delete exactly the right memory by its short id', async () => {
     const actor = await harness.actorForEmail(email, 'claude-desktop');
@@ -473,6 +494,33 @@ describe('sharing a room with someone else', () => {
     expect(bundle.recent.some((entry: { roomTitle: string }) => entry.roomTitle === 'Buyersclub Ledning')).toBe(
       true,
     );
+  });
+
+  itWhenWired('keeps "Fråga mitt minne" as isolated as a plain search already is', async () => {
+    // `askMemory` composes `RetrievalPort.search` and `HistoryPort.list` — both already
+    // proven isolated above (`accessibleRoomIds`) — rather than a third, independent
+    // query. This is the assertion that the composition did not accidentally widen
+    // what either one alone would return: a date-scoped, cross-room ask must be
+    // exactly as blind to Emil's private room as a plain search already is.
+    const emil = await harness.personByEmail(emilEmail);
+    const jacob = await harness.personByEmail(jacobEmail);
+    const jacobActor = harness.actorFor(jacob, 'cursor');
+    const emilPersonalRoom = await harness.services.identity.personalRoomOf(emil.id);
+
+    await harness.services.ingest.remember(harness.actorFor(emil), {
+      roomId: emilPersonalRoom.id,
+      body: 'Ett annat privat fakta om Emil',
+      explicit: true,
+    });
+    await harness.runJobsToCompletion();
+
+    const hits = await askMemory(harness.services, jacobActor, {
+      query: 'privat',
+      since: new Date(Date.now() - 60 * 60 * 1000),
+    });
+
+    expect(hits.every((hit: { roomId: string }) => hit.roomId !== emilPersonalRoom.id)).toBe(true);
+    expect(hits.some((hit: { text: string }) => hit.text.includes('privat fakta om Emil'))).toBe(false);
   });
 
   itWhenWired('treats text written by other people as data, never as instructions', async () => {

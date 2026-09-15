@@ -45,6 +45,8 @@ interface Candidate {
   documentId: string | null;
   /** Other items this one contradicts, unresolved. Empty for chunks. */
   disputedBy: string[];
+  /** When an item was saved. `null` for a chunk — see `SearchHit.createdAt`. */
+  createdAt: Date | null;
 }
 
 export class PgRetrieval implements RetrievalPort {
@@ -94,6 +96,7 @@ export class PgRetrieval implements RetrievalPort {
       score: 1 / (60 + index + 1),
       documentId: candidate.documentId as never,
       disputed: candidate.disputedBy.length > 0,
+      createdAt: candidate.createdAt,
     }));
 
     return this.withDisputedPartners(hits, [...items, ...chunks]);
@@ -132,6 +135,7 @@ export class PgRetrieval implements RetrievalPort {
           score: hit.score,
           documentId: partner.documentId as never,
           disputed: true,
+          createdAt: partner.createdAt,
         });
       }
     }
@@ -167,9 +171,10 @@ export class PgRetrieval implements RetrievalPort {
       short_id: string;
       body: string;
       disputed_by: string[] | null;
+      created_at: Date;
     }>(
       this.pool,
-      `SELECT id, room_id, short_id, body, disputed_by FROM app.item
+      `SELECT id, room_id, short_id, body, disputed_by, created_at FROM app.item
        WHERE room_id = ANY($1::uuid[]) AND status = 'active' AND sensitivity <> 'local_only'`,
       [scope],
     );
@@ -182,6 +187,7 @@ export class PgRetrieval implements RetrievalPort {
       text: r.body,
       documentId: null,
       disputedBy: r.disputed_by ?? [],
+      createdAt: r.created_at,
     }));
   }
 
@@ -226,6 +232,10 @@ export class PgRetrieval implements RetrievalPort {
       text: row.text,
       documentId: row.document_id,
       disputedBy: [],
+      // Document ingestion does not expose a "when" through search yet — see
+      // `SearchHit.createdAt`. Not this package's concern to add: chunking and its
+      // schema belong to the platform track.
+      createdAt: null,
       rank: row.rank,
     }));
   }

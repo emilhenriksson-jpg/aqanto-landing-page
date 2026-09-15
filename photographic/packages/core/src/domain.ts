@@ -662,6 +662,12 @@ export interface SearchHit {
    * gets a person to settle it.
    */
   disputed: boolean;
+  /**
+   * When an item was saved. `null` for a chunk: document ingestion does not carry this
+   * through search yet — see `askMemory` in `ask.ts`, which is the first consumer that
+   * needs it and folds documents in without it rather than waiting on that wiring.
+   */
+  createdAt: Date | null;
 }
 
 /**
@@ -689,4 +695,38 @@ export interface DisputeSide {
   authorPersonId: PersonId;
   authorName: string | null;
   writtenAt: Date;
+}
+
+/**
+ * One result from "Fråga mitt minne" (scope §7) — a single ranked list spanning private
+ * memory, every room the person can reach, and the calendar/history log, each entry
+ * carrying what it takes to link back to where it came from.
+ *
+ * Deliberately not just `SearchHit`. A memory or a document chunk is something
+ * currently true; a calendar entry is something that *happened*, on a date, and may
+ * have no current counterpart at all — "vad gjorde Photographic med det jag berättade
+ * igår" is a question about an event, not about a fact. One hit shape has to carry
+ * both without either case leaving fields meaningless for the other, hence the
+ * optional provenance fields being null in the cases where they do not apply.
+ */
+export type AskHitKind = 'memory' | 'document' | 'event';
+
+export interface AskHit {
+  kind: AskHitKind;
+  roomId: RoomId;
+  roomTitle: string;
+  text: string;
+  /**
+   * Comparable only within the same `kind` group before merging — see
+   * `mergeRanked` in `ask.ts`. Never meant to be shown to a person.
+   */
+  score: number;
+  occurredAt: Date | null;
+  /** Set for `kind: 'memory'` — the id a person or model addresses this by. */
+  shortId: ShortId | null;
+  /** Set for `kind: 'document'`. No shortId: a chunk is not independently addressable. */
+  documentId: DocumentId | null;
+  /** Set for `kind: 'event'` — its position in the append-only log. */
+  seq: EventSeq | null;
+  action: HistoryAction | null;
 }

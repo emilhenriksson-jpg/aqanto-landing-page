@@ -6,6 +6,7 @@ const NAV = [
   // The calendar earns a rail slot: the scope calls it a central part of the app, the
   // chronological representation of the person's memory, not something internal to the AI.
   { to: '/kalender', end: false, label: 'Kalender', icon: CalendarIcon },
+  { to: '/fraga', end: true, label: 'Fråga', icon: AskIcon },
   { to: '/klienter', end: true, label: 'Klienter', icon: ClientsIcon },
   { to: '/godkann', end: true, label: 'Godkänn', icon: CheckIcon },
 ] as const;
@@ -68,6 +69,15 @@ function CalendarIcon() {
       <rect x="4" y="5.5" width="16" height="14.5" rx="3" stroke="currentColor" strokeWidth="1.6" />
       <path d="M4 10.5h16" stroke="currentColor" strokeWidth="1.6" />
       <path d="M8.5 3.5v4M15.5 3.5v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function AskIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M20 20 15.8 15.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }

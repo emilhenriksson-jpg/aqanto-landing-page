@@ -189,5 +189,6 @@ export function toSearchHit(hit: RankedHit): SearchHit {
     score: hit.score,
     documentId: hit.documentId,
     disputed: hit.disputed ?? false,
+    createdAt: hit.createdAt,
   };
 }
