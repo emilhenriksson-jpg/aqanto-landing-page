@@ -1063,10 +1063,20 @@
 
 .invite__cta {
   display: flex;
-  justify-content: flex-start;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
   padding: 0;
   animation: rise var(--dur-slow) var(--ease-spring) both;
   animation-delay: 80ms;
+}
+
+/* Quiet, but present in the first viewport — the promise has to be read before the
+   button is pressed, not found afterwards in a settings screen. */
+.invite__consent {
+  max-width: 34rem;
+  line-height: 1.55;
+  text-wrap: pretty;
 }
 
 .invite__join {

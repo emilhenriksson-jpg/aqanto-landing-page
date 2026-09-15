@@ -242,3 +242,100 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
 
 - **orchestrator** — Historik screen (footer link) with demo + live history loader;
   live Dokument shelf via room documents endpoint; web suite 37 green.
+
+## Track 3 — platform & documents
+
+Branch `cursor/photographic-platform-documents-80d8`, PR #2. Only this heading is mine;
+I do not edit anything above it.
+
+### Migration ownership
+
+**Track 3 migrations are numbered from 0010.** 0003–0009 are left free for the domain
+migrations Track 2 owns. Files apply in filename order, so a gap costs nothing and
+renumbering an applied migration costs a database. Nothing in 0010 or 0011 touches a
+table on Track 2's list.
+
+- `0010_documents_and_storage.sql` — document text and extraction state, chunk headings
+  and a Swedish FTS vector, the storage ledger.
+- `0011_oauth_persistence.sql` — OAuth client/token/authorization made real, the
+  authorization parking table, immutable client identity, `client_grant`, write budget.
+
+### Done
+
+- **OAuth state in Postgres.** The `app.oauth_*` tables existed since 0001 with nothing
+  writing to them, so tokens and registrations died on restart and every revocation was
+  temporary until the next deploy. `wiring.ts` now selects Postgres stores when
+  `DATABASE_URL` is set and logs which it chose at boot. `apps/rest`'s 68 tests pass
+  against **both** paths, which is how the 401 below was caught.
+- **`agent_client` is an identity, not a guess.** It was string-matched against the name
+  a client sends on every request, so a client chose its own label in someone's memory
+  history. Now derived once at registration by `deriveClientIdentity` and frozen by
+  trigger. An unrecognised client is `unknown` / `okänd klient` and stays that way.
+- **Per-client rename and revocation.** `app.client_grant` is one row per person per
+  client — what `Klienter` lists, what the person renames, what revocation acts on, and
+  where the daily write budget is counted. `PATCH`/`DELETE /v1/clients/:clientId`.
+  Without a database both answer 503 rather than an empty list.
+- **Scopes enforced per route and per tool.** One table in `apps/rest/src/scoped-routes.ts`
+  registered per method, and per-tool scopes on every MCP tool with `tools/list`
+  filtered. `scope.test.ts` reads the routes out of the app and fails if any is
+  unguarded — it found two I had missed. Insufficient scope is 403 `insufficient_scope`,
+  not the 404 a permission denial gets.
+- **`resolveByName` no longer guesses.** Substring matching meant "spara i ledning" hit
+  "Buyersclub Ledning". Now exact slug, exact folded title, or a prefix unique among the
+  person's own rooms; anything else is not-found. The rule moved to `matchRoomByName` in
+  core because both implementations had their own copy of it.
+- **Documents: extraction, chunking, storage limit.** `@photographic/documents` had a
+  blob store and an HTML extractor behind an empty entry point. Finished: PDF (pdf.js),
+  Word (mammoth via HTML so headings survive), text with encoding detection, a
+  heading-aware chunker, and the 10 GB limit counted per person and per distinct object.
+  Extraction never fails an upload — the bytes are stored first. 49 tests against real
+  PDF and `.docx` fixtures built byte by byte.
+- **Invite consent text.** `SHARED_ROOM_CONSENT` in core, shown in the invite's first
+  viewport next to "Gå med", with a test. Emil confirmed this as a requirement.
+
+### Bugs found, all of which typechecked
+
+- The write-budget SQL function named an output column `day`, shadowing the column it
+  inserts into.
+- The token-store wrapper that records grants was `{ ...tokens, create }`. Spreading a
+  class instance drops every prototype method, so it had no `findByAccessHash` and every
+  MCP request after a successful token exchange returned 401.
+- `splitByCharacters` with overlap ≥ chunk size emitted a near-duplicate chunk per
+  character. Not a hang — worse, because nothing fails and the index fills with the same
+  sentence.
+- `e2e` compiled with `strict: false`. Hid nothing of its own, but another package's
+  discriminated unions stopped narrowing the moment `db` depended on `auth`. Now strict.
+- `packages/db` ran its test files in parallel against one shared database that several
+  of them reset. Now sequential.
+
+### In progress
+
+Widening `DocumentPort` (original text, download, storage usage) and wiring both
+implementations onto the blob store and the storage counter; chunk FTS in retrieval;
+`@photographic/supabase` (Auth JWT verification, Supabase Storage as a `BlobStore`,
+pooler-safe connection config); REST upload/download routes and the Swedish upload UI
+with a storage meter; export and account deletion.
+
+### For Track 2 — two handoffs
+
+1. **`app.event.client_id` is yours, and its target now exists.** `app.oauth_client` is
+   real and its `client_id` is a stable key, so the foreign key in your item 2 has
+   something to point at. `client_label` is the immutable provenance label;
+   `client_grant.display_name` is the person's rename and is what the history feed
+   should show.
+2. **`sensitivity` → approval gate is yours, not mine.** Emil confirmed that
+   `sensitive` must force approval. That is a change inside `requiresApproval`, which
+   your item 6 already reorders, and two tracks editing one function is a conflict —
+   so I left it alone. Note `local_only` is **already absent** from both public schemas
+   (the MCP tool takes a boolean `sensitive`; REST accepts only `normal | sensitive`),
+   so that half of the decision needs no code change. The `remember` tool description
+   already promises that sensitive memories "always require approval", which is not yet
+   true — worth closing in the same change.
+
+### Known gap, not guessed around
+
+No Supabase project or credentials are available in this environment. Everything is
+built and verified against local Postgres 16 + pgvector, and the Supabase-specific
+wiring stays behind config — pointing `DATABASE_URL` at a Supabase Postgres is the whole
+change on the database side. The Auth and Storage adapters need a real project to verify
+against; flagged rather than assumed working.

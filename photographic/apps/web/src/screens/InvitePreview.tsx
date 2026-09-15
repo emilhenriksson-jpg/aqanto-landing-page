@@ -1,3 +1,4 @@
+import { SHARED_ROOM_CONSENT } from '@photographic/core';
 import { useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 
@@ -70,6 +71,12 @@ function InviteReady({ invite }: { invite: InvitePreviewData }) {
             >
               Gå med
             </button>
+            {/*
+              Above the fold and next to the button, not in a link nobody opens. The
+              whole justification for a person's notes staying in a shared room after
+              they leave is that they were told before they wrote them.
+            */}
+            <p className="invite__consent meta">{SHARED_ROOM_CONSENT}</p>
           </footer>
         </div>
 
