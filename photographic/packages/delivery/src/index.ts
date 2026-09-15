@@ -8,7 +8,12 @@
 
 export { DeliveryError } from './errors.js';
 
-export { LogCodeSender, type DeliveryLogger } from './log-sender.js';
+export {
+  inertChannelDetail,
+  LogCodeSender,
+  RefusingCodeSender,
+  type DeliveryLogger,
+} from './log-sender.js';
 
 export {
   CODE_TTL_MINUTES,
