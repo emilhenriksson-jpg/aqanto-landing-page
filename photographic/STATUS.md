@@ -25,12 +25,59 @@ _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tok
 
 ## In progress
 
-- **orchestrator** — public HTTPS for Claude (tunnel `PUBLIC_URL` or Fly+Postgres),
-  deeper `VITE_USE_DEMO=0` wiring beyond curls. Deploy scaffolding is in place;
-  Postgres adapters assembled; `DATABASE_URL` boots cleanly. Design rounds 1–4 done
+- **orchestrator** — deeper `VITE_USE_DEMO=0` wiring beyond curls. Design rounds 1–4 done
   on the room UI; next polish is invite-first-viewport confidence under real devices.
 
+## Known limitations, written down rather than discovered later
+
+- **A restart drops Claude's connection.** OAuth clients and tokens live in process
+  memory (`MemoryClientStore` / `MemoryTokenStore` in `apps/rest/src/wiring.ts`), so
+  every restart forgets the dynamic registration and the connector has to be added
+  again. Track 3 is moving these to Postgres — deliberately not fixed here.
+- **The tunnel hostname is new on every run**, so a connector saved in Claude is
+  invalidated by the next restart. That is the accepted cost of not committing to a
+  deployment while storage is still being decided.
+- **No real email or SMS.** Sign-up codes are written to the API log as `signup_code`.
+- **Shared-room Aktivitet is still demo data.** Left alone on purpose: it is being
+  rebuilt as a view over the append-only event log with full provenance, so a standalone
+  activity endpoint now would be thrown away.
+
 ## Completed
+
+- **orchestrator** — **public HTTPS, and Claude can connect.** Verified reachable this
+  morning at `https://called-job-paragraph-necessary.trycloudflare.com/mcp` (a quick
+  tunnel, so that exact hostname dies with the process — `./scripts/public-mcp.sh`
+  prints a fresh one).
+  The missing piece was not the tunnel. A client discovers everything from the MCP
+  endpoint's own metadata, so one hostname should be enough, and it was two: the login
+  page an authorization request redirects to lives in `apps/onboarding`, which calls its
+  API with same-origin relative paths through a Vite proxy that exists only on a laptop.
+  Behind a tunnel the flow dead-ended after the redirect, on an origin serving no HTML —
+  a blank page, long after every test had passed. `createApp` now serves the built
+  browser app over the paths the API has not claimed, and `loadConfigFromEnv` points
+  `loginUrl` at our own origin when we are the ones serving it.
+  Mounted last and behind an explicit API prefix list, because a single-page app answers
+  every unknown path with its shell: `GET /v1/typo` has to stay a JSON 404, or a client
+  that gets HTML where it expected an error reports an empty room rather than a failure.
+  Verified three ways, all against the public URL rather than localhost: discovery and
+  the `www-authenticate` challenge by curl; the whole OAuth dance plus `initialize` by
+  `e2e` live smoke; and the browser half — `/login`, the Swedish consent screen, the
+  code delivered to a loopback redirect URI — driven by hand in a real browser, then
+  exchanged for a token and an `initialize` whose instructions carry Emil's seeded
+  ketchup allergy. 16 new `apps/rest` tests; typecheck clean; e2e 22 memory + 22 postgres.
+  Two things found on the way, both of which had been passing everything. The live smoke
+  and the Postgres journey shared a database and ran in parallel, so the journey's
+  `reset(pool)` dropped the schema mid-signup and failed with `relation "app.person"
+  does not exist` — indistinguishable from a broken product; the smoke now has its own
+  config and `test:live` script. And `npx untun`, which `WAKEUP.md` and `scripts/deploy.md`
+  both recommended, does not run at all: `untun@0.2.2` ships `dist/cli.mjs` with no
+  shebang, so npx hands it to `sh`. It drives cloudflared underneath anyway, so the
+  script now calls cloudflared directly and downloads it on Linux if it is missing.
+  `./scripts/public-mcp.sh` checks `/health` *through* the tunnel before printing a URL,
+  because a quick tunnel sometimes gets a hostname that is never published in DNS and
+  cloudflared reports a healthy connection either way — observed once while testing.
+  Deliberately not Fly with durable Postgres: storage is likely moving to Supabase, and
+  the point of staying on a tunnel is that nothing about the database becomes hard to move.
 
 - **voice** — `apps/voice` was an empty stub (`export {}`). Added a minimal Swedish calm
   landing: Wordmark + one sentence + violet disabled CTA “Kommer snart”, tokens from

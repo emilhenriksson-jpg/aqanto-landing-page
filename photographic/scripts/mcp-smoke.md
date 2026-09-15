@@ -71,11 +71,32 @@ Requires REST already up (and preferably `pnpm db:seed` so Emil has ketchup). Co
 logged as `signup_code` — point `LIVE_MCP_LOG` at that file (e.g. tee of `pnpm dev`).
 
 ```bash
-LIVE_MCP=1 LIVE_MCP_LOG=/tmp/rest-demo-api.log pnpm --filter @photographic/e2e test
+LIVE_MCP=1 LIVE_MCP_LOG=/tmp/rest-demo-api.log pnpm --filter @photographic/e2e test:live
 ```
 
-Only `e2e/src/live-mcp.smoke.test.ts` runs the live path; it is skipped unless
-`LIVE_MCP=1`. Asserts `initialize` instructions contain `ketchup`.
+`test:live`, not `test`. The live smoke is excluded from the default e2e run because the
+journey calls `reset(pool)` on the same database the live process is serving, and vitest
+runs files in parallel: together they drop the schema mid-signup and fail with
+`relation "app.person" does not exist`, which looks exactly like a broken product.
+
+Skipped unless `LIVE_MCP=1`. Asserts `initialize` instructions contain `ketchup`.
+
+### 4. Live HTTP against the public URL
+
+Same test, pointed at the tunnel — every step is a request Claude makes for itself, so
+this is the closest thing to the real client short of the client.
+
+```bash
+./scripts/public-mcp.sh          # prints the https URL it brought up
+
+B=https://<host>.trycloudflare.com
+LIVE_MCP=1 LIVE_MCP_URL=$B LIVE_MCP_PUBLIC_URL=$B \
+  LIVE_MCP_LOG=/tmp/photographic-rest.log \
+  pnpm --filter @photographic/e2e test:live
+```
+
+`LIVE_MCP_PUBLIC_URL` has to match too: it is the `resource` the authorize request names,
+and the authorization server rejects one that is not its own (`invalid_target`).
 
 ### Manual initialize (only after you already have an access token)
 

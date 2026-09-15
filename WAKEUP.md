@@ -14,6 +14,7 @@ cd photographic && pnpm install && pnpm db:migrate && pnpm db:seed && \
 Web (demo-UI): `pnpm --filter @photographic/web dev` → `:5173`
 (rum, Godkänn, Klienter). Live API: `VITE_USE_DEMO=0`.
 
-Publik Claude: tunnel eller Fly — se `photographic/WAKEUP.md` och `photographic/scripts/deploy.md`.
+Publik HTTPS så Claude kan ansluta: `cd photographic && ./scripts/public-mcp.sh`
+→ tunnel + API på ett värdnamn, `/mcp`-URL utskriven. Se `photographic/scripts/deploy.md`.
 
 MCP-morgonkoll: `cd photographic && ./scripts/mcp-smoke.sh` (OAuth connect-flow + e2e ketchup).
