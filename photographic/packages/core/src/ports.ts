@@ -300,6 +300,8 @@ export interface IngestPort {
       kind?: ItemKind;
       reason?: string;
       source?: string;
+      /** Carried onto the `Proposal` and, on acceptance, onto the resulting `Item`. */
+      structured?: Record<string, unknown>;
     },
   ): Promise<Proposal>;
 

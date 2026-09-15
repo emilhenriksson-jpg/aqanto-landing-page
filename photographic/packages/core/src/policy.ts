@@ -71,6 +71,26 @@ export const RECENT_TOKEN_BUDGET = 150;
  */
 export const ROOM_HEADLINE_TOKEN_BUDGET = 30;
 
+/**
+ * The whole Personal Compass block: six short principles plus its own preamble.
+ *
+ * Never truncated per-principle — either all six render, in full, or none of them
+ * would, and none is not a state this ever reaches: the block is reserved alongside the
+ * data-boundary rules rather than competing with the profile for space. The number is
+ * generous headroom over what six lines of ~40 tokens plus a preamble actually cost.
+ */
+export const COMPASS_TOKEN_BUDGET = 320;
+
+/**
+ * Ceiling on one principle's custom wording.
+ *
+ * A compass principle is a stance, not an essay — "be direct" fits in a sentence, and a
+ * paragraph-long replacement stops being something a model can hold against every
+ * answer, which is the entire reason six survived over thirteen. Shorter than
+ * `AUTO_WRITE_MAX_CHARS` on purpose.
+ */
+export const COMPASS_PRINCIPLE_MAX_CHARS = 220;
+
 /** Cosine distance below which two items are treated as restating each other. */
 export const DEDUPE_DISTANCE_THRESHOLD = 0.12;
 
@@ -161,8 +181,16 @@ export const ROUTING_SAMPLE_SIZE = 12;
  * An instruction changes the behaviour of every connected model simultaneously, so its
  * blast radius is the whole product rather than one answer. A wrong fact is annoying;
  * a wrong instruction ruins every chat at once.
+ *
+ * `compass` is here for defence in depth, not because anything relies on it today: the
+ * only path that can create or change a compass item is `IngestPort.propose`, which
+ * never consults this function at all — it always queues a proposal. `remember` refuses
+ * `kind: 'compass'` outright before this would even run. If either of those two
+ * safeguards is ever weakened, this is the one that still holds — belt and braces on
+ * the single property that matters most here: nothing lets a model rewrite its own
+ * instruction to challenge the person by talking its way past a checkbox.
  */
-export const APPROVAL_REQUIRED_KINDS: readonly ItemKind[] = ['instruction', 'never'];
+export const APPROVAL_REQUIRED_KINDS: readonly ItemKind[] = ['instruction', 'never', 'compass'];
 
 /** Kinds that may be written automatically when small and non-contradicting. */
 export const AUTO_WRITABLE_KINDS: readonly ItemKind[] = [
