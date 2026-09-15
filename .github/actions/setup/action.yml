@@ -23,12 +23,12 @@ runs:
     # published in the last day, failing with an error about the lockfile rather than
     # about the version drift.
     - name: Install pnpm (version from photographic/package.json)
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       with:
         package_json_file: ${{ inputs.working-directory }}/package.json
 
     - name: Install Node
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         # `engines.node` is ">=22"; pin the major so a runner image bump cannot change
         # what CI tested without a commit saying so.
