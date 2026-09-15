@@ -11,12 +11,14 @@ import { randomUUID } from 'node:crypto';
 import type { Actor } from '@photographic/core';
 import { NotPermittedError, PhotographicError } from '@photographic/core';
 import type { MiddlewareHandler } from 'hono';
+import { getCookie } from 'hono/cookie';
 
 import type { RestConfig, RateLimitRule } from './config.js';
 import type { AppContext, AppEnv } from './context.js';
 import { RateLimitError, RequestValidationError } from './errors.js';
 import type { Logger } from './logger.js';
 import { FIRST_PARTY_CLIENT_ID, type OAuthProvider } from './oauth-contract.js';
+import { SESSION_COOKIE } from './session-cookie.js';
 
 export function requestContext(input: {
   config: RestConfig;
@@ -98,11 +100,34 @@ export function cors(config: RestConfig): MiddlewareHandler<AppEnv> {
 export function authenticate(oauth: OAuthProvider, options: { required: boolean } = { required: true }): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const header = c.req.header('authorization');
-    const token = header?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+    const bearer = header?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+
+    // Bearer first, always. An MCP client sends one and must be treated identically to
+    // before this cookie existed — cookie auth is additive for the browser, not a new
+    // path that anything already working can fall into.
+    const cookie = bearer ? undefined : getCookie(c, SESSION_COOKIE);
+    const token = bearer ?? cookie;
 
     if (!token) {
       if (options.required) return unauthorized(c, 'Saknar access token.');
       return next();
+    }
+
+    // Only a cookie needs this. A bearer token is immune to the attack by construction:
+    // a browser does not attach it to a cross-site request on its own, which is exactly
+    // the property a cookie gives up in exchange for surviving a reload. `SameSite=Lax`
+    // already blocks a cross-site mutating request from carrying the cookie; this is the
+    // second lock, because "one origin now" is the reason cookies need the protection
+    // and not a reason to skip it.
+    if (cookie && isMutating(c.req.method) && !sameOrigin(c)) {
+      c.get('logger').warn('csrf_rejected', {
+        route: c.req.routePath,
+        origin: c.req.header('origin') ?? null,
+      });
+      return c.json(
+        { error: { code: 'forbidden', message: 'Begäran kom från en annan plats.' } },
+        403,
+      );
     }
 
     const claims = await oauth.introspect(token);
@@ -210,6 +235,39 @@ export function firstPartyOnly(): MiddlewareHandler<AppEnv> {
     }
     return next();
   };
+}
+
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function isMutating(method: string): boolean {
+  return MUTATING_METHODS.has(method.toUpperCase());
+}
+
+/**
+ * Whether a cookie-authenticated mutating request came from our own page.
+ *
+ * `Origin` is sent by every browser on a mutating cross-origin request and cannot be
+ * forged by page script, which is what makes it usable here. A *missing* `Origin` is
+ * refused rather than allowed: same-origin `fetch` sends it, so the cases left are a
+ * non-browser caller — which should be using a bearer token — and an old browser, and
+ * defaulting to "allow" would make the check optional for whoever omits the header.
+ *
+ * `Sec-Fetch-Site` is checked first where present, because it is the browser's own
+ * answer to this exact question and it distinguishes `same-origin` from `none` (a
+ * typed URL) without any string comparison of ours.
+ */
+function sameOrigin(c: Parameters<MiddlewareHandler<AppEnv>>[0]): boolean {
+  const fetchSite = c.req.header('sec-fetch-site');
+  if (fetchSite) return fetchSite === 'same-origin';
+
+  const origin = c.req.header('origin');
+  if (!origin) return false;
+
+  try {
+    return new URL(origin).origin === new URL(c.get('config').publicUrl).origin;
+  } catch {
+    return false;
+  }
 }
 
 function unauthorized(c: Parameters<MiddlewareHandler<AppEnv>>[0], detail: string) {
