@@ -29,3 +29,20 @@ export {
   type PostgresServices,
   type PostgresServicesOptions,
 } from './postgres-services.js';
+
+/**
+ * The OAuth stores, exported separately from `Services`.
+ *
+ * They are not ports in `@photographic/core` — the authorization server declares its own
+ * narrow persistence interfaces so it can be built and tested without a database — so
+ * the composition root in `apps/rest` picks these up directly, the same way it picks up
+ * the in-memory ones when there is no `DATABASE_URL`.
+ */
+export {
+  PgAuthCodeStore,
+  PgClientGrants,
+  PgOAuthClientStore,
+  PgPendingAuthorizationStore,
+  PgTokenStore,
+  type ClientGrantRow,
+} from './services/oauth.js';

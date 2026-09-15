@@ -9,7 +9,7 @@
  * Middleware order is load-bearing and stated once, below.
  */
 
-import type { Services } from '@photographic/core';
+import type { PersonId, Services } from '@photographic/core';
 import type { ConnectConfig, ConnectDeps } from '@photographic/connect';
 import { Hono } from 'hono';
 
@@ -35,7 +35,7 @@ import {
   OAUTH_PATHS,
 } from './oauth-contract.js';
 import { connectRoutes, publicConnectRoutes } from './routes/connect.js';
-import { contextRoutes } from './routes/context.js';
+import { contextRoutes, type ClientGrants } from './routes/context.js';
 import { historyRoutes } from './routes/history.js';
 import { memoryRoutes } from './routes/memory.js';
 import { oauthRoutes } from './routes/oauth.js';
@@ -60,6 +60,18 @@ export interface AppDeps {
    * OAuth deployments to serve one login.
    */
   mcp?: { fetch(request: Request): Promise<Response> };
+
+  /**
+   * Per-person client registrations, for the `Klienter` screen.
+   *
+   * Optional because the in-memory deployment has none: registrations that vanish on
+   * restart cannot honestly be listed as "AIs that can reach your memory", and the
+   * routes answer 503 rather than an empty list.
+   */
+  clientGrants?: ClientGrants | null;
+
+  /** Revokes every token one client holds for one person. See `ContextRouteDeps`. */
+  revokeClientTokens?: (input: { personId: PersonId; clientId: string }) => Promise<number>;
 }
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
@@ -193,7 +205,14 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     }),
   );
 
-  authenticated.route('/', contextRoutes(connectConfig));
+  authenticated.route(
+    '/',
+    contextRoutes({
+      connect: connectConfig,
+      clientGrants: deps.clientGrants ?? null,
+      ...(deps.revokeClientTokens ? { revokeClientTokens: deps.revokeClientTokens } : {}),
+    }),
+  );
   authenticated.route('/', memoryRoutes());
   authenticated.route('/', trashRoutes());
   authenticated.route('/', historyRoutes());

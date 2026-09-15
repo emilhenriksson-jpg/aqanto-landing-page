@@ -5,6 +5,7 @@ export * from './config.js';
 export * from './crypto.js';
 export * from './deps.js';
 export * from './http.js';
+export * from './identity.js';
 export * from './metadata.js';
 export * from './rate-limit.js';
 export * from './scopes.js';

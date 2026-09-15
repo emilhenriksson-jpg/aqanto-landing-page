@@ -30,6 +30,7 @@ import type {
   OAuthClientStore,
   TokenEndpointAuthMethod,
 } from './deps.js';
+import { deriveClientIdentity } from './identity.js';
 import { hashSecret } from './tokens.js';
 import { formatScope, parseScope, SUPPORTED_SCOPES } from './scopes.js';
 
@@ -209,6 +210,11 @@ export async function registerClient(
   const clientName = clientNameOf(input.client_name, deps.config.maxClientNameLength);
   const clientSecret = authMethod === 'none' ? null : CLIENT_SECRET_PREFIX + randomToken(32);
 
+  // Derived here and only here. The store freezes it, so this is the single moment at
+  // which an attacker-controlled registration name is allowed to influence what the
+  // person's own history calls this client.
+  const identity = deriveClientIdentity(clientName);
+
   const client: NewOAuthClient = {
     clientId: CLIENT_ID_PREFIX + randomToken(16),
     clientSecretHash: clientSecret === null ? null : hashSecret(clientSecret),
@@ -218,6 +224,9 @@ export async function registerClient(
     tokenEndpointAuth: authMethod,
     registeredVia: 'dcr',
     cimdUrl: null,
+    agentClient: identity.agentClient,
+    clientLabel: identity.clientLabel,
+    labelSource: identity.labelSource,
   };
 
   return {

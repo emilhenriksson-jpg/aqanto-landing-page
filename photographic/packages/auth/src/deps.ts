@@ -24,6 +24,8 @@ import type {
   Transport,
 } from '@photographic/core';
 
+import type { ClientLabelSource } from './identity.js';
+
 /** Injected so that expiry and rotation are testable without waiting. */
 export type Clock = () => Date;
 
@@ -46,6 +48,15 @@ export interface OAuthClientRecord {
   registeredVia: RegisteredVia;
   /** Set when `clientId` is an HTTPS Client ID Metadata Document URL. */
   cimdUrl: string | null;
+  /**
+   * The frozen identity. Derived from `clientName` at registration by
+   * `deriveClientIdentity` and immutable afterwards — a store must reject any attempt to
+   * change these, because a client that can rename itself can rewrite the attribution
+   * on memories it already wrote.
+   */
+  agentClient: AgentClient;
+  clientLabel: string;
+  labelSource: ClientLabelSource;
   createdAt: Date;
 }
 
@@ -58,6 +69,9 @@ export interface NewOAuthClient {
   tokenEndpointAuth: TokenEndpointAuthMethod;
   registeredVia: RegisteredVia;
   cimdUrl: string | null;
+  agentClient: AgentClient;
+  clientLabel: string;
+  labelSource: ClientLabelSource;
 }
 
 export interface OAuthClientStore {

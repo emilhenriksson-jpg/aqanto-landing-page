@@ -350,6 +350,9 @@ importers:
       '@photographic/agent':
         specifier: workspace:*
         version: link:../agent
+      '@photographic/auth':
+        specifier: workspace:*
+        version: link:../auth
       '@photographic/core':
         specifier: workspace:*
         version: link:../core
