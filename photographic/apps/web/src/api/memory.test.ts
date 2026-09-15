@@ -13,7 +13,7 @@ describe('forgetMemory / undoMemory', () => {
   });
 
   it('soft-deletes via DELETE /v1/memory/:shortId with optional roomId', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       Response.json({
         item: { shortId: 'p-h58j', status: 'deleted' },
         undoToken: 'undo-token-1',
@@ -27,15 +27,15 @@ describe('forgetMemory / undoMemory', () => {
     expect(result.undoToken).toBe('undo-token-1');
     expect(result.daysRecoverable).toBe(30);
     expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toBe(
+    const call = fetchMock.mock.calls[0]!;
+    expect(String(call[0])).toBe(
       'http://127.0.0.1:8787/v1/memory/p-h58j?roomId=room-personal',
     );
-    expect(init).toMatchObject({ method: 'DELETE' });
+    expect(call[1]).toMatchObject({ method: 'DELETE' });
   });
 
   it('restores via POST /v1/memory/undo with the undo token body', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       Response.json({ item: { shortId: 'p-h58j', status: 'active' } }),
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -44,9 +44,9 @@ describe('forgetMemory / undoMemory', () => {
 
     expect(result.item.status).toBe('active');
     expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toBe('http://127.0.0.1:8787/v1/memory/undo');
-    expect(init).toMatchObject({ method: 'POST' });
-    expect(JSON.parse(String(init?.body))).toEqual({ undoToken: 'undo-token-1' });
+    const call = fetchMock.mock.calls[0]!;
+    expect(String(call[0])).toBe('http://127.0.0.1:8787/v1/memory/undo');
+    expect(call[1]).toMatchObject({ method: 'POST' });
+    expect(JSON.parse(String(call[1]?.body))).toEqual({ undoToken: 'undo-token-1' });
   });
 });
