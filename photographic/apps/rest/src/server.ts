@@ -63,28 +63,21 @@ const alerting = startAlerting({
 // Background work runs on a timer rather than a separate worker process, which is right
 // for development and is the first thing to split out when there is more than one
 // instance: two processes sweeping the same queue would each rebuild every projection.
+//
+// `purge_trash` is driven from here too, as a job rather than its own timer. There used
+// to be a second `setInterval` beside this one calling `trash.purgeExpired()` directly —
+// the same timer that once took the whole process down for want of a `.catch` — which
+// meant the Postgres root ran the sweep twice once `PgJobs.scheduleRecurring` gave it a
+// real producer, and the in-memory root ran it only that way, since nothing scheduled the
+// job there. `MemoryJobs` now has the same `scheduleRecurring` (see
+// `packages/services-memory/src/index.ts`), so both roots run the sweep exactly once,
+// through the queue, with a lease that survives a restart and a durable record of a
+// failure — neither of which this timer had.
 const jobTimer = setInterval(() => {
   void wiring.runJobs().catch((error: unknown) => {
     logger.error('job_failed', { error: error instanceof Error ? error.message : String(error) });
   });
 }, 1000);
-
-const purgeTimer = setInterval(() => {
-  // The `.catch` is not defensive tidiness. The timers either side of this one have had
-  // one all along; this one did not, and under Node 22 an unhandled rejection terminates
-  // the process — so a single transient database blip during the minute-ly sweep took the
-  // whole API down, and with one machine that is every live MCP session with it.
-  void wiring
-    .purgeTrash()
-    .then((count) => {
-      if (count > 0) logger.info('trash_purged', { count });
-    })
-    .catch((error: unknown) => {
-      logger.error('trash_purge_failed', {
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    });
-}, 60_000);
 
 // Exports and deletions, on their own cadence. Ten seconds is a compromise: fast enough
 // that a person who asked for an export is not left wondering, slow enough that a sweep
@@ -176,7 +169,6 @@ const server = serve(
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
     clearInterval(jobTimer);
-    clearInterval(purgeTimer);
     clearInterval(accountTimer);
     clearInterval(queueTimer);
     alerting.watchdog.stop();

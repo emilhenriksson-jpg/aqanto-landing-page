@@ -142,6 +142,28 @@ export function createMemoryServices(options: MemoryServicesOptions = {}): Memor
     await documents.purgeExpired();
   });
 
+  /**
+   * The recurring half of the queue, seeded here — mirroring `createPostgresServices`,
+   * whose `PgJobs.scheduleRecurring` this is the `MemoryJobs` equivalent of.
+   *
+   * `purge_trash` and `expire_invites` had a handler and nothing that ever enqueued it,
+   * exactly as on the Postgres root before PR #23: the handler existed, so the feature
+   * read as built, and invites simply never expired here either. `purge_documents` and
+   * `reconcile_storage` stay unseeded — `scripts/job-producers-baseline.json` records
+   * that as a fact about this implementation, not a decision to make here.
+   *
+   * `.catch` rather than `await`: this composition root is synchronous, by contract with
+   * every existing caller of `createMemoryServices`, and `MemoryJobs.enqueue` has already
+   * done its (synchronous, infallible) work by the time this line returns regardless. The
+   * handler exists only to satisfy `no-floating-promises`.
+   */
+  jobs
+    .scheduleRecurring([
+      { kind: 'purge_trash', everySeconds: 3600 },
+      { kind: 'expire_invites', everySeconds: 900 },
+    ])
+    .catch(() => {});
+
   const services: Services = {
     identity,
     rooms,

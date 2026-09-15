@@ -107,9 +107,14 @@ export interface Wiring {
   /** Export and account deletion. Null without a database; see `WiredServices`. */
   exports: PgExports | null;
   accounts: PgAccounts | null;
-  /** Background work, run by whoever owns the schedule. */
+  /**
+   * Background work, run by whoever owns the schedule.
+   *
+   * This is also what drives `purge_trash`: both composition roots seed it as a
+   * self-scheduling chain (`PgJobs.scheduleRecurring` / `MemoryJobs.scheduleRecurring`),
+   * not a second timer here. See the comment beside `jobTimer` in `server.ts`.
+   */
   runJobs(): Promise<unknown>;
-  purgeTrash(): Promise<number>;
   /**
    * Queue depth, stuck claims and failures. Null without a database.
    *
@@ -176,7 +181,6 @@ interface WiredServices {
   exports: PgExports | null;
   accounts: PgAccounts | null;
   runJobs(): Promise<unknown>;
-  purgeTrash(): Promise<number>;
   close(): Promise<void>;
   llmKind: 'fake' | 'openai';
   persistence: 'postgres' | 'memory';
@@ -284,7 +288,6 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
         exportStats: () => exportsService.stats(),
       },
       runJobs: () => wired.runJobsToCompletion(),
-      purgeTrash: () => wired.services.trash.purgeExpired(),
       close: () => wired.close(),
       llmKind,
       persistence: 'postgres',
@@ -310,7 +313,6 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     accounts: null,
     queue: null,
     runJobs: () => wired.jobs.runOnce(),
-    purgeTrash: () => wired.services.trash.purgeExpired(),
     close: async () => {
       // Nothing to release: the reference implementation holds no handles.
     },
@@ -677,7 +679,6 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     accounts: wired.accounts,
     queue: wired.queue,
     runJobs: () => wired.runJobs(),
-    purgeTrash: () => wired.purgeTrash(),
     runAccountJobs: () => runAccountJobs(wired, logger),
     close: () => wired.close(),
     operations: {
