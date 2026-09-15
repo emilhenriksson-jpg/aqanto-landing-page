@@ -15,7 +15,7 @@ import type { CodeSender, SignupChannel } from '@photographic/connect';
 
 import { ElksSmsSender } from './elks.js';
 import type { DeliveryLogger } from './log-sender.js';
-import { LogCodeSender } from './log-sender.js';
+import { LogCodeSender, RefusingCodeSender } from './log-sender.js';
 import { ResendEmailSender } from './resend.js';
 
 export type EmailProvider = 'log' | 'resend';
@@ -25,6 +25,15 @@ export interface CodeSenderSelection {
   email: EmailProvider;
   sms: SmsProvider;
   sender: CodeSender;
+  /**
+   * Channels that will refuse rather than deliver, because they have no provider and
+   * this is production. Empty everywhere else.
+   *
+   * Returned rather than only logged here, so the composition root can say it at `error`
+   * level at every boot. That is what replaces a boot refusal — see `RefusingCodeSender`
+   * for why the refusal is at send time instead.
+   */
+  inert: SignupChannel[];
 }
 
 /**
@@ -46,15 +55,36 @@ export function createCodeSenderFromEnv(
   env: NodeJS.ProcessEnv,
   deps: { logger: DeliveryLogger },
 ): CodeSenderSelection {
-  const log = new LogCodeSender(deps.logger);
+  // The one environment read that decides policy rather than wiring, kept here because
+  // this is already the only file in the package that looks at `env`.
+  const inProduction = env.NODE_ENV === 'production';
+
+  // Two independent barriers rather than one, because they fail differently. The wrapper
+  // below is what a person actually meets: the channel refuses to claim it sent anything.
+  // `revealCode` is what happens if that wrapper is ever bypassed — a channel added later
+  // and forgotten in `route`, a sender constructed somewhere else — and it means the worst
+  // case is a code that goes nowhere rather than a code that goes into the log.
+  const log = new LogCodeSender(deps.logger, { revealCode: !inProduction });
 
   const email = pickEmail(env, log);
   const sms = pickSms(env, log);
 
+  const inert: SignupChannel[] = [];
+
+  const route = (channel: SignupChannel, kind: string, sender: CodeSender): CodeSender => {
+    if (!inProduction || kind !== 'log') return sender;
+    inert.push(channel);
+    return new RefusingCodeSender(deps.logger, channel);
+  };
+
   return {
     email: email.kind,
     sms: sms.kind,
-    sender: new ChannelCodeSender({ email: email.sender, sms: sms.sender }),
+    sender: new ChannelCodeSender({
+      email: route('email', email.kind, email.sender),
+      sms: route('sms', sms.kind, sms.sender),
+    }),
+    inert,
   };
 }
 

@@ -17,7 +17,13 @@ import { createLogger } from './logger.js';
 import { createWiring } from './wiring.js';
 
 const config = loadConfigFromEnv();
-const logger = createLogger({ level: config.logLevel });
+const logger = createLogger({
+  level: config.logLevel,
+  // On a laptop the log is the delivery channel and the code has to be readable there.
+  // In production it must not be readable at all, by anyone who can read logs — which is
+  // the whole reason this deploy had a way in that a read-only token could use.
+  revealSignupCode: config.environment !== 'production',
+});
 
 if (process.env.DATABASE_URL) {
   logger.info('using_postgres', { detail: 'DATABASE_URL är satt: kör mot Postgres.' });
