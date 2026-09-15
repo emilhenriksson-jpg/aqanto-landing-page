@@ -38,6 +38,13 @@ import {
   OAUTH_PATHS,
 } from './oauth-contract.js';
 import { connectRoutes, publicConnectRoutes } from './routes/connect.js';
+import {
+  accountRoutes,
+  deletionRoutes,
+  publicExportRoutes,
+  type AccountService,
+  type ExportService,
+} from './routes/account.js';
 import { contextRoutes, type ClientGrants } from './routes/context.js';
 import { documentRoutes } from './routes/documents.js';
 import { historyRoutes } from './routes/history.js';
@@ -77,6 +84,14 @@ export interface AppDeps {
 
   /** Revokes every token one client holds for one person. See `ContextRouteDeps`. */
   revokeClientTokens?: (input: { personId: PersonId; clientId: string }) => Promise<number>;
+
+  /**
+   * Export and account deletion. Absent without a database, where both answer 503
+   * rather than pretending: an export that cannot be produced and a deletion that
+   * cannot be carried out are worse offered than withheld.
+   */
+  exports?: ExportService | null;
+  accounts?: AccountService | null;
 }
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
@@ -173,6 +188,22 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   }));
   app.route('/v1', publicInviteRoutes());
 
+  /**
+   * The signed export download, before the authenticated group.
+   *
+   * Mounted here and not after it, because `authenticated.use('*')` becomes middleware
+   * on `/v1/*` once the sub-app is routed in — so a "public" route registered later is
+   * still behind auth, and the only symptom is a 401 on a link that should work.
+   *
+   * Rate limited like the invite preview: it is the other endpoint a stranger can
+   * present a token to, and the token is the whole authority.
+   */
+  app.use('/v1/export/download/*', rateLimit({
+    rule: config.rateLimits.invitePreview,
+    key: (c) => `export-download:${clientAddress(c)}`,
+  }));
+  app.route('/v1', publicExportRoutes({ exports: deps.exports ?? null }));
+
   // Derived from config alone, and needed whether or not sign-up is mounted: the client
   // health lights describe the same clients the connect screen offers.
   const connectConfig: ConnectConfig = {
@@ -241,6 +272,11 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   authenticated.route('/', historyRoutes());
   authenticated.route('/', roomRoutes());
   authenticated.route('/', documentRoutes());
+
+  // First-party only, like client management: no OAuth scope should let a connected AI
+  // export a person's whole memory or delete their account.
+  authenticated.route('/', accountRoutes({ exports: deps.exports ?? null }));
+  authenticated.route('/', deletionRoutes({ accounts: deps.accounts ?? null }));
 
   app.route('/v1', authenticated);
 

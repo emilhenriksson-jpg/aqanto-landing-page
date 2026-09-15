@@ -40,6 +40,15 @@ export const REMOVE_MY_CONTRIBUTIONS =
   'medlemmar och kan återställas av en ägare i 30 dagar.';
 
 /**
+ * How long a deletion request can be undone.
+ *
+ * Thirty days, the same as the trash, and for the same reason: it has to outlast a
+ * holiday. Symmetry is worth something on its own here — a person who has learned what
+ * the trash does already knows what this does.
+ */
+export const DELETION_FREEZE_DAYS = 30;
+
+/**
  * The two deletion paths, both offered.
  *
  * The freeze is the recommended one and is symmetric with the trash: thirty days

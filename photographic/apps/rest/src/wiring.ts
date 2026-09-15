@@ -42,14 +42,18 @@ import type { Actor, PersonId, Services, SessionId } from '@photographic/core';
 import {
   createPool,
   createPostgresServices,
+  defaultBlobRoot,
+  describeDatabaseTls,
+  PgAccounts,
   PgAuthCodeStore,
   PgClientGrants,
   PgOAuthClientStore,
+  PgExports,
   PgPendingAuthorizationStore,
   PgTokenStore,
 } from '@photographic/db';
 import type { BlobStore } from '@photographic/documents';
-import { createS3BlobStore } from '@photographic/documents';
+import { createS3BlobStore, LocalBlobStore } from '@photographic/documents';
 import { createLlmFromEnv } from '@photographic/llm';
 import { createMcpApp, defaultConfig } from '@photographic/mcp';
 import { createMemoryServices } from '@photographic/services-memory';
@@ -84,9 +88,21 @@ export interface Wiring {
    * would be worse than offering none.
    */
   clientGrants: PgClientGrants | null;
+  /** Export and account deletion. Null without a database; see `WiredServices`. */
+  exports: PgExports | null;
+  accounts: PgAccounts | null;
   /** Background work, run by whoever owns the schedule. */
   runJobs(): Promise<unknown>;
   purgeTrash(): Promise<number>;
+  /**
+   * The account lifecycle sweep: build queued exports, expire old archives, carry out
+   * deletions whose freeze has run out.
+   *
+   * Separate from `runJobs` because it is not a projection rebuild and must not share
+   * their cadence. An export reads a whole log and a deletion is irreversible; running
+   * either every second would be wrong in opposite directions.
+   */
+  runAccountJobs(): Promise<{ exportsBuilt: number; archivesExpired: number; accountsDeleted: number }>;
   /** Closes whatever the chosen backend holds open (a Postgres pool; nothing for memory). */
   close(): Promise<void>;
 }
@@ -111,6 +127,12 @@ interface AuthStores {
 interface WiredServices {
   services: Services;
   authStores: AuthStores;
+  /**
+   * Export and account deletion. Null without a database: an export that cannot be
+   * produced and a deletion that cannot be carried out are worse offered than withheld.
+   */
+  exports: PgExports | null;
+  accounts: PgAccounts | null;
   runJobs(): Promise<unknown>;
   purgeTrash(): Promise<number>;
   close(): Promise<void>;
@@ -141,24 +163,30 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
 
   if (databaseUrl) {
     // Supabase Postgres is Postgres, so this is a re-point rather than a rewrite: the
-    // same migrations, the same seeds, the same suites. What differs is TLS and the
-    // transaction pooler, and both fail in ways that look like something else — see
-    // `supabasePoolConfig`.
+    // same migrations, the same seeds, the same suites.
+    //
+    // TLS is not composed here. `createPool` resolves it for every connection through
+    // `resolveDatabaseTls`, which is also what `pnpm db:migrate` goes through — the
+    // whole reason the boot migration could not reach Supabase was that this function
+    // knew about the CA and that one did not. `supabasePoolConfig` still contributes the
+    // pooler quirk, which is genuinely Supabase-specific.
     const pool = createPool(
       looksLikeSupabase(databaseUrl)
-        ? supabasePoolConfig({
-            connectionString: databaseUrl,
-            ...(process.env.SUPABASE_CA_CERT ? { caCertificate: process.env.SUPABASE_CA_CERT } : {}),
-            allowUnverifiedTls: process.env.SUPABASE_ALLOW_UNVERIFIED_TLS === '1',
-          }).config
+        ? supabasePoolConfig({ connectionString: databaseUrl }).config
         : { connectionString: databaseUrl },
     );
+
+    // Resolved here rather than left to `createPostgresServices` to default, because
+    // export and deletion need the same store the documents do — two defaults that
+    // could disagree would mean an export reading from one place and uploads writing to
+    // another.
+    const effectiveBlobs = blobs ?? new LocalBlobStore({ root: defaultBlobRoot() });
 
     const wired = await createPostgresServices({
       pool,
       baseUrl: config.publicUrl,
       llm,
-      ...(blobs ? { blobs } : {}),
+      blobs: effectiveBlobs,
     });
     return {
       services: wired.services,
@@ -169,6 +197,11 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
         tokens: new PgTokenStore(pool),
         grants: new PgClientGrants(pool),
       },
+      // Both take the storage port directly: an export writes its archive through it
+      // and a deletion removes files through it, and neither is a read or write of
+      // memory, so neither belongs on `Services`.
+      exports: new PgExports(pool, effectiveBlobs),
+      accounts: new PgAccounts(pool, effectiveBlobs),
       runJobs: () => wired.runJobsToCompletion(),
       purgeTrash: () => wired.services.trash.purgeExpired(),
       close: () => wired.close(),
@@ -188,6 +221,8 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
       tokens: new MemoryTokenStore(),
       grants: null,
     },
+    exports: null,
+    accounts: null,
     runJobs: () => wired.jobs.runOnce(),
     purgeTrash: () => wired.services.trash.purgeExpired(),
     close: async () => {
@@ -252,6 +287,16 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
   // process with one environment variable different, and nothing else says which.
   logger.info('oauth_persistence', { kind: wired.persistence });
   logger.info('blob_storage', { kind: wired.storageKind });
+
+  // The first line to read on a deploy: it says which CA is in use, and therefore
+  // whether the database connection is authenticated rather than merely encrypted.
+  // Logged here rather than inside `createServices` because that function has no
+  // logger, and a TLS decision nobody can see is how the original bug survived.
+  if (process.env.DATABASE_URL) {
+    for (const note of describeDatabaseTls(process.env.DATABASE_URL).notes) {
+      logger.info('database_tls', { detail: note });
+    }
+  }
 
   // Said at boot rather than discovered later. A Supabase project that is configured for
   // Postgres but not for Storage is a normal state and not an error — but it is one an
@@ -404,6 +449,8 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     connect: { deps: connect },
     mcp,
     clientGrants: grants,
+    exports: wired.exports,
+    accounts: wired.accounts,
     // Straight to the store rather than through the authorization server's RFC 7009
     // endpoint: that one authenticates the *client* presenting a token, and this is the
     // person revoking a client that is not asking to be revoked.
@@ -420,10 +467,69 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     auth,
     oauth,
     clientGrants: wired.authStores.grants,
+    exports: wired.exports,
+    accounts: wired.accounts,
     runJobs: () => wired.runJobs(),
     purgeTrash: () => wired.purgeTrash(),
+    runAccountJobs: () => runAccountJobs(wired, logger),
     close: () => wired.close(),
   };
+}
+
+/**
+ * One pass of the account lifecycle.
+ *
+ * Bounded per pass rather than draining: an export can take minutes and a deletion is
+ * irreversible, so a sweep that tried to finish everything would hold a connection open
+ * and make a bad batch worse. Each pass takes a few and the next one takes a few more.
+ *
+ * Failures are logged and swallowed per item. One person's export failing must not stop
+ * another person's deletion from being carried out on the day they were promised.
+ */
+async function runAccountJobs(
+  wired: WiredServices,
+  logger: Logger,
+): Promise<{ exportsBuilt: number; archivesExpired: number; accountsDeleted: number }> {
+  const idle = { exportsBuilt: 0, archivesExpired: 0, accountsDeleted: 0 };
+  if (!wired.exports || !wired.accounts) return idle;
+
+  let exportsBuilt = 0;
+  for (const job of await wired.exports.pending(2)) {
+    try {
+      const finished = await wired.exports.run(job.id);
+      if (finished?.status === 'ready') exportsBuilt += 1;
+      else if (finished?.status === 'failed') {
+        logger.error('export_failed', { exportId: job.id, error: finished.error });
+      }
+    } catch (error) {
+      logger.error('export_crashed', {
+        exportId: job.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const archivesExpired = await wired.exports.expireOld().catch(() => 0);
+
+  let accountsDeleted = 0;
+  for (const due of await wired.accounts.dueDeletions(5)) {
+    try {
+      const done = await wired.accounts.executeDeletion(due.id);
+      if (done?.status === 'completed') {
+        accountsDeleted += 1;
+        // Logged without the person id: the account is a tombstone now, and putting
+        // the id in a log line would be keeping a reference we just promised to remove.
+        logger.info('account_deleted', { deletionId: due.id, removed: done.removed });
+      }
+    } catch (error) {
+      logger.error('account_deletion_failed', {
+        deletionId: due.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return { exportsBuilt, archivesExpired, accountsDeleted };
 }
 
 /**

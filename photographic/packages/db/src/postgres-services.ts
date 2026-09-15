@@ -25,7 +25,7 @@ import { PgStorageLedger } from './services/storage-ledger.js';
  * fixed rather than random so two processes on one machine, and a restart of the same
  * one, still find the files a previous run wrote.
  */
-function defaultBlobRoot(): string {
+export function defaultBlobRoot(): string {
   return process.env.PHOTOGRAPHIC_BLOB_ROOT ?? join(tmpdir(), 'photographic-blobs');
 }
 

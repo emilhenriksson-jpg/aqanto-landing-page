@@ -144,4 +144,25 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
 export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
   ['PATCH', '/clients/:clientId'],
   ['DELETE', '/clients/:clientId'],
+
+  /**
+   * Export and deletion.
+   *
+   * No scope is the right key for the same reason it is for client management, only
+   * more so. A scope that let a client export the person's entire memory would be held
+   * by every client holding it — so connecting one read-only AI would hand a full copy
+   * of twelve years to whatever else was connected. And "an AI deleted my account" is
+   * not a sentence this product can ever produce.
+   *
+   * `GET /export/download/:token` is deliberately absent: it is mounted outside the
+   * authenticated group and carries its own signed credential, because the archive is
+   * emailed and the browser opening it may never have had a session.
+   */
+  ['POST', '/export'],
+  ['GET', '/export'],
+  ['GET', '/export/:exportId'],
+  ['POST', '/export/:exportId/link'],
+  ['GET', '/account/deletion'],
+  ['POST', '/account/deletion'],
+  ['DELETE', '/account/deletion'],
 ] as const;

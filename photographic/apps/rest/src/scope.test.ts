@@ -278,6 +278,11 @@ describe('every authenticated route has decided its scope', () => {
     'POST /v1/import',
     'GET /v1/connect/verify',
     'POST /v1/connect/verify',
+    // The export download carries its own credential: a signed, expiring token in the
+    // path. The archive is delivered by email and the browser that opens the link may
+    // never have had a session, so requiring one would make the link useless. Minting
+    // the link *is* scope-gated — first-party only — which is where the decision lives.
+    'GET /v1/export/download/:token',
   ]);
 
   it('leaves no authenticated route unguarded', () => {
