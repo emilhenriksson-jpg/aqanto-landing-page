@@ -100,16 +100,20 @@ async function harness() {
       body: new URLSearchParams(fields),
     });
 
-  /** Signs a person up and returns the session token the browser keeps. */
-  const signIn = async () => {
+  /** Signs a person up and returns both who they are and the session the browser keeps. */
+  const signInAsPerson = async () => {
     const requested = await postJson('/v1/signup/request', { phone: randomMobile() });
     const verified = await postJson('/v1/signup/verify', {
       requestId: requested.body['requestId'],
       code: codes.at(-1),
     });
     const session = verified.body['session'] as { token: string };
-    return session.token;
+    const person = verified.body['person'] as { id: string };
+    return { token: session.token, personId: person.id };
   };
+
+  /** Signs a person up and returns the session token the browser keeps. */
+  const signIn = async () => (await signInAsPerson()).token;
 
   const registerClient = (overrides: Record<string, unknown> = {}) =>
     postJson('/oauth/register', {
@@ -138,6 +142,7 @@ async function harness() {
     postJson,
     postForm,
     signIn,
+    signInAsPerson,
     registerClient,
     startAuthorization,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
@@ -387,6 +392,44 @@ describe('connecting an AI with nobody reading instructions', () => {
       // `degraded` is a judgement about what this client was capable of, made here so
       // every surface that asks gets the same answer.
       expect(cursor).toHaveProperty('degraded');
+    });
+
+    it('refuses a session token that was made up rather than issued', async () => {
+      // The bug this pins down: sessions used to be `session-<personId>-<n>`, checked on
+      // shape alone with no signature and no store, so anyone holding a `personId` could
+      // mint that person's session. `personId` is not a secret — a shared room hands out
+      // its members' ids — so room-mates could authenticate as each other, and because
+      // `/oauth/authorize/approve` reads the person from this same token, a forged session
+      // could also mint a lasting MCP grant over someone else's whole memory.
+      const { personId, token } = await h.signInAsPerson();
+
+      // The real token still works, so this is a test about forgery and not about the
+      // endpoint being closed to everyone.
+      const genuine = await h.json('/v1/profile', {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(genuine.response.status).toBe(200);
+
+      // Two different forgeries, because they are refused for two different reasons and
+      // only the second one tests the signature. The old shape never reaches the session
+      // verifier at all now — it fails to look like a session and is offered to OAuth
+      // instead — so a test using only that would pass even with signing removed.
+      const legacy = [`session-${personId}-1`, `session-${personId}-7`, `session-${personId}-999`];
+
+      // Shaped like a session, carrying the right person, signed with nothing that matches.
+      const encodedPerson = Buffer.from(personId, 'utf8').toString('base64url');
+      const unsigned = [
+        `ps1.${encodedPerson}.nonce.not-a-real-signature`,
+        `ps1.${encodedPerson}.nonce.`,
+        `ps1.${encodedPerson}..`,
+      ];
+
+      for (const forged of [...legacy, ...unsigned]) {
+        const attempt = await h.json('/v1/profile', {
+          headers: { authorization: `Bearer ${forged}` },
+        });
+        expect(attempt.response.status, `forged token accepted: ${forged}`).toBe(401);
+      }
     });
 
     it('serves the rendered profile for the paste-it-yourself path', async () => {

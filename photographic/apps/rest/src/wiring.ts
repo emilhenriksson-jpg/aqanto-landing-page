@@ -35,8 +35,13 @@ import {
   MemoryTokenStore,
 } from '@photographic/auth/testing';
 import type { ConnectDeps } from '@photographic/connect';
-import { generateCode } from '@photographic/connect';
-import { MemoryCodeStore, MemorySessionIssuer } from '@photographic/connect/testing';
+import {
+  generateCode,
+  readSignedSession,
+  SESSION_TOKEN_PREFIX,
+  SignedSessionIssuer,
+} from '@photographic/connect';
+import { MemoryCodeStore } from '@photographic/connect/testing';
 import { createCodeSenderFromEnv } from '@photographic/delivery';
 import type { Actor, PersonId, Services, SessionId } from '@photographic/core';
 import {
@@ -309,16 +314,27 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
   }
 
   /**
+   * One key for both halves of the browser session: `SignedSessionIssuer` mints with it and
+   * this verifies with it. They have to be a pair — a mismatch either rejects every real
+   * session or accepts forged ones, and neither is visible from one side alone.
+   */
+  const sessionSecret = process.env.CODE_SECRET ?? randomUUID();
+
+  /**
    * Turns the browser session token from the sign-up flow into a person.
    *
-   * `MemorySessionIssuer` mints `session-<personId>-<n>`, and this is the only place that
-   * shape is known. It is a named dependency rather than a regex inline because the
-   * authorization server needs it too: `/oauth/authorize/approve` identifies the person
-   * from their session token, so whoever this returns is who the code is minted for.
+   * A named dependency rather than a regex inline because the authorization server needs it
+   * too: `/oauth/authorize/approve` identifies the person from their session token, so
+   * whoever this returns is who the code is minted for. That is also why an unsigned token
+   * was worse than it looked — forging a session forged an OAuth grant, and a grant
+   * outlives the session that produced it.
+   *
+   * `findById` still runs after the signature: a genuine token for a person who has since
+   * been deleted must not authenticate.
    */
   const sessionTokens: SessionTokenVerifier = {
     verify: async (token) => {
-      const personId = token.match(/^session-(.+)-\d+$/)?.[1] as PersonId | undefined;
+      const personId = readSignedSession(token, sessionSecret) as PersonId | null;
       if (!personId) return null;
       return (await wired.services.identity.findById(personId)) ? personId : null;
     },
@@ -389,11 +405,12 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
   });
 
   if (!process.env.CODE_SECRET) {
-    // Codes are HMACed under this key, so a fresh one per boot invalidates every code in
-    // flight. Harmless on a laptop, and a restart mid-signup on a shared instance that a
-    // person cannot explain.
+    // Codes and browser sessions are both signed under this key, so a fresh one per boot
+    // invalidates every code in flight and signs everyone out. Harmless on a laptop, and on
+    // a shared instance a restart mid-signup that a person cannot explain.
     logger.warn('code_secret_ephemeral', {
-      detail: 'CODE_SECRET är inte satt: koder i omlopp slutar gälla vid omstart.',
+      detail:
+        'CODE_SECRET är inte satt: koder i omlopp slutar gälla vid omstart och alla loggas ut.',
     });
   }
 
@@ -403,7 +420,7 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     sessions: wired.services.sessions,
     codes,
     sender: delivery.sender,
-    issuer: new MemorySessionIssuer(),
+    issuer: new SignedSessionIssuer(sessionSecret),
     codeSecret: process.env.CODE_SECRET ?? randomUUID(),
     clock: () => new Date(),
     // The CSPRNG from `@photographic/connect`, not a counter. This was
@@ -611,7 +628,7 @@ function withFirstPartySessions(input: {
   return {
     ...input.oauth,
     introspect: async (token: string): Promise<TokenClaims | null> => {
-      if (!token.startsWith('session-')) return input.oauth.introspect(token);
+      if (!token.startsWith(SESSION_TOKEN_PREFIX)) return input.oauth.introspect(token);
 
       const personId = await input.sessionTokens.verify(token);
       if (!personId) return null;
