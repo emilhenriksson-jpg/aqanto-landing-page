@@ -895,6 +895,115 @@ describe('importing what another system remembers', () => {
     expect(context.rendered).toContain('ketchup');
   });
 
+  /**
+   * The cookie is additive. These assert the three properties that make it safe rather
+   * than convenient: it authenticates, it does not disturb bearer auth, and it cannot be
+   * used to mutate from another site.
+   */
+  describe('the browser session cookie', () => {
+    const cookieRequest = (path: string, init: RequestInit & { cookie?: string } = {}) =>
+      f.app.request(`https://photographic.test${path}`, {
+        ...init,
+        headers: {
+          'content-type': 'application/json',
+          ...(init.cookie ? { cookie: init.cookie } : {}),
+          ...(init.headers ?? {}),
+        },
+      }) as Promise<TestResponse>;
+
+    it('authenticates a read with no Authorization header at all', async () => {
+      const { person } = await register(f, 'emil@example.com', 'Emil');
+      const token = await f.signInFirstParty(person.id);
+
+      const res = await cookieRequest('/v1/profile', { cookie: `photographic_sid=${token}` });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('is refused on a mutating request from another site, even though it is valid', async () => {
+      const { person } = await register(f, 'emil@example.com', 'Emil');
+      const token = await f.signInFirstParty(person.id);
+
+      // What a cross-site form post looks like: the browser attaches the cookie itself,
+      // which is the whole reason this needs a second lock beyond SameSite.
+      const res = await cookieRequest('/v1/memory', {
+        method: 'POST',
+        body: JSON.stringify({ body: 'Skrivet av någon annan' }),
+        cookie: `photographic_sid=${token}`,
+        headers: { origin: 'https://evil.example' },
+      });
+
+      expect(res.status).toBe(403);
+      expect((await res.json()).error.code).toBe('forbidden');
+    });
+
+    it('allows the same mutating request from our own page', async () => {
+      const { person } = await register(f, 'emil@example.com', 'Emil');
+      const token = await f.signInFirstParty(person.id);
+
+      const res = await cookieRequest('/v1/memory', {
+        method: 'POST',
+        body: JSON.stringify({ body: 'Skrivet inifrån Photographic' }),
+        cookie: `photographic_sid=${token}`,
+        headers: { origin: 'https://photographic.test' },
+      });
+
+      expect(res.status).toBe(201);
+    });
+
+    it('refuses a mutating cookie request that names no origin rather than trusting it', async () => {
+      const { person } = await register(f, 'emil@example.com', 'Emil');
+      const token = await f.signInFirstParty(person.id);
+
+      const res = await cookieRequest('/v1/memory', {
+        method: 'POST',
+        body: JSON.stringify({ body: 'Utan origin' }),
+        cookie: `photographic_sid=${token}`,
+      });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('leaves bearer auth alone, including without an origin', async () => {
+      // An MCP client sends no `Origin` and must be unaffected: a bearer token is not
+      // attached by a browser on its own, so it was never exposed to this attack.
+      const { token } = await register(f, 'emil@example.com', 'Emil');
+
+      const res = await f.post('/v1/memory', { body: 'Sparat av en klient' }, token);
+
+      expect(res.status).toBe(201);
+    });
+
+    it('prefers the bearer token when both are present, so a cookie cannot shadow a client', async () => {
+      const emil = await register(f, 'emil@example.com', 'Emil');
+      const jacob = await register(f, 'jacob@example.com', 'Jacob');
+      const jacobCookie = await f.signInFirstParty(jacob.person.id);
+
+      const res = await cookieRequest('/v1/profile', {
+        cookie: `photographic_sid=${jacobCookie}`,
+        headers: { authorization: `Bearer ${emil.token}` },
+      });
+
+      // Emil's profile, from Emil's bearer token, with Jacob's cookie ignored.
+      expect(res.status).toBe(200);
+      expect((await res.json()).profile.rendered).not.toContain('Jacob');
+    });
+
+    it('does not let a cookie satisfy a route that requires a real client', async () => {
+      // `firstPartyOnly` is the *other* direction and is asserted elsewhere. What matters
+      // here is that a cookie is first-party rather than a way to impersonate a client:
+      // the client-scoped surface still reports the browser as the first-party client.
+      const { person } = await register(f, 'emil@example.com', 'Emil');
+      const token = await f.signInFirstParty(person.id);
+
+      const res = await cookieRequest('/v1/clients', { cookie: `photographic_sid=${token}` });
+
+      expect(res.status).toBe(200);
+      const listed = (await res.json()).clients as Array<{ agentClient: string }>;
+      expect(listed.every((client) => client.agentClient !== 'first-party')).toBe(true);
+    });
+  });
+
   it('records an approval as an approval', async () => {
     const { person, token } = await register(f, 'emil@example.com', 'Emil');
     await f.post('/v1/import', { text: '- User is allergic to ketchup' }, token);

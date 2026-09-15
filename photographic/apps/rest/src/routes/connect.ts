@@ -22,6 +22,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../context.js';
 import { importCommitSchema, importPreviewSchema } from '../schemas.js';
 import { serialiseProposal } from '../serialise.js';
+import { setSessionCookie } from '../session-cookie.js';
 import { parseJsonBody } from '../validation.js';
 import { getActor, getServices } from './shared.js';
 
@@ -41,6 +42,22 @@ export function publicConnectRoutes(deps: ConnectRouteDeps): Hono<AppEnv> {
 
   routes.post('/signup/verify', async (c) => {
     const result = await handleSignupVerify(deps.connect, { body: await body(c) });
+
+    // The one place a browser session begins, so the one place the cookie is set.
+    //
+    // The token stays in the response body as well. Nothing is taken away: the
+    // onboarding app keeps using it from memory for the rest of the flow, and the
+    // acceptance tests and `scripts/demo-web.md` keep working unchanged. What the cookie
+    // adds is that the *product* app has a session at all — it reads no token of its own,
+    // and same-origin `fetch` sends this without being asked.
+    const session = (result.body as { session?: { token?: string; expiresAt?: string } }).session;
+    if (result.status === 200 && session?.token) {
+      setSessionCookie(c, session.token, {
+        publicUrl: c.get('config').publicUrl,
+        expiresAt: session.expiresAt ? new Date(session.expiresAt) : null,
+      });
+    }
+
     return c.json(result.body as object, result.status as 200);
   });
 
