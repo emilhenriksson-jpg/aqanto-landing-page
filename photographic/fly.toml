@@ -1,11 +1,19 @@
 # Photographic MCP + REST API on one origin.
-# MCP endpoint: https://<app>.fly.dev/mcp
+# MCP endpoint: https://mcp.photographic.space/mcp (custom domain over the app's own
+# https://photographic.fly.dev — see scripts/deploy.md for the Cloudflare DNS + `fly
+# certs` steps that make the custom hostname answer with a valid certificate).
 #
-# Attach Postgres (`fly postgres attach`) to set DATABASE_URL — @photographic/db
-# implements the ports. Without it the process runs the in-memory reference.
+# DATABASE_URL is a Fly secret pointed at Supabase Postgres (track 3), not a Fly-attached
+# Postgres — `fly postgres attach` is deliberately not used here. Without DATABASE_URL
+# set the process runs the in-memory reference implementation, which is fine to smoke
+# the deploy itself but wrong for anything meant to persist.
 
 app = "photographic"
-primary_region = "arn"
+# Frankfurt, not Stockholm: Supabase's project landed in eu-central-1, and a request
+# makes one round trip to the client but several to Postgres (permission checks and
+# reads are per-query, not batched) -- co-locating with the database wins over shaving
+# the one client-facing hop. See scripts/deploy.md.
+primary_region = "fra"
 
 [build]
   dockerfile = "Dockerfile"
@@ -13,14 +21,18 @@ primary_region = "arn"
 [env]
   PORT = "8080"
   NODE_ENV = "production"
-  PUBLIC_URL = "https://photographic.fly.dev"
+  # The OAuth issuer and resource identifier. Fixed to the stable custom domain, not
+  # the *.fly.dev origin, so it is correct from the first deploy — no client should
+  # ever register against *.fly.dev and then have the issuer move out from under it.
+  PUBLIC_URL = "https://mcp.photographic.space"
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "suspend"
+  # Never scaled to zero: an MCP client holds a long-lived session, and "always-on" is
+  # a hard requirement here, not a cost optimisation to revisit later.
+  auto_stop_machines = "off"
   auto_start_machines = true
-  # Keep one warm: Claude/ChatGPT open long-lived MCP sessions.
   min_machines_running = 1
 
   [http_service.concurrency]
