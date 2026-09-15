@@ -1,5 +1,6 @@
 import { Link, Navigate, useParams } from 'react-router-dom';
 
+import { Avatars } from '../components/Avatars.js';
 import { Wordmark } from '../components/Wordmark.js';
 import { SECTION_LABELS, loadRoom, type MemoryLine } from '../data/demo.js';
 
@@ -21,9 +22,15 @@ export function SharedRoom() {
 
   const others = Math.max(0, room.memberCount - 1);
   const grouped = groupByKind(room.memories);
+  const memberLine =
+    others === 0
+      ? 'Bara du'
+      : others === 1
+        ? 'Delad med 1 person'
+        : `Delad med ${others} personer`;
 
   return (
-    <article className="page">
+    <article className="page page--shared">
       <header className="hero hero--shared">
         <Wordmark />
         <p className="hero__crumb">
@@ -32,26 +39,12 @@ export function SharedRoom() {
           <span>{room.title}</span>
         </p>
         <h1 className="hero__title">{room.title}</h1>
+        <Avatars names={room.memberNames} variant="hero" />
         <p className="hero__lede">
           {room.brief ??
             'Inget sparat än. Säg till Claude eller ChatGPT att lägga något här.'}
         </p>
-        {room.memberNames.length > 0 ? (
-          <div className="avatars avatars--hero" aria-label="Medlemmar">
-            {room.memberNames.map((name) => (
-              <span key={name} className="avatar" title={name}>
-                {initials(name)}
-              </span>
-            ))}
-          </div>
-        ) : null}
-        <p className="meta">
-          {others === 0
-            ? 'Bara du'
-            : others === 1
-              ? 'Delad med 1 person'
-              : `Delad med ${others} personer`}
-        </p>
+        <p className="meta">{memberLine}</p>
       </header>
 
       {grouped.length === 0 ? (
@@ -77,13 +70,6 @@ export function SharedRoom() {
       )}
     </article>
   );
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0]!.slice(0, 1).toUpperCase();
-  return `${parts[0]!.slice(0, 1)}${parts[parts.length - 1]!.slice(0, 1)}`.toUpperCase();
 }
 
 function groupByKind(

@@ -61,9 +61,9 @@ export const DEMO_ROOMS: RoomCard[] = [
     kind: 'shared',
     title: 'Villan',
     headline: 'Renovering av villan: offerter, hantverkare och tidplan',
-    memberCount: 1,
-    memberNames: ['Emil'],
-    unseenCount: 0,
+    memberCount: 2,
+    memberNames: ['Emil', 'Vera'],
+    unseenCount: 1,
   },
   {
     id: 'tomt',

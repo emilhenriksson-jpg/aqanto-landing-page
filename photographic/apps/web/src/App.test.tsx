@@ -29,11 +29,15 @@ describe('App', () => {
     await user.click(screen.getByRole('link', { name: 'Alla' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Rum' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Öppna ditt rum' })).toBeInTheDocument();
+    expect(screen.getByLabelText('2 olästa')).toHaveTextContent('2 nya');
+    expect(screen.getByLabelText('3 medlemmar')).toBeInTheDocument();
 
     await user.click(screen.getByRole('link', { name: 'Öppna Buyersclub Ledning' }));
     expect(
       screen.getByRole('heading', { level: 1, name: 'Buyersclub Ledning' }),
     ).toBeInTheDocument();
+    expect(screen.getByLabelText('3 medlemmar')).toBeInTheDocument();
+    expect(screen.getByText('Delad med 2 personer')).toBeInTheDocument();
     expect(screen.getByText('r-8k2m')).toBeInTheDocument();
   });
 

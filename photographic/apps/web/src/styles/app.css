@@ -167,31 +167,43 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero--personal {
+  .hero--personal,
+  .hero--shared {
     animation: none;
   }
 }
 
-/* Shared rooms get a quieter wash — you are still *inside*, just not in your own room. */
+/* Shared rooms get a quieter wash — you are still *inside*, just not in your own room.
+   No brand tint: violet stays on the wordmark disc only. */
 .hero--shared {
   position: relative;
   margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-12);
   padding: var(--space-10) var(--space-6) var(--space-10);
   background:
-    radial-gradient(80% 55% at 12% -5%, color-mix(in srgb, var(--surface) 80%, var(--canvas)) 0%, transparent 55%),
+    radial-gradient(
+      85% 55% at 10% -5%,
+      color-mix(in srgb, var(--surface) 92%, var(--canvas)) 0%,
+      transparent 58%
+    ),
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--canvas) 55%, var(--surface)) 0%,
+      color-mix(in srgb, var(--canvas) 58%, var(--surface)) 0%,
       var(--canvas) 100%
     );
   border-bottom: 1px solid var(--hairline);
+  min-height: min(48dvh, 420px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   animation: room-enter var(--dur-slow) var(--ease-spring) both;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .hero--shared {
-    animation: none;
-  }
+.hero--shared .hero__lede {
+  margin-bottom: var(--space-4);
+}
+
+.hero--shared .meta {
+  margin: 0;
 }
 
 .hero__crumb {
@@ -201,7 +213,7 @@
 }
 
 .hero__crumb a:hover {
-  color: var(--brand);
+  color: var(--ink);
 }
 
 .hero__title {
@@ -443,11 +455,14 @@
   letter-spacing: var(--track-display);
 }
 
-.room-card__brief,
+.room-card__brief {
+  color: var(--ink-muted);
+  margin: 0;
+}
+
 .room-card__hint {
   color: var(--ink-muted);
   margin: 0;
-  flex: 1;
 }
 
 .pill {
@@ -468,7 +483,11 @@
 
 .avatars {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   margin-top: auto;
 }
 
@@ -486,6 +505,16 @@
   display: grid;
   place-items: center;
   box-shadow: inset 0 0 0 1px var(--hairline);
+  flex: none;
+}
+
+.avatars--hero .avatar {
+  width: 32px;
+  height: 32px;
+}
+
+.room-card .avatars {
+  margin-top: auto;
 }
 
 .room-card--personal .avatar {
@@ -563,6 +592,12 @@
     margin: calc(var(--space-6) * -1) calc(var(--space-4) * -1) var(--space-12);
     padding: var(--space-10) var(--space-4) var(--space-8);
     min-height: min(70dvh, 480px);
+  }
+
+  .hero--shared {
+    margin: calc(var(--space-6) * -1) calc(var(--space-4) * -1) var(--space-10);
+    padding: var(--space-8) var(--space-4) var(--space-8);
+    min-height: min(42dvh, 340px);
   }
 
   .room-card--personal {
