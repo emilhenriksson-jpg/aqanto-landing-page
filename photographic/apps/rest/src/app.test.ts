@@ -785,6 +785,20 @@ describe('being invited', () => {
     expect((await f.get('/v1/invites/definitely-not-a-real-token')).status).toBe(404);
   });
 
+  /**
+   * The product app used to carry its own invite landing at `/i/:token` whose "Gå med"
+   * only set React state: a success screen that joined nothing. It is deleted rather than
+   * finished, because two copies of the first thing anyone sees of this product drift, and
+   * generated links have always pointed at `/invite/:token`. The short path redirects so a
+   * link somebody already shared still lands on the screen that accepts invites.
+   */
+  it('redirects the short invite path to the landing that accepts invites', async () => {
+    const response = await f.app.request('/i/abc123');
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('/invite/abc123');
+  });
+
   it('never puts the invite token in the invite object itself', async () => {
     const emil = await register(f, 'emil@example.com', 'Emil');
     const created = await (await f.post('/v1/rooms', { title: 'Delat' }, emil.token)).json();

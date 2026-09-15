@@ -9,6 +9,10 @@ const NAV = [
   { to: '/fraga', end: true, label: 'Fråga', icon: AskIcon },
   { to: '/klienter', end: true, label: 'Klienter', icon: ClientsIcon },
   { to: '/godkann', end: true, label: 'Godkänn', icon: CheckIcon },
+  // Export and permanent deletion, which had no caller anywhere in the app. One slot
+  // rather than two: the rail is the phone's entire navigation, and seven labels is what
+  // fits at 320px without them truncating.
+  { to: '/konto', end: false, label: 'Konto', icon: AccountIcon },
 ] as const;
 
 /**
@@ -88,6 +92,20 @@ function ClientsIcon() {
       <circle cx="8" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.6" />
       <circle cx="16" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.6" />
       <circle cx="12" cy="15.5" r="2.5" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function AccountIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="8.5" r="3.5" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M5 20c1.2-3.4 3.7-5 7-5s5.8 1.6 7 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
