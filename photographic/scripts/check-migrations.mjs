@@ -6,22 +6,29 @@
  * to spot it is just a directory listing.
  *
  * Why it matters more than tidiness: `packages/db/src/migrate.ts` sorts the directory by
- * filename and keys the ledger on the filename too. So two files sharing a number apply
- * in alphabetical order — `0003_provenance_and_authorship.sql` before
- * `0003_swedish_search.sql`, decided by `p` coming before `s` and by nothing else — and
- * whichever author assumed the other order finds out in production. The ledger keying on
- * filename has a second edge: renaming a migration to fix its number makes it run again
- * on every database that already applied it, so a collision caught after a deploy cannot
- * be fixed by renumbering. That is the whole reason this belongs at pull-request time.
+ * filename and applies in that order. So two files sharing a number apply in alphabetical
+ * order — `0003_provenance_and_authorship.sql` before `0003_swedish_search.sql`, decided
+ * by `p` coming before `s` and by nothing else — and whichever author assumed the other
+ * order finds out in production, where the two files touch the same table.
+ *
+ * An earlier version of this comment also said a collision could not be fixed by
+ * renumbering after a deploy, because the ledger keyed on filename and a rename re-ran
+ * the file. That is no longer true: the ledger keys on content as well as name, and
+ * `migrate.ts` recognises a renamed migration and moves the row instead of running it.
+ * Renumbering is therefore recoverable now. The check is still worth having — four
+ * branches renumbered in a single afternoon, which is how three of them landed on `0016`
+ * in the first place, and the apply-order hazard above is untouched by any of that — but
+ * it is a check against a confusing merge rather than against an unfixable one.
  *
  * A gap is the weaker signal and still worth failing on: `0004` jumping to `0010` is how
  * the next person ends up looking for five files that were never written, and a gap in a
  * fresh sequence usually means a file was deleted rather than skipped on purpose.
  *
- * Both of the things already on `main` are recorded below rather than fixed. The `0003`
- * pair cannot be renumbered now for the reason above — production has applied them — and
- * the gap is history. Recording them is what lets the check be an error rather than a
- * warning nobody reads.
+ * Both of the things already on `main` are recorded below rather than fixed. Renumbering
+ * the `0003` pair is now technically safe, but it is a change to applied migrations for
+ * cosmetic benefit and it belongs to whoever owns the schema, not to a CI branch. The gap
+ * is history. Recording them is what lets the check be an error rather than a warning
+ * nobody reads.
  *
  * Usage: node scripts/check-migrations.mjs
  */
@@ -36,10 +43,7 @@ const DIR = path.join(ROOT, 'packages', 'db', 'migrations');
 /** `0016_app_role_grants.sql`. Four digits, snake_case, `.sql`. */
 const NAME = /^(\d{4})_[a-z0-9_]+\.sql$/;
 
-/**
- * On `main` before this check existed. Neither can be fixed by renumbering: the ledger
- * keys on filename, so a rename re-runs the file on every database that has it.
- */
+/** On `main` before this check existed. See the header for why neither is fixed here. */
 const ALLOWED_DUPLICATES = ['0003'];
 const ALLOWED_GAPS = [5, 6, 7, 8, 9];
 
@@ -66,8 +70,10 @@ for (const [number, sharing] of byNumber) {
   problems.push(
     `${sharing.length} migreringar delar numret ${number}:\n    ${sharing.join('\n    ')}\n` +
       `  De körs i filnamnsordning, vilket avgörs av bokstäverna efter numret och av ` +
-      `ingenting annat.\n  Numrera om den som kom sist — efter en deploy går det inte, ` +
-      `för liggaren nycklar på filnamn och en omdöpt fil körs igen.`,
+      `ingenting annat — så om båda rör samma tabell är ordningen en slump.\n` +
+      `  Numrera om den som kom sist. Det är säkert även efter en deploy: liggaren nycklar ` +
+      `på innehåll också, så migrate.ts känner igen en omdöpt fil och flyttar raden i ` +
+      `stället för att köra om den.`,
   );
 }
 
