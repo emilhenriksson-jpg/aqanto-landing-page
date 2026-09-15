@@ -1186,6 +1186,17 @@ against a fake signer), `packages/export/src/near-limit.test.ts` (2),
 drivers. Monorepo typecheck clean; every
 package suite green; `e2e` 64 on `HARNESS=memory` and 64 on `HARNESS=postgres`.
 
+**Checked against a running process, not only in tests.** `tsx src/server.ts` against local
+Postgres: the four recurring rows are seeded exactly once with future deadlines,
+`GET /v1/ops/queue` answers 401 without a token and real numbers with one. An export
+requested over HTTP was built by the ten-second sweep, its link downloaded through the
+streaming route, `unzip -t` clean, and the `x-photographic-sha256` header matched
+`sha256sum` of the received file byte for byte — so the digest computed while streaming
+describes what the person actually gets. A second request for the same link answered 404.
+Then the row was forced to `running` with a lapsed lease and a stray `pending_key`, as a
+dead machine leaves it: the next sweep logged `exports_reclaimed`, deleted the stray object,
+rebuilt the archive and returned it to `ready` at `attempts = 2`.
+
 **Left deliberately.** Finding 8's proposal/deletion state machines were not touched: they
 are the other agent's transactional lifecycle work in `ingest.ts` and `account.ts`, and two
 of us rewriting those would conflict. Document delete does *not* go through `app.trash` —
