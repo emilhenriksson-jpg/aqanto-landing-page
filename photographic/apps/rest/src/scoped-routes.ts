@@ -122,6 +122,15 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   ['GET', '/documents/:documentId', SCOPE_MEMORY_READ],
   ['GET', '/documents/:documentId/chunks', SCOPE_MEMORY_READ],
 
+  // Deleting a document is a write, and it goes to the trash rather than away — the same
+  // rule memories follow, so a model that can write can also take something back out of a
+  // room, and a person can undo it for thirty days.
+  ['DELETE', '/documents/:documentId', SCOPE_MEMORY_WRITE],
+  ['POST', '/documents/:documentId/restore', SCOPE_MEMORY_WRITE],
+
+  // What is recoverable and until when. A read of memory, like the memory trash.
+  ['GET', '/documents/trash', SCOPE_MEMORY_READ],
+
   // The extraction and the original file. Same scope as any other read of the person's
   // memory: a document is not a second category of thing with its own permission.
   ['GET', '/documents/:documentId/text', SCOPE_MEMORY_READ],

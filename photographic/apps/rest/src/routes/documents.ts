@@ -15,7 +15,7 @@
  */
 
 import type { DocumentId, RoomId } from '@photographic/core';
-import { ValidationError } from '@photographic/core';
+import { TRASH_RETENTION_DAYS, ValidationError } from '@photographic/core';
 import { formatBytes } from '@photographic/documents';
 import { Hono } from 'hono';
 
@@ -53,6 +53,74 @@ export function documentRoutes(): Hono<AppEnv> {
     const { file } = await readUpload(c);
 
     return uploadInto(c, await resolveRoom(c, actor, { roomId: roomId as RoomId }), file);
+  });
+
+  /**
+   * The document trash.
+   *
+   * Before `/documents/:id`'s DELETE existed there was no way for a person to remove a
+   * single document at all: a file uploaded to the wrong room, or a failed upload that
+   * consumed part of their ten gigabytes, was permanent and unmentionable. This is the
+   * other half of that — what is recoverable and until when, so a delete is visibly
+   * reversible rather than merely reversible.
+   *
+   * Registered before `/documents/:documentId` so "trash" is not read as a document id.
+   */
+  routes.get('/documents/trash', async (c) => {
+    const actor = getActor(c);
+    const roomParam = c.req.query('room');
+    const trashed = await getServices(c).documents.trashed(actor, {
+      ...(roomParam ? { roomId: (await resolveRoom(c, actor, { room: roomParam })) } : {}),
+    });
+
+    return c.json({
+      documents: trashed.map((document) => ({
+        ...serialiseDocument(document),
+        deletedAt: document.deletedAt?.toISOString() ?? null,
+        purgeAfter: document.purgeAfter?.toISOString() ?? null,
+        daysRemaining:
+          document.purgeAfter === null
+            ? null
+            : Math.max(0, Math.ceil((document.purgeAfter.getTime() - Date.now()) / 86_400_000)),
+      })),
+    });
+  });
+
+  /**
+   * Moves a document to the trash.
+   *
+   * The same thirty days a memory gets, and the same reasoning: a person who has just
+   * deleted the wrong contract must be able to get it back. The storage it occupies is
+   * released at the purge rather than here — a restore that could fail at the limit would
+   * make the trash a promise we cannot keep — and the response says so, because "I deleted
+   * it and my storage did not change" is otherwise a bug report.
+   */
+  routes.delete('/documents/:documentId', async (c) => {
+    const actor = getActor(c);
+    const documentId = c.req.param('documentId') as DocumentId;
+
+    const removed = await getServices(c).documents.remove(actor, documentId);
+    if (!removed) return notFound(c);
+
+    return c.json({
+      document: serialiseDocument(removed),
+      purgeAfter: removed.purgeAfter?.toISOString() ?? null,
+      notice:
+        `Dokumentet ligger i papperskorgen i ${TRASH_RETENTION_DAYS} dagar. ` +
+        'Utrymmet frigörs när det raderas permanent, så att det går att ta tillbaka.',
+    });
+  });
+
+  routes.post('/documents/:documentId/restore', async (c) => {
+    const actor = getActor(c);
+    const documentId = c.req.param('documentId') as DocumentId;
+
+    const restored = await getServices(c).documents.restore(actor, documentId);
+    // Same answer for "not in the trash" and "not yours": a restore endpoint that
+    // distinguished them would confirm a document exists to someone who cannot read it.
+    if (!restored) return notFound(c);
+
+    return c.json({ document: serialiseDocument(restored) });
   });
 
   routes.get('/documents/:documentId', async (c) => {

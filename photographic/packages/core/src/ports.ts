@@ -523,6 +523,10 @@ export interface DocumentSummary {
   chunkCount: number;
   /** AI-generated. Null until the `summarise_document` job has run. */
   summary: string | null;
+  /** When it was moved to the trash. Null for a live document. */
+  deletedAt: Date | null;
+  /** When it stops being recoverable. Null for a live document. */
+  purgeAfter: Date | null;
 }
 
 /** Storage against the product limit. See `STORAGE_LIMIT_BYTES`. */
@@ -577,6 +581,40 @@ export interface DocumentPort {
   ): Promise<{ filename: string; mimeType: string; bytes: Uint8Array } | null>;
 
   storageUsage(actor: Actor): Promise<StorageUsageReport>;
+
+  /**
+   * Moves a document to the trash.
+   *
+   * Soft delete with the same thirty days memories get, and for the same reason: a person
+   * who has just deleted the wrong contract must be able to get it back. There was no way
+   * to delete a single document at all before this, which meant a failed upload or a file
+   * sent to the wrong room was permanent and invisible — the person could see it and could
+   * not do anything about it.
+   *
+   * The storage charge is *not* released here. It is released at the purge, because until
+   * then the document is restorable, and a restore that failed at the storage limit would
+   * make the trash a lie.
+   */
+  remove(
+    actor: Actor,
+    documentId: DocumentId,
+    options?: { reason?: string },
+  ): Promise<DocumentSummary | null>;
+
+  /** Takes it back out of the trash, with its id, its chunks and its original intact. */
+  restore(actor: Actor, documentId: DocumentId): Promise<DocumentSummary | null>;
+
+  /** What is in the trash and until when, so a person can see what is recoverable. */
+  trashed(actor: Actor, input?: { roomId?: RoomId; limit?: number }): Promise<DocumentSummary[]>;
+
+  /**
+   * Deletes documents past their thirty days: rows, chunks, storage charge and bytes.
+   *
+   * Called by the `purge_documents` job, never from a request — expiry is not an action
+   * anyone takes. The bytes go only when nothing else references them: content addressing
+   * means one object can belong to several people's documents.
+   */
+  purgeExpired(limit?: number): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------

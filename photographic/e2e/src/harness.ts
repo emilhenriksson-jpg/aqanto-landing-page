@@ -91,6 +91,8 @@ export interface Harness {
 
   runJobsToCompletion(): Promise<number>;
   expireTrash(shortId: ShortId): Promise<void>;
+  /** The same trick for documents: their thirty days, moved into the past. */
+  expireDocumentTrash(): Promise<void>;
   textExistsAnywhere(text: string): Promise<boolean>;
   commitImport(actor: Actor, preview: ImportPreview): Promise<void>;
 
@@ -127,6 +129,7 @@ interface Backend {
   actorFor(personId: PersonId, agentClient?: AgentClient, roomScope?: RoomId[]): Actor;
   runJobsToCompletion(): Promise<number>;
   expireTrash(shortId: ShortId): Promise<void>;
+  expireDocumentTrash(): Promise<void>;
   textExistsAnywhere(text: string): Promise<boolean>;
   teardown(): Promise<void>;
 }
@@ -148,6 +151,16 @@ async function createMemoryBackend(baseUrl: string): Promise<Backend> {
         return;
       }
       throw new Error(`Hittade inget minne med id ${shortId}`);
+    },
+
+    expireDocumentTrash: async () => {
+      let moved = 0;
+      for (const doc of store.documents.values()) {
+        if (doc.deletedAt === null) continue;
+        doc.purgeAfter = new Date(Date.now() - 1000);
+        moved += 1;
+      }
+      if (moved === 0) throw new Error('Inget dokument ligger i papperskorgen.');
     },
 
     // Deliberately includes the append-only event log and the cached projections, not
@@ -242,6 +255,14 @@ async function createPostgresBackend(baseUrl: string, databaseUrl: string): Prom
       if (result.rowCount === 0) {
         throw new Error(`Hittade inget minne i papperskorgen med id ${shortId}.`);
       }
+    },
+
+    expireDocumentTrash: async () => {
+      const result = await pool.query(
+        `UPDATE app.document SET purge_after = now() - interval '1 second'
+         WHERE deleted_at IS NOT NULL`,
+      );
+      if (result.rowCount === 0) throw new Error('Inget dokument ligger i papperskorgen.');
     },
 
     // Same intent as the memory driver: check every place the text could still be,
@@ -507,6 +528,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
      * is — and the second is how a bug deletes everything.
      */
     expireTrash: backend.expireTrash,
+    expireDocumentTrash: backend.expireDocumentTrash,
 
     textExistsAnywhere: backend.textExistsAnywhere,
 

@@ -24,7 +24,7 @@ import type {
   RoomId,
   StorageUsageReport,
 } from '@photographic/core';
-import { NotPermittedError } from '@photographic/core';
+import { NotPermittedError, purgeDeadline } from '@photographic/core';
 import type { BlobStore, StorageLedger } from '@photographic/documents';
 import { ingestDocument, storageLimitReached } from '@photographic/documents';
 import { MemoryBlobStore, MemoryStorageLedger } from '@photographic/documents/testing';
@@ -100,6 +100,8 @@ export class MemoryDocuments implements DocumentPort {
       summary: null,
       uploadedBy: actor.personId,
       uploadedAt: now,
+      deletedAt: null,
+      purgeAfter: null,
     });
 
     for (const chunk of chunks) {
@@ -146,14 +148,16 @@ export class MemoryDocuments implements DocumentPort {
 
   async get(actor: Actor, documentId: DocumentId): Promise<DocumentSummary | null> {
     const doc = this.store.documents.get(documentId);
-    if (!doc || !this.store.canRead(actor.personId, doc.roomId)) return null;
+    // A document in the trash reads as absent, exactly as the Postgres driver has it and
+    // as a deleted memory does.
+    if (!doc || doc.deletedAt || !this.store.canRead(actor.personId, doc.roomId)) return null;
     return summarise(doc, this.chunkCountOf(documentId));
   }
 
   async listForRoom(actor: Actor, roomId: RoomId): Promise<DocumentSummary[]> {
     if (!this.store.canRead(actor.personId, roomId)) throw new NotPermittedError();
     return [...this.store.documents.values()]
-      .filter((d) => d.roomId === roomId)
+      .filter((d) => d.roomId === roomId && !d.deletedAt)
       .sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime())
       .map((d) => summarise(d, this.chunkCountOf(d.id)));
   }
@@ -163,7 +167,9 @@ export class MemoryDocuments implements DocumentPort {
     documentId: DocumentId,
   ): Promise<Array<{ id: ChunkId; ord: number; text: string }>> {
     const doc = this.store.documents.get(documentId);
-    if (!doc || !this.store.canRead(actor.personId, doc.roomId)) throw new NotPermittedError();
+    if (!doc || doc.deletedAt || !this.store.canRead(actor.personId, doc.roomId)) {
+      throw new NotPermittedError();
+    }
 
     return [...this.store.chunks.values()]
       .filter((c) => c.documentId === documentId)
@@ -173,7 +179,7 @@ export class MemoryDocuments implements DocumentPort {
 
   async originalText(actor: Actor, documentId: DocumentId): Promise<string | null> {
     const doc = this.store.documents.get(documentId);
-    if (!doc || !this.store.canRead(actor.personId, doc.roomId)) return null;
+    if (!doc || doc.deletedAt || !this.store.canRead(actor.personId, doc.roomId)) return null;
     return doc.text.length > 0 ? doc.text : null;
   }
 
@@ -182,7 +188,7 @@ export class MemoryDocuments implements DocumentPort {
     documentId: DocumentId,
   ): Promise<{ filename: string; mimeType: string; bytes: Uint8Array } | null> {
     const doc = this.store.documents.get(documentId);
-    if (!doc || !this.store.canRead(actor.personId, doc.roomId)) return null;
+    if (!doc || doc.deletedAt || !this.store.canRead(actor.personId, doc.roomId)) return null;
 
     return {
       filename: doc.filename,
@@ -193,6 +199,112 @@ export class MemoryDocuments implements DocumentPort {
 
   async storageUsage(actor: Actor): Promise<StorageUsageReport> {
     return this.ledger.usage(actor.personId);
+  }
+
+  /**
+   * The trash, for documents. Same shape and same thirty days as a memory's.
+   *
+   * The storage charge is held until the purge, because until then the document is
+   * restorable — and a restore that failed at the storage limit would make the trash a
+   * promise we could not keep.
+   */
+  async remove(
+    actor: Actor,
+    documentId: DocumentId,
+    options: { reason?: string } = {},
+  ): Promise<DocumentSummary | null> {
+    const doc = this.store.documents.get(documentId);
+    if (!doc || doc.deletedAt || !this.store.canRead(actor.personId, doc.roomId)) return null;
+    if (!this.store.canWrite(actor.personId, doc.roomId)) throw new NotPermittedError();
+
+    doc.deletedAt = this.store.now();
+    doc.purgeAfter = purgeDeadline(doc.deletedAt);
+
+    this.store.append({
+      roomId: doc.roomId,
+      eventType: 'document.deleted',
+      payload: {
+        document_id: documentId,
+        filename: doc.filename,
+        purge_after: doc.purgeAfter.toISOString(),
+        ...(options.reason ? { reason: options.reason } : {}),
+      },
+      actorPersonId: actor.personId,
+      agentClient: actor.agentClient,
+    });
+
+    await this.projection.invalidate({ roomId: doc.roomId });
+    return summarise(doc, this.chunkCountOf(documentId));
+  }
+
+  async restore(actor: Actor, documentId: DocumentId): Promise<DocumentSummary | null> {
+    const doc = this.store.documents.get(documentId);
+    if (!doc || !doc.deletedAt || !this.store.canRead(actor.personId, doc.roomId)) return null;
+    if (!this.store.canWrite(actor.personId, doc.roomId)) throw new NotPermittedError();
+
+    doc.deletedAt = null;
+    doc.purgeAfter = null;
+
+    this.store.append({
+      roomId: doc.roomId,
+      eventType: 'document.restored',
+      payload: { document_id: documentId, filename: doc.filename },
+      actorPersonId: actor.personId,
+      agentClient: actor.agentClient,
+    });
+
+    await this.projection.invalidate({ roomId: doc.roomId });
+    return summarise(doc, this.chunkCountOf(documentId));
+  }
+
+  async trashed(
+    actor: Actor,
+    input: { roomId?: RoomId; limit?: number } = {},
+  ): Promise<DocumentSummary[]> {
+    return [...this.store.documents.values()]
+      .filter(
+        (d) =>
+          d.deletedAt !== null &&
+          this.store.canRead(actor.personId, d.roomId) &&
+          (input.roomId === undefined || d.roomId === input.roomId),
+      )
+      .sort((a, b) => (b.deletedAt?.getTime() ?? 0) - (a.deletedAt?.getTime() ?? 0))
+      .slice(0, input.limit ?? 50)
+      .map((d) => summarise(d, this.chunkCountOf(d.id)));
+  }
+
+  async purgeExpired(limit = 100): Promise<number> {
+    const now = this.store.now();
+    const due = [...this.store.documents.values()]
+      .filter((d) => d.purgeAfter !== null && d.purgeAfter <= now)
+      .slice(0, limit);
+
+    for (const doc of due) {
+      for (const [id, chunk] of [...this.store.chunks.entries()]) {
+        if (chunk.documentId === doc.id) this.store.chunks.delete(id);
+      }
+      this.store.documents.delete(doc.id);
+
+      const unreferenced = await this.ledger.release({
+        personId: doc.uploadedBy,
+        checksum: doc.checksum,
+      });
+      // Only when nobody else's document points at the same bytes. Content addressing
+      // means one object can belong to several people.
+      const shared = [...this.store.documents.values()].some((d) => d.checksum === doc.checksum);
+      if (unreferenced && !shared) await this.blobs.delete(doc.storageKey);
+
+      this.store.append({
+        roomId: doc.roomId,
+        eventType: 'document.purged',
+        payload: { document_id: doc.id, filename: doc.filename },
+        actorPersonId: doc.uploadedBy,
+        agentClient: 'web',
+      });
+      await this.projection.invalidate({ roomId: doc.roomId });
+    }
+
+    return due.length;
   }
 
   /** Called by the `summarise_document` job rather than on the upload path. */
@@ -234,6 +346,8 @@ function summarise(
     summary: string | null;
     uploadedBy: Actor['personId'];
     uploadedAt: Date;
+    deletedAt: Date | null;
+    purgeAfter: Date | null;
   },
   chunkCount: number,
 ): DocumentSummary {
@@ -252,6 +366,8 @@ function summarise(
     pageCount: doc.pageCount,
     chunkCount,
     summary: doc.summary,
+    deletedAt: doc.deletedAt,
+    purgeAfter: doc.purgeAfter,
   };
 }
 
