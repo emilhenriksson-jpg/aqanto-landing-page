@@ -1,0 +1,33 @@
+{
+  "name": "@photographic/ops",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --emitDeclarationOnly --outDir dist",
+    "check": "tsx src/cli/check.ts",
+    "verify-restore": "tsx src/cli/verify-restore.ts",
+    "backup-documents": "tsx src/cli/backup-documents.ts",
+    "restore-documents": "tsx src/cli/restore-documents.ts"
+  },
+  "dependencies": {
+    "@photographic/core": "workspace:*",
+    "@photographic/db": "workspace:*",
+    "@photographic/documents": "workspace:*",
+    "@photographic/supabase": "workspace:*",
+    "aws4fetch": "^1.0.20",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

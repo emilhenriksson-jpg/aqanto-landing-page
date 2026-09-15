@@ -65,6 +65,11 @@ import type { BlobStore } from '@photographic/documents';
 import { createS3BlobStore, LocalBlobStore } from '@photographic/documents';
 import { createLlmFromEnv } from '@photographic/llm';
 import { createMcpApp, defaultConfig } from '@photographic/mcp';
+import {
+  countingCodeSender,
+  DeliveryFailureLog,
+  type Queryable,
+} from '@photographic/ops';
 import { createMemoryServices } from '@photographic/services-memory';
 import {
   describeSupabase,
@@ -124,6 +129,22 @@ export interface Wiring {
   runAccountJobs(): Promise<{ exportsBuilt: number; archivesExpired: number; accountsDeleted: number }>;
   /** Closes whatever the chosen backend holds open (a Postgres pool; nothing for memory). */
   close(): Promise<void>;
+
+  /**
+   * What the process ended up wired to, and where a failed delivery is counted.
+   *
+   * Returned rather than only logged because the alarms in `@photographic/ops` need
+   * exactly these facts, and re-deriving them from the environment would mean a second
+   * reading that can disagree with this one — a watchdog that reports the storage backend
+   * the environment implies rather than the one the process actually opened.
+   */
+  operations: {
+    persistence: 'postgres' | 'memory';
+    storageKind: string;
+    /** The pool, for read-only operational queries. Null on the in-memory path. */
+    db: Queryable | null;
+    deliveryFailures: DeliveryFailureLog;
+  };
 }
 
 /**
@@ -168,6 +189,8 @@ interface WiredServices {
   checkDatabase: (() => Promise<void>) | null;
   /** Which `BlobStore` document originals land in. See `resolveBlobStore`. */
   storageKind: string;
+  /** The pool when there is one. Read-only use only; see `Wiring.operations`. */
+  db: Queryable | null;
 }
 
 /**
@@ -269,6 +292,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
         await pool.query('SELECT 1');
       },
       storageKind,
+      db: pool,
     };
   }
 
@@ -294,6 +318,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     llmKind,
     persistence: 'memory',
     storageKind,
+    db: null,
   };
 }
 
@@ -503,6 +528,13 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
    * codes it was told to email.
    */
   const delivery = createCodeSenderFromEnv(process.env, { logger });
+  /**
+   * Counts a failed send on its way past, so the watchdog can tell one 46elks timeout from
+   * nobody being able to log in at all. Wrapped rather than changed inside the provider for
+   * the same reason `recordingGrants` wraps the token store: `send` throwing *is* the
+   * moment a delivery failed, and there is no other way to reach it.
+   */
+  const deliveryFailures = new DeliveryFailureLog();
   // `mailProvider`, not `email`: the logger redacts any field called `email`, so this
   // line used to print the provider name as `[redacted]` and the one question it exists
   // to answer — "is this process actually delivering codes, or writing them to me?" —
@@ -563,7 +595,7 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     invites: wired.services.invites,
     sessions: wired.services.sessions,
     codes,
-    sender: delivery.sender,
+    sender: countingCodeSender(delivery.sender, deliveryFailures),
     issuer: new SignedSessionIssuer(sessionSecret),
     codeSecret,
     clock: () => new Date(),
@@ -648,6 +680,12 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     purgeTrash: () => wired.purgeTrash(),
     runAccountJobs: () => runAccountJobs(wired, logger),
     close: () => wired.close(),
+    operations: {
+      persistence: wired.persistence,
+      storageKind: wired.storageKind,
+      db: wired.db,
+      deliveryFailures,
+    },
   };
 }
 
