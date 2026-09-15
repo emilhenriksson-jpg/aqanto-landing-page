@@ -4,14 +4,15 @@
  * differs in where the profile and rooms come from.
  */
 
-import type { Actor, BundlePort, ContextBundle, ProjectionPort, RoomId, RoomPort } from '@photographic/core';
-import { BUNDLE_TOKEN_BUDGET, estimateTokens } from '@photographic/core';
+import type { Actor, BundlePort, ContextBundle, HistoryPort, ProjectionPort, RoomId, RoomPort } from '@photographic/core';
+import { BUNDLE_TOKEN_BUDGET, RECENT_ACTIVITY_LIMIT, estimateTokens, recentActivityFor } from '@photographic/core';
 import { renderInstructions } from '@photographic/agent';
 
 export class PgBundle implements BundlePort {
   constructor(
     private readonly projection: ProjectionPort,
     private readonly rooms: RoomPort,
+    private readonly history: HistoryPort,
   ) {}
 
   async build(
@@ -20,6 +21,7 @@ export class PgBundle implements BundlePort {
   ): Promise<ContextBundle> {
     const profile = await this.projection.getProfile(actor.personId);
     const rooms = await this.rooms.listForPerson(actor);
+    const recent = await recentActivityFor(this.history, actor, RECENT_ACTIVITY_LIMIT);
 
     const activeRoom = input.activeRoomId
       ? await this.projection.activeRoomContext(actor, input.activeRoomId)
@@ -29,9 +31,10 @@ export class PgBundle implements BundlePort {
       personId: actor.personId,
       profile,
       rooms,
+      recent,
       activeRoom,
       tokenCount: 0,
-      bundleVersion: `${profile.version}.${rooms.length}.${activeRoom ? 1 : 0}`,
+      bundleVersion: `${profile.version}.${rooms.length}.${activeRoom ? 1 : 0}.${recent.length}`,
       builtAt: new Date(),
     };
 

@@ -738,3 +738,47 @@ against; flagged rather than assumed working.
   since the real `CLOUDFLARE_API_TOKEN` only reaches newly started agents. Typecheck
   clean; e2e 22 memory + 22 postgres green (Postgres installed fresh in this sandbox to
   run that suite).
+## session-context — the session-start context package
+
+- **session-context** — the session-start context package (scope §8, "spara allt,
+  skicka lite" — build-plan decision 10). What a fresh Claude session gets in
+  `initialize` was already personal core context + core memories (the profile) + a room
+  overview; this adds the fourth piece, an extremely short **"recent"**, and writes down
+  the budget instead of letting it be "whatever fits".
+  `ContextBundle.recent: HistoryEntry[]` — up to `RECENT_ACTIVITY_LIMIT` (4) of the
+  newest events across every room the actor can reach, collapsed to one line per memory
+  so a save-then-delete in the same window shows up once as *deleted*, not as a stale
+  `saved: <body>` line the deletion was supposed to remove from context. Rendered as its
+  own `<room-content>` block (it is exactly as untrusted as a room brief) under
+  `RECENT_TOKEN_BUDGET` (150 tokens), and — this is the actual design decision — it is
+  spent purely out of whatever slack remains after the profile and room overview already
+  fit, so it is the *first* thing dropped when the budget is tight, ahead of room
+  headlines and the active room's brief, and it drops as a whole block rather than
+  shortening line by line: a "recent" missing one of four things with no way to tell is
+  worse than no "recent" at all.
+  The read sits behind a seam (`recentActivityFor` in `packages/core/src/recent.ts`)
+  rather than calling `HistoryPort` directly from both `MemoryBundle` and `PgBundle` —
+  track 2 is rebuilding the event log this reads from (PR #3: `item.superseded`,
+  `member.left`, author columns), and none of that should require touching the bundle
+  assembly or the renderer when it lands.
+  Two leaks caught by the existing e2e suite before this could ship, both fixed by an
+  action allowlist (`RECENT_BODY_ALLOWED` — `saved`/`updated`/`restored` only, mirroring
+  the "safe direction" `ACTION_OF` allowlist `HistoryPort` already uses): a deleted
+  memory's body was resurfacing through its own earlier `item.created` event, and a
+  proposed instruction still waiting in the Godkänn-kön was reaching context as if it
+  were already in force — the exact thing the approval gate exists to prevent.
+  Did not touch `apps/rest/src/wiring.ts`, domain migrations, OAuth/scope/`resolveByName`,
+  or the public MCP tool schema. Only `packages/core` (type + budgets + the seam),
+  `packages/agent` (rendering), the two `BundlePort` implementations, and
+  `apps/rest/src/serialise.ts` (one new field on the existing `/v1/context` response).
+  `scripts/context-package-demo.{md,mjs}` runs the seeded Emil account through both
+  renders and prints the literal before/after; the ketchup fact arrives twice, once in
+  the profile and once in "recent" (`sparade — Emil: Allergisk mot ketchup`), and a
+  second e2e test asserts "recent" is as isolated as search and the room overview
+  already are (never the room-mate's private room, only the room actually shared).
+  Coverage: `packages/core/src/recent.test.ts` (6), `packages/agent/src/instructions.test.ts`
+  (+9, `describe('the "recent" block', ...)`), `e2e/src/journey.test.ts` (+2, both
+  harnesses). Typecheck clean; e2e 24 memory + 24 postgres (run sequentially — the
+  shared local Postgres does not survive `pnpm -r test`'s parallelism across packages
+  that each call `reset(pool)` or expect a stable schema, which is pre-existing and not
+  new here).
