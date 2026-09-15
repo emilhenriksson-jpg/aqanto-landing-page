@@ -369,6 +369,66 @@ describe('the record', () => {
   });
 });
 
+describe('searching memory — "Fråga mitt minne"', () => {
+  it('finds a plain text match exactly as it always has', async () => {
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+    const room = await (await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, token)).json();
+    await f.post(
+      '/v1/memory',
+      { body: 'Vi beslutade att skjuta förvärvet till Q3', roomId: room.room.id, explicit: true },
+      token,
+    );
+
+    const res = await f.get('/v1/search?q=förvärvet', token);
+    const json = await res.json();
+
+    expect(json.hits).toHaveLength(1);
+    expect(json.hits[0]).toMatchObject({ kind: 'item', text: expect.stringContaining('Q3') });
+  });
+
+  it('rejects a request with neither a question nor a time window', async () => {
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+    const res = await f.get('/v1/search', token);
+    expect(res.status).toBe(400);
+  });
+
+  it('folds in the calendar once a time window is given, in the unified hit shape', async () => {
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+    await f.post('/v1/memory', { body: 'Allergisk mot ketchup', explicit: true }, token);
+
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const res = await f.get(`/v1/search?since=${encodeURIComponent(since)}`, token);
+    const json = await res.json();
+
+    expect(json.hits.length).toBeGreaterThan(0);
+    expect(json.hits[0]).toMatchObject({ kind: 'event', action: 'saved' });
+    expect(json.hits[0].occurredAt).toBeTruthy();
+  });
+
+  it('excludes a memory from before a since bound', async () => {
+    const { token } = await register(f, 'emil@example.com', 'Emil');
+    await f.post('/v1/memory', { body: 'Allergisk mot ketchup', explicit: true }, token);
+
+    const since = new Date(Date.now() + 60_000).toISOString(); // a minute in the future
+    const res = await f.get(`/v1/search?since=${encodeURIComponent(since)}`, token);
+    const json = await res.json();
+
+    expect(json.hits).toHaveLength(0);
+  });
+
+  it('never returns a calendar hit from a room the caller cannot reach', async () => {
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    await f.post('/v1/memory', { body: 'Allergisk mot ketchup', explicit: true }, emil.token);
+
+    const jacob = await register(f, 'jacob@example.com', 'Jacob');
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const res = await f.get(`/v1/search?since=${encodeURIComponent(since)}`, jacob.token);
+    const json = await res.json();
+
+    expect(json.hits.every((hit: { text: string }) => !hit.text.includes('ketchup'))).toBe(true);
+  });
+});
+
 describe('context, which is the whole point', () => {
   it('hands over a rendered profile and records that it was delivered', async () => {
     const { token } = await register(f, 'emil@example.com', 'Emil');

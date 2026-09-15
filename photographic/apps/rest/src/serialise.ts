@@ -13,6 +13,7 @@
  */
 
 import type {
+  AskHit,
   Brief,
   ContextBundle,
   HistoryEntry,
@@ -129,6 +130,23 @@ export function serialiseSearchHit(hit: SearchHit) {
     text: hit.text,
     score: Number(hit.score.toFixed(6)),
     documentId: hit.documentId,
+    createdAt: hit.createdAt ? hit.createdAt.toISOString() : null,
+  };
+}
+
+/** "Fråga mitt minne" — one shape for a memory, a document chunk or a calendar entry. */
+export function serialiseAskHit(hit: AskHit) {
+  return {
+    kind: hit.kind,
+    roomId: hit.roomId,
+    roomTitle: hit.roomTitle,
+    text: hit.text,
+    score: Number(hit.score.toFixed(6)),
+    occurredAt: hit.occurredAt ? hit.occurredAt.toISOString() : null,
+    shortId: hit.shortId,
+    documentId: hit.documentId,
+    seq: hit.seq,
+    action: hit.action,
   };
 }
 

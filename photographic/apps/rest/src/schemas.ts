@@ -73,11 +73,22 @@ export const proposeSchema = roomRef.and(
 
 export const updateSchema = roomRef.and(z.object({ body: memoryBody }));
 
-export const searchSchema = z.object({
-  q: z.string().trim().min(1).max(500),
-  room: z.union([uuid, z.array(uuid)]).optional(),
-  limit: z.coerce.number().int().min(1).max(50).optional(),
-});
+/**
+ * `q` is optional so "vad hände igår" — a date with no keyword — is a valid request.
+ * At least one of `q`, `since`, `until` is required, or the search has nothing to run.
+ */
+export const searchSchema = z
+  .object({
+    q: z.string().trim().min(1).max(500).optional(),
+    room: z.union([uuid, z.array(uuid)]).optional(),
+    since: z.coerce.date().optional(),
+    until: z.coerce.date().optional(),
+    sort: z.enum(['relevance', 'oldest', 'newest']).optional(),
+    limit: z.coerce.number().int().min(1).max(50).optional(),
+  })
+  .refine((value) => Boolean(value.q) || Boolean(value.since) || Boolean(value.until), {
+    message: 'ange antingen q eller since/until',
+  });
 
 export const shortIdParam = z.object({ shortId });
 
