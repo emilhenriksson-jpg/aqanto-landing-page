@@ -5,6 +5,7 @@ import {
   loadDocumentsFromApi,
   loadSharedRoomFromApi,
   mapClientHealth,
+  mapCompassEntry,
   mapInvitePreview,
   mapProposal,
   mapRoomDocument,
@@ -108,6 +109,32 @@ describe('API → UI mapping', () => {
       kind: 'instruction',
       body: 'utmana alltid mina idéer',
     });
+  });
+
+  it('maps a default compass entry with a Swedish label and no id', () => {
+    const line = mapCompassEntry({
+      key: 'directness',
+      text: 'Var direkt. Säg det du menar utan att mjuka upp det i onödan.',
+      source: 'default',
+      shortId: null,
+    });
+    expect(line).toEqual({
+      key: 'directness',
+      label: 'Var direkt',
+      text: 'Var direkt. Säg det du menar utan att mjuka upp det i onödan.',
+      source: 'default',
+      shortId: null,
+    });
+  });
+
+  it('maps a personalised compass entry with its short id', () => {
+    const line = mapCompassEntry({
+      key: 'label_certainty',
+      text: 'Säg alltid rakt ut om du gissar.',
+      source: 'personal',
+      shortId: 'p-9x2q',
+    });
+    expect(line).toMatchObject({ source: 'personal', shortId: 'p-9x2q' });
   });
 
   it('maps room documents onto DocumentLine with calm Swedish meta', () => {

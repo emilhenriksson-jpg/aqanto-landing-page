@@ -1038,6 +1038,34 @@
   }
 }
 
+/* -------------------------------------------------------------- kompass */
+
+.compass-list {
+  margin-top: var(--space-8);
+  list-style: none;
+}
+
+.compass-row {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.compass-row:last-child {
+  border-bottom: 0;
+}
+
+.compass-row__label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.compass-row__text {
+  font: var(--type-body);
+  letter-spacing: var(--track-body);
+}
+
 /* -------------------------------------------------------------- activity */
 
 .activity {
