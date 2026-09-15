@@ -10,12 +10,22 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { Actor, AgentClient, PersonId, RoomId, Services } from '@photographic/core';
+import type {
+  Actor,
+  AgentClient,
+  MemberRole,
+  Person,
+  PersonId,
+  Room,
+  RoomId,
+  Services,
+} from '@photographic/core';
 import { FakeLlm, FakeNotify } from '@photographic/core/testing';
 import type { BlobStore, StorageLedger } from '@photographic/documents';
 import { LocalBlobStore } from '@photographic/documents';
 import type { Pool } from 'pg';
 
+import { withTransaction } from './pool.js';
 import { PgStorageLedger } from './services/storage-ledger.js';
 import {
   EMBEDDING_BACKFILL_DEDUPE_KEY,
@@ -98,6 +108,21 @@ export interface PostgresServices {
 
   /** Convenience for building an actor once a person exists, mirroring `MemoryServices`. */
   actorFor(personId: PersonId, agentClient?: AgentClient, roomScope?: RoomId[]): Actor;
+
+  /**
+   * Registers a new person and accepts a room invite as one transaction. See
+   * `@photographic/connect`'s `verifyCode`, the one caller: a reused, expired or
+   * otherwise invalid invite used to throw *after* `identity.register` had already
+   * committed on its own connection, leaving a person and a personal room nobody could
+   * sign in as. `PgIdentity.register` and `PgInvites.accept` both accept an already-open
+   * client now, so this runs them on one, and `withTransaction` nests the second as a
+   * savepoint on the first — a failed `accept` rolls the whole thing back, registration
+   * included.
+   */
+  registerWithInvite(
+    input: { email?: string; phone?: string },
+    inviteToken: string,
+  ): Promise<{ person: Person; personalRoom: Room; joinedRoom: { room: Room; role: MemberRole } }>;
 
   /** Runs queued work to completion, including work that queued more work. */
   runJobsToCompletion(): Promise<number>;
@@ -300,6 +325,15 @@ export async function createPostgresServices(
       sessionId: null,
       roomScope,
     }),
+    registerWithInvite: (input, inviteToken) =>
+      withTransaction(pool, async (tx) => {
+        const registered = await identity.register(input, tx);
+        const accepted = await invites.accept(inviteToken, registered.person.id, tx);
+        return {
+          ...registered,
+          joinedRoom: { room: accepted.room, role: accepted.role },
+        };
+      }),
     runJobsToCompletion: () => jobs.drain(),
     close: () => pool.end(),
   };

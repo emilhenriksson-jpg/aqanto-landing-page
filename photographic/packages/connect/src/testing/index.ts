@@ -147,6 +147,18 @@ export class MemoryIdentity implements IdentityPort {
     if (!room) throw new NotFoundError('no personal room');
     return room;
   }
+
+  /**
+   * Test-only: undoes a `register()`, for a `registerWithInvite` double that needs to
+   * roll one back when the invite acceptance that was meant to follow it fails. Not part
+   * of `IdentityPort` — nothing in production calls this directly, because the Postgres
+   * composition root gets its atomicity from a real transaction instead. See
+   * `signup.test.ts`.
+   */
+  forget(id: PersonId): void {
+    this.people.delete(id);
+    this.personalRooms.delete(id);
+  }
 }
 
 export class MemoryInvites implements InvitePort {

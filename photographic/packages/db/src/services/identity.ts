@@ -17,12 +17,23 @@ import { PERSONAL_ROOM_SLUG } from '../slug.js';
 export class PgIdentity implements IdentityPort {
   constructor(private readonly pool: Pool) {}
 
-  async register(input: {
-    email?: string;
-    phone?: string;
-    displayName?: string;
-    locale?: string;
-  }): Promise<{ person: Person; personalRoom: Room }> {
+  /**
+   * `db` defaults to the pool, exactly like every other repository method here, but the
+   * reason it exists at all is `registerWithInvite` in `postgres-services.ts`: passed an
+   * already-open client, `withTransaction` nests as a savepoint instead of opening a
+   * second, independent transaction, which is what lets that function roll the person
+   * back — not just fail to commit it — when the invite it came with turns out to be
+   * spent, expired or otherwise invalid.
+   */
+  async register(
+    input: {
+      email?: string;
+      phone?: string;
+      displayName?: string;
+      locale?: string;
+    },
+    db: Db = this.pool,
+  ): Promise<{ person: Person; personalRoom: Room }> {
     const email = input.email?.trim().toLowerCase() ?? null;
     const phone = input.phone?.trim() ?? null;
     if (!email && !phone) {
@@ -36,7 +47,7 @@ export class PgIdentity implements IdentityPort {
       throw new ValidationError('Det finns redan ett konto för det numret.');
     }
 
-    return withTransaction(this.pool, async (tx) => {
+    return withTransaction(db, async (tx) => {
       const displayName = input.displayName ?? email?.split('@')[0] ?? null;
 
       const personRow = await queryOne<PersonRow>(
