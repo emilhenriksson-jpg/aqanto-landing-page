@@ -82,6 +82,25 @@ export function roomRoutes(): Hono<AppEnv> {
   });
 
   /**
+   * Documents in a room, for the Dokument shelf.
+   *
+   * id + filename only — summaries and dates live on get/upload, not this list.
+   * Membership is enforced inside DocumentPort; unreachable rooms are 404.
+   */
+  routes.get('/rooms/:roomId/documents', async (c) => {
+    const actor = getActor(c);
+    const { roomId } = parseParams(c, roomIdParam);
+
+    const documents = await getServices(c).documents.listForRoom(actor, roomId as RoomId);
+    return c.json({
+      documents: documents.map((doc) => ({
+        id: doc.id,
+        filename: doc.filename,
+      })),
+    });
+  });
+
+  /**
    * The room's short context, which is the sentence every connected model reads about
    * this room. Kept as its own endpoint rather than a general room update: this is the
    * one field a person edits after naming a room, and the only one that changes what

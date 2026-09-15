@@ -39,7 +39,8 @@ describe('listTrash / restoreTrash', () => {
     expect(result.retentionDays).toBe(30);
     expect(result.entries[0]?.shortId).toBe('p-old1');
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(String(fetchMock.mock.calls[0]![0])).toBe('http://127.0.0.1:8787/v1/trash');
+    const call = fetchMock.mock.calls[0]!;
+    expect(String(call[0])).toBe('http://127.0.0.1:8787/v1/trash');
   });
 
   it('restores via POST /v1/trash/:shortId/restore', async () => {

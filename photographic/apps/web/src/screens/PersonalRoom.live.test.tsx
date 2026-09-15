@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadRoom } from '../data/demo.js';
@@ -29,8 +29,11 @@ vi.mock('../hooks/useRoomData.js', () => ({
 
 function renderPersonalRoom() {
   return render(
-    <MemoryRouter>
-      <PersonalRoom />
+    <MemoryRouter initialEntries={['/']}>
+      <Routes>
+        <Route path="/" element={<PersonalRoom />} />
+        <Route path="/papperskorg" element={<div>trash</div>} />
+      </Routes>
     </MemoryRouter>,
   );
 }

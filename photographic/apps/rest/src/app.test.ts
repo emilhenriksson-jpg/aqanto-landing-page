@@ -528,6 +528,37 @@ describe('rooms and who can see them', () => {
     expect((await f.get(`/v1/rooms/${created.room.id}/items`, jacob.token)).status).toBe(404);
   });
 
+  it('lists documents in a room the caller can read', async () => {
+    const emil = await register(f, 'emil@example.com', 'Emil');
+    const created = await (await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)).json();
+
+    const actor = {
+      personId: emil.person.id,
+      agentClient: 'api' as const,
+      sessionId: null,
+      roomScope: [],
+    };
+    const uploaded = await f.wired.services.documents.upload(actor, {
+      roomId: created.room.id,
+      filename: 'Due diligence-paket Q3.pdf',
+      mimeType: 'application/pdf',
+      bytes: new TextEncoder().encode('Underlag för förvärvet.'),
+    });
+
+    const res = await f.get(`/v1/rooms/${created.room.id}/documents`, emil.token);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.documents).toEqual([
+      { id: uploaded.documentId, filename: 'Due diligence-paket Q3.pdf' },
+    ]);
+    for (const doc of body.documents) {
+      expect(Object.keys(doc).sort()).toEqual(['filename', 'id']);
+    }
+
+    const jacob = await register(f, 'jacob@example.com', 'Jacob');
+    expect((await f.get(`/v1/rooms/${created.room.id}/documents`, jacob.token)).status).toBe(404);
+  });
+
   it('refuses to let a room id in the body decide what a write reaches', async () => {
     const emil = await register(f, 'emil@example.com', 'Emil');
     const created = await (await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)).json();
