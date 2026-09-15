@@ -12,8 +12,8 @@ export function MemoryRow({
   onRestore,
 }: {
   item: Pick<MemoryLine, 'shortId' | 'body'>;
-  onForget: (shortId: string) => void;
-  onRestore: (shortId: string) => void;
+  onForget: (shortId: string) => void | Promise<void>;
+  onRestore: (shortId: string) => void | Promise<void>;
 }) {
   const [gone, setGone] = useState(false);
 

@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
+import { forgetMemory, isDemoMode, undoMemory } from '../api/index.js';
+import { CalmState, LoadingState } from '../components/CalmState.js';
 import { MemoryRow } from '../components/MemoryRow.js';
 import { TokenMeter } from '../components/TokenMeter.js';
 import { Wordmark } from '../components/Wordmark.js';
@@ -8,7 +10,10 @@ import {
   SECTION_LABELS,
   loadRoom,
   type MemoryLine,
+  type RoomDetail,
 } from '../data/demo.js';
+import { loadPersonalRoomFromApi } from '../data/load.js';
+import { useRoomData } from '../hooks/useRoomData.js';
 
 /**
  * The most important screen: standing inside the personal room.
@@ -16,12 +21,28 @@ import {
  * then profile sections as card groups below.
  */
 export function PersonalRoom() {
-  const loaded = loadRoom('personal');
-  if (!loaded) throw new Error('Missing personal room in demo data');
-  const room = loaded;
-  const ceiling = room.tokenCeiling;
+  const state = useRoomData(
+    'personal',
+    () => {
+      const loaded = loadRoom('personal');
+      if (!loaded) throw new Error('Missing personal room in demo data');
+      return loaded;
+    },
+    () => loadPersonalRoomFromApi(),
+  );
 
+  if (state.status === 'loading') return <LoadingState label="Hämtar ditt rum…" />;
+  if (state.status === 'error') {
+    return <CalmState title="Ditt rum" message={state.message} />;
+  }
+
+  return <PersonalRoomReady room={state.data} />;
+}
+
+function PersonalRoomReady({ room }: { room: RoomDetail }) {
+  const ceiling = room.tokenCeiling;
   const [tokenCount, setTokenCount] = useState(room.tokenCount);
+  const undoTokens = useRef(new Map<string, string>());
 
   const sections = useMemo(() => {
     return PERSONAL_SECTION_ORDER.map((kind) => ({
@@ -31,12 +52,28 @@ export function PersonalRoom() {
     })).filter((section) => section.items.length > 0 || kindIsCore(section.kind));
   }, [room.memories]);
 
-  function forget(_shortId: string) {
+  async function forget(shortId: string) {
     setTokenCount((n) => Math.max(0, n - 24));
+    if (isDemoMode()) return;
+    try {
+      const result = await forgetMemory(shortId, room.id);
+      undoTokens.current.set(shortId, result.undoToken);
+    } catch {
+      // Soft-delete is best-effort from the row; the UI already shows "Borttaget".
+    }
   }
 
-  function restore(_shortId: string) {
+  async function restore(shortId: string) {
     setTokenCount((n) => Math.min(ceiling, n + 24));
+    if (isDemoMode()) return;
+    const token = undoTokens.current.get(shortId);
+    if (!token) return;
+    try {
+      await undoMemory(token);
+      undoTokens.current.delete(shortId);
+    } catch {
+      // Same: keep the row restored locally if the network call fails.
+    }
   }
 
   return (

@@ -1,8 +1,11 @@
 import { Link, Navigate, useParams } from 'react-router-dom';
 
 import { Avatars } from '../components/Avatars.js';
+import { CalmState, LoadingState } from '../components/CalmState.js';
 import { Wordmark } from '../components/Wordmark.js';
-import { SECTION_LABELS, loadRoom, type MemoryLine } from '../data/demo.js';
+import { SECTION_LABELS, loadRoom, type MemoryLine, type RoomDetail } from '../data/demo.js';
+import { loadSharedRoomFromApi } from '../data/load.js';
+import { useRoomData } from '../hooks/useRoomData.js';
 
 /** Inside a shared room: title, brief as calm prose, memories grouped by kind. */
 export function SharedRoom() {
@@ -10,16 +13,26 @@ export function SharedRoom() {
   if (!roomId) return <Navigate to="/rum" replace />;
   if (roomId === 'personal') return <Navigate to="/" replace />;
 
-  const room = loadRoom(roomId);
-  if (!room) {
+  const state = useRoomData(
+    `shared:${roomId}`,
+    () => loadRoom(roomId),
+    () => loadSharedRoomFromApi(roomId),
+  );
+
+  if (state.status === 'loading') return <LoadingState label="Hämtar rummet…" />;
+  if (state.status === 'error') {
+    return <CalmState title="Rum" message={state.message} backToRooms />;
+  }
+  if (!state.data) {
     return (
-      <article className="page">
-        <p className="section-block__empty">Rummet finns inte.</p>
-        <Link to="/rum">Tillbaka till rum</Link>
-      </article>
+      <CalmState title="Rum" message="Rummet finns inte." backToRooms />
     );
   }
 
+  return <SharedRoomReady room={state.data} />;
+}
+
+function SharedRoomReady({ room }: { room: RoomDetail }) {
   const others = Math.max(0, room.memberCount - 1);
   const grouped = groupByKind(room.memories);
   const memberLine =

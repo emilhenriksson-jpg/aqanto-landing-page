@@ -1,8 +1,11 @@
 import { Link } from 'react-router-dom';
 
 import { Avatars } from '../components/Avatars.js';
+import { CalmState, LoadingState } from '../components/CalmState.js';
 import { Wordmark } from '../components/Wordmark.js';
 import { DEMO_ROOMS, type RoomCard } from '../data/demo.js';
+import { loadRoomsFromApi } from '../data/load.js';
+import { useRoomData } from '../hooks/useRoomData.js';
 
 /**
  * Secondary navigation: where can I go.
@@ -10,8 +13,28 @@ import { DEMO_ROOMS, type RoomCard } from '../data/demo.js';
  * Shared cards: title, member avatars, unseen as a small violet pill.
  */
 export function Rooms() {
-  const personal = DEMO_ROOMS.find((room) => room.kind === 'personal');
-  const shared = DEMO_ROOMS.filter((room) => room.kind === 'shared');
+  const state = useRoomData(
+    'rooms',
+    () => DEMO_ROOMS,
+    () => loadRoomsFromApi(),
+  );
+
+  if (state.status === 'loading') return <LoadingState label="Hämtar rum…" />;
+  if (state.status === 'error') {
+    return <CalmState title="Rum" message={state.message} />;
+  }
+
+  const personal = state.data.find((room) => room.kind === 'personal');
+  const shared = state.data.filter((room) => room.kind === 'shared');
+
+  if (!personal && shared.length === 0) {
+    return (
+      <CalmState
+        title="Rum"
+        message="Inga rum ännu. Skapa ett från Claude eller ChatGPT, eller öppna en inbjudan."
+      />
+    );
+  }
 
   return (
     <article className="page">
@@ -54,6 +77,7 @@ function RoomTile({ room, featured = false }: { room: RoomCard; featured?: boole
         ) : null}
       </div>
       <p className="room-card__brief">{room.headline}</p>
+      {room.kind === 'shared' ? <Avatars names={room.memberNames} /> : null}
       <p className="room-card__hint">
         {room.kind === 'personal'
           ? 'Ditt personliga minne'
@@ -63,7 +87,6 @@ function RoomTile({ room, featured = false }: { room: RoomCard; featured?: boole
               ? 'Delad med 1 person'
               : `Delad med ${others} personer`}
       </p>
-      {room.kind === 'shared' ? <Avatars names={room.memberNames} /> : null}
     </Link>
   );
 }
