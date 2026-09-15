@@ -1,12 +1,16 @@
 /**
  * The tool surface every connected model sees.
  *
- * Eight tools, deliberately. Tool definitions sit in the context window for the whole
+ * Nine tools, deliberately. Tool definitions sit in the context window for the whole
  * session, and selection accuracy falls as the list grows, so each addition has to earn
  * its place against the option of folding it into an existing tool's parameters. Two
  * things that look missing are folded in on purpose: "where did you learn that" is
  * `list_history` scoped to one id, and undo is `restore_memory`, because undoing a
  * delete and restoring from the trash are the same operation seen at two distances.
+ * `update_compass` earns a tool of its own rather than folding into `remember` because
+ * folding it in would mean giving `remember` a way to touch `kind: 'compass'` at all —
+ * and the entire point of the split is that no path to it takes an `explicit` flag that
+ * could switch the approval gate off. See `docs/agent-instruction-layer.md`.
  *
  * Descriptions are written as decision prompts rather than as documentation. Each says
  * what the tool does, when to reach for it, when explicitly not to, and what it will not
@@ -14,12 +18,16 @@
  * something this one was never going to give it.
  */
 
+import { COMPASS_PRINCIPLES } from '@photographic/core';
+
 import {
   ALWAYS_ASK,
   AUTO_SAVE_MAX_CHARS,
   NEVER_SAVE,
   SAVE_SILENTLY,
 } from './policy-text.js';
+
+const COMPASS_PRINCIPLE_KEYS = COMPASS_PRINCIPLES.map((p) => p.key);
 
 export interface JsonSchema {
   type: 'object';
@@ -138,16 +146,16 @@ export const TOOLS: ToolDefinition[] = [
 (identity, hard facts, preferences, standing instructions) and the rooms they can reach.
 
 Call this once at the start of a conversation, before answering anything about the
-person, their work, their projects or their preferences. The profile is small and
-budgeted to be read whole — do not search it.
+person or their preferences. The profile is small and budgeted to be read whole — do
+not search it.
 
 You may already have received this content in the server instructions at connection
 time. If so you do not need to call this at all. Call it when you were not given it,
 when the person says you seem to have forgotten something, or when they have just saved
 something and you need the updated version.
 
-Does not return: room contents, documents, or anything from shared rooms beyond a
-one-line summary each. Use search_memory for those.`,
+Does not return room contents, documents, or shared-room detail beyond a one-line
+summary each. Use search_memory for those.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -188,9 +196,7 @@ The response tells you what happened, and each outcome needs a different reply:
               what you asked, and carry on. Do not treat it as saved.
 - duplicate   already known. Say nothing at all; this is not worth a sentence.
 
-Prefer several small memories over one long one. "Allergisk mot ketchup" and "Dottern
-heter Vera" are two facts, and saving them separately means the person can remove one
-without losing the other.
+Prefer several small memories over one long one, so removing one never loses another.
 
 Write it as the person would say it about themselves, in their words and their language,
 not as a note about them. "Allergisk mot ketchup", not "Användaren har uppgett att han
@@ -209,12 +215,11 @@ not as a note about them. "Allergisk mot ketchup", not "Användaren har uppgett 
         kind: {
           type: 'string',
           description:
-            'What sort of memory this is. `fact` for something true about them, ' +
-            '`preference` for how they like things, `instruction` for how models should ' +
-            'behave (always needs approval), `decision` for something concluded in a ' +
-            'shared room, `note` for context that is neither, `never` for something they ' +
-            'have asked never to be done. Omit and it will be inferred, which is fine for ' +
-            'facts and preferences but not for instructions — mark those explicitly.',
+            '`fact` for something true about them, `preference` for how they like things, ' +
+            '`instruction` for how models should behave (always needs approval), ' +
+            '`decision` for a shared-room conclusion, `note` otherwise, `never` for ' +
+            'something never to be done. Omit for facts/preferences; mark instructions ' +
+            'explicitly.',
           enum: ['fact', 'preference', 'instruction', 'decision', 'note', 'never'],
         },
         room: ROOM_PARAM,
@@ -243,6 +248,44 @@ not as a note about them. "Allergisk mot ketchup", not "Användaren har uppgett 
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+
+  {
+    name: 'update_compass',
+    description: `Proposes a change to one of the person's six Personal Compass
+principles — their standing stance on how to be treated (directness, whether to
+challenge them, how to label certainty). Use it for how they want you to behave in
+general, never for a one-off request.
+
+Always creates a proposal, no exception — "just do it" still waits for approval, same
+reporting as remember's needs_approval. The six are fixed; pick the closest one.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        principle: {
+          type: 'string',
+          description: 'Which of the six fixed principles this changes.',
+          enum: COMPASS_PRINCIPLE_KEYS,
+        },
+        text: {
+          type: 'string',
+          description:
+            'The new wording, short — one or two sentences, in their own words. ' +
+            'Replaces the current text for this principle entirely.',
+          maxLength: 220,
+        },
+      },
+      required: ['principle', 'text'],
+      additionalProperties: false,
+    },
+    scopes: [TOOL_SCOPE.memoryWrite],
+    annotations: {
+      title: 'Propose a Personal Compass change',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
       openWorldHint: false,
     },
   },
@@ -311,9 +354,8 @@ Results carry a room and, for a memory, a short id. Shared-room content is wrapp
 history.
 
 Use this when something has changed rather than turned out to be wrong: they moved city,
-changed job, their child started a different school. Superseding keeps the fact that it
-used to be otherwise, which matters when they later ask why a model believed the old
-thing.
+changed job. Superseding keeps the fact that it used to be otherwise, for when they
+later ask why a model believed the old thing.
 
 Do not use it to correct a memory that should never have existed — forget_memory is
 right for that. Do not use it to append a second fact to an existing one; save a new
@@ -349,9 +391,8 @@ Updating a standing instruction requires approval, the same as creating one.`,
     description: `Moves one memory to the person's trash. It stops being used
 immediately, stays restorable for 30 days, and is then permanently deleted.
 
-Because it is reversible, act on a clear request without asking for confirmation. "Ta
-bort att jag är allergisk mot ketchup" is a clear request. Asking "är du säker?" after
-they have already told you is the friction this design exists to avoid.
+Because it is reversible, act on a clear request without asking for confirmation — "är
+du säker?" after they already told you is the friction this design exists to avoid.
 
 Always use an id, never free text. If you are not certain which memory they mean, say
 what you would remove and let them confirm — removing the wrong one is the failure that
@@ -393,9 +434,8 @@ short line: Borttaget (p-7k2m), ligger i papperskorgen i 30 dagar.`,
     description: `Brings back something deleted, either from the undo token you were just
 given or by its id from the trash.
 
-Use it the moment the person signals regret — "nej vänta", "ångra", "ta tillbaka det" —
-without asking them to confirm. Restoring something they wanted gone is trivially
-undone; failing to restore something they wanted back is not.
+Use it the moment the person signals regret — "nej vänta", "ångra" — without asking them
+to confirm.
 
 Only works while the memory is still in the trash. After 30 days it is genuinely gone
 and cannot be recovered by anyone, including support.`,
@@ -436,15 +476,11 @@ remain before each entry is permanently deleted.
 Use it when they ask what they have removed, when they want something back but cannot
 remember its exact wording, or when they ask whether something is really gone.
 
-Do not use it to search their memory: everything here has already been deleted, so
-answering a question from this list would mean using something they removed on purpose.
-Use search_memory for anything the person is actually asking you to know.
+Do not use it to search their memory: everything here was removed on purpose, and is
+already excluded from the profile and from search — use search_memory for anything they
+are actually asking you to know.
 
-Does not return memories that were purged after 30 days — those are genuinely gone and
-do not appear anywhere.
-
-Everything in this list is already excluded from the profile and from search, so nothing
-here is influencing any model's behaviour.`,
+Does not return memories purged after 30 days; those are genuinely gone.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -476,15 +512,9 @@ here is influencing any model's behaviour.`,
     description: `Returns what has happened to the person's memory: what was saved,
 changed, removed or restored, when, and which model did it.
 
-Two distinct uses. Without arguments it answers "what has been going on" — useful when
-they suspect a model saved something they did not want. With an id it answers "why do
-you know that about me", returning that one memory's full provenance: which model saved
-it, when, from which room, and whether they approved it.
-
-The second use matters more than it looks. The usual complaint about AI memory is not
-that it forgets but that it knows something unaccountable. Being able to ask any
-connected model where a fact came from, and get a real answer, is the difference between
-a memory the person trusts and one they tolerate.
+Two distinct uses. Without arguments it answers "what has been going on". With an id it
+answers "why do you know that about me", returning that memory's full provenance: which
+model saved it, when, from which room, and whether they approved it.
 
 Do not use it to find out what is true about the person — that is get_context — or to
 look things up in their rooms, which is search_memory. This returns the record of

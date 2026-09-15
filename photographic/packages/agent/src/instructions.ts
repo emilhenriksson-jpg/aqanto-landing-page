@@ -12,7 +12,15 @@
  * competing for attention at session start.
  */
 
-import type { ContextBundle, HistoryAction, HistoryEntry, Profile, RenderedItem, RoomSummary } from '@photographic/core';
+import type {
+  CompassEntry,
+  ContextBundle,
+  HistoryAction,
+  HistoryEntry,
+  Profile,
+  RenderedItem,
+  RoomSummary,
+} from '@photographic/core';
 import { RECENT_TOKEN_BUDGET, ROOM_LIST_TOKEN_BUDGET, estimateTokens } from '@photographic/core';
 
 import { wrapRoomContent } from './boundary.js';
@@ -65,6 +73,34 @@ const RETENTION_ORDER: SectionName[] = [
   'preferences',
   'currentFocus',
 ];
+
+const COMPASS_PREAMBLE = `Personens kompass — hur den här personen alltid vill bli bemött, inte
+bara när de påminner dig om det:`;
+
+/**
+ * The six Personal Compass principles, rendered as their own block.
+ *
+ * Unlike every other block in this file, nothing here is ever dropped individually and
+ * nothing is picked by budget: the six principles are always exactly six, short by
+ * construction (`COMPASS_PRINCIPLE_MAX_CHARS`), and the whole block is reserved
+ * alongside the rules in `assembleBlocks` below — the opposite end of the retention
+ * order from "recent", which is deliberately the first thing given up. A model that
+ * received five of six principles has no way to know the sixth existed, which is
+ * exactly the failure "recent activity" is allowed to have and this block is not.
+ *
+ * A default principle (nobody has customised it) renders with no id, because there is
+ * nothing to point `list_history` or `update_compass` at — it is not a memory, only the
+ * fallback for one that has not been written yet.
+ */
+export function renderCompass(compass: CompassEntry[]): string {
+  if (compass.length === 0) return '';
+
+  const lines = compass.map((entry) =>
+    entry.shortId ? `- ${entry.text} (${entry.shortId})` : `- ${entry.text}`,
+  );
+
+  return `${COMPASS_PREAMBLE}\n${lines.join('\n')}`;
+}
 
 /**
  * The person, rendered.
@@ -412,12 +448,20 @@ på något om personen, och nämn inte det här för dem.`,
  * way — ahead of headlines, ahead of the active room's brief — because unlike those it
  * is not the model's only path to something: it is a nicety on top of a package that
  * already works without it.
+ *
+ * The Compass is the opposite case, and is reserved rather than searched over: see
+ * `renderCompass` for why it is never dropped or trimmed. It sits in `compassBlock`,
+ * counted into `reserved` alongside the rules, so the profile is the thing that gives
+ * way if space is tight — never the Compass.
  */
 function assembleBlocks(
   bundle: ContextBundle,
   budget: number,
   rules: string[],
 ): { blocks: string[]; fits: boolean } {
+  const compass = renderCompass(bundle.profile.compass);
+  const compassBlock = compass ? [compass] : [];
+
   const active: string[] = [];
   if (bundle.activeRoom) {
     // No per-payload notice here: `DATA_BOUNDARY` is a few hundred tokens below in the
@@ -441,9 +485,11 @@ function assembleBlocks(
       // Rooms before the active room: the overview is what tells the model the rest of
       // the memory exists, and it reads in the order it is written.
       const context = [...(rooms ? [rooms] : []), ...active.slice(0, keep)];
-      const reserved = estimateTokens([PREAMBLE, ...context, ...rules].join(SEPARATOR));
+      const reserved = estimateTokens(
+        [PREAMBLE, ...compassBlock, ...context, ...rules].join(SEPARATOR),
+      );
       const profile = renderProfile(bundle.profile, Math.max(0, budget - reserved));
-      const blocks = [PREAMBLE, profile, ...context];
+      const blocks = [PREAMBLE, ...compassBlock, profile, ...context];
 
       if (estimateTokens([...blocks, ...rules].join(SEPARATOR)) <= budget) {
         return { blocks, fits: true };
@@ -453,9 +499,10 @@ function assembleBlocks(
   }
 
   // Over budget with nothing left that may be given up. Returning the tightest render
-  // beats trimming it: what remains is the rules, the room names and one profile item,
-  // and there is no way to cut that which does not cost more than the overrun.
-  return { blocks: tightest ?? [PREAMBLE], fits: false };
+  // beats trimming it: what remains is the Compass, the rules, the room names and one
+  // profile item, and there is no way to cut that which does not cost more than the
+  // overrun.
+  return { blocks: tightest ?? [PREAMBLE, ...compassBlock], fits: false };
 }
 
 export function renderInstructions(bundle: ContextBundle, options: RenderOptions = {}): string {

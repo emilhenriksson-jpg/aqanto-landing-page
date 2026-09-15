@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
+  CompassEntry,
   ContextBundle,
   EventSeq,
   HistoryEntry,
@@ -24,7 +25,14 @@ function item(body: string, shortId = 'p-7k2m') {
   return { shortId: shortId as ShortId, body };
 }
 
-function profile(overrides: Partial<Profile['sections']> = {}): Profile {
+/**
+ * Empty by default so existing tests are unaffected by the Compass block. Tests that
+ * exercise it pass their own six entries via `compass`.
+ */
+function profile(
+  overrides: Partial<Profile['sections']> = {},
+  compass: CompassEntry[] = [],
+): Profile {
   return {
     personId: 'person-1' as PersonId,
     rendered: '',
@@ -37,6 +45,7 @@ function profile(overrides: Partial<Profile['sections']> = {}): Profile {
       currentFocus: [],
       ...overrides,
     },
+    compass,
     tokenCount: 0,
     itemCount: 0,
     builtFromSeq: 1 as EventSeq,
@@ -473,6 +482,97 @@ describe('the "recent" block', () => {
     );
 
     expect(estimateTokens(rendered)).toBeLessThanOrEqual(INSTRUCTIONS_TOKEN_BUDGET);
+  });
+});
+
+function compassEntry(overrides: Partial<CompassEntry> = {}): CompassEntry {
+  return {
+    key: 'directness',
+    text: 'Var direkt. Säg det du menar utan att mjuka upp det i onödan.',
+    source: 'default',
+    shortId: null,
+    ...overrides,
+  };
+}
+
+const SIX_DEFAULTS: CompassEntry[] = [
+  compassEntry({ key: 'directness', text: 'Var direkt.' }),
+  compassEntry({ key: 'no_performative_encouragement', text: 'Var inte uppmuntrande på förhand.' }),
+  compassEntry({ key: 'independent_conclusions', text: 'Bilda din egen uppfattning.' }),
+  compassEntry({ key: 'challenge_weak_arguments', text: 'Säg ifrån när argumentet inte håller.' }),
+  compassEntry({ key: 'lead_with_problems', text: 'Lyft problemet före berömmet.' }),
+  compassEntry({ key: 'label_certainty', text: 'Skilj fakta, antagande och spekulation.' }),
+];
+
+describe('the Personal Compass block', () => {
+  it('renders all six principles, in order, ahead of the profile', () => {
+    const rendered = renderInstructions(bundle({ profile: profile({}, SIX_DEFAULTS) }));
+
+    for (const entry of SIX_DEFAULTS) expect(rendered).toContain(entry.text);
+
+    const compassAt = rendered.indexOf('Var direkt');
+    const lastCompassAt = rendered.indexOf('Skilj fakta');
+    const profileAt = rendered.indexOf('ännu inget sparat');
+    expect(compassAt).toBeGreaterThan(-1);
+    expect(lastCompassAt).toBeGreaterThan(compassAt);
+    expect(profileAt).toBeGreaterThan(lastCompassAt);
+  });
+
+  it('shows a short id only for a principle the person has personalised', () => {
+    const mixed = [
+      ...SIX_DEFAULTS.slice(0, 5),
+      compassEntry({
+        key: 'label_certainty',
+        text: 'Säg alltid rakt ut om du gissar.',
+        source: 'personal',
+        shortId: 'p-9x2q' as ShortId,
+      }),
+    ];
+
+    const rendered = renderInstructions(bundle({ profile: profile({}, mixed) }));
+
+    expect(rendered).toContain('Säg alltid rakt ut om du gissar. (p-9x2q)');
+    // A default has nothing to point an id at.
+    expect(rendered).not.toContain('Var direkt. (');
+  });
+
+  it('renders nothing for an empty compass rather than an empty heading', () => {
+    const rendered = renderInstructions(bundle({ profile: profile({}, []) }));
+    expect(rendered).not.toMatch(/Personens kompass/);
+  });
+
+  it('survives a profile so large it would otherwise consume the whole budget', () => {
+    // The property that matters: unlike "recent", the Compass is not the first thing
+    // given up when space is tight. It is reserved alongside the rules.
+    const huge = bundle({
+      profile: profile(
+        { hardFacts: Array.from({ length: 400 }, (_, i) => item(`Faktum nummer ${i} `.repeat(4))) },
+        SIX_DEFAULTS,
+      ),
+    });
+
+    const rendered = renderInstructions(huge);
+
+    for (const entry of SIX_DEFAULTS) expect(rendered).toContain(entry.text);
+    expect(estimateTokens(rendered)).toBeLessThanOrEqual(INSTRUCTIONS_TOKEN_BUDGET);
+  });
+
+  it('outlives room content and the active room brief under the same pressure', () => {
+    const crowded = bundle({
+      profile: profile({}, SIX_DEFAULTS),
+      rooms: Array.from({ length: 40 }, (_, i) =>
+        room({ roomId: `room-${i}` as RoomId, title: `Rum nummer ${i}` }),
+      ),
+      activeRoom: {
+        roomId: 'room-2' as RoomId,
+        title: 'Buyersclub Ledning',
+        brief: 'Vi beslutade att skjuta förvärvet '.repeat(150),
+        sinceLastSeen: [],
+      },
+    });
+
+    const rendered = renderInstructions(crowded);
+    for (const entry of SIX_DEFAULTS) expect(rendered).toContain(entry.text);
   });
 });
 
