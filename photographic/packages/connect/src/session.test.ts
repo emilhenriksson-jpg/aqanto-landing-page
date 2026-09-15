@@ -72,12 +72,56 @@ describe('signed browser sessions', () => {
     expect(() => new SignedSessionIssuer('')).toThrow(/secret/i);
   });
 
+  /**
+   * This test used to assert only on `expiresAt` from `issue()` — a value
+   * `readSignedSession` never read — so it was green whether expiry worked or not. The
+   * expiry now lives inside the signed payload, and this asserts the verifier's answer,
+   * which is the only thing that can keep a leaked token out.
+   */
   it('expires on its own schedule', async () => {
-    const now = new Date('2026-09-15T12:00:00Z');
-    const issuer = new SignedSessionIssuer(SECRET, { ttlMs: 60_000, clock: () => now });
+    const issuedAt = new Date('2026-09-15T12:00:00Z');
+    const issuer = new SignedSessionIssuer(SECRET, { ttlMs: 60_000, clock: () => issuedAt });
 
-    const { expiresAt } = await issuer.issue({ personId: 'p-abc-123' });
-
+    const { token, expiresAt } = await issuer.issue({ personId: 'p-abc-123' });
     expect(expiresAt.toISOString()).toBe('2026-09-15T12:01:00.000Z');
+
+    // A second before, and a second after.
+    expect(readSignedSession(token, SECRET, { now: new Date('2026-09-15T12:00:59Z') })).toBe(
+      'p-abc-123',
+    );
+    expect(readSignedSession(token, SECRET, { now: new Date('2026-09-15T12:01:01Z') })).toBeNull();
+    // Exactly at the boundary is expired: a token is valid *until* its expiry.
+    expect(readSignedSession(token, SECRET, { now: expiresAt })).toBeNull();
+  });
+
+  it('will not take an expiry the holder edited, because the signature covers it', async () => {
+    const issuedAt = new Date('2026-09-15T12:00:00Z');
+    const issuer = new SignedSessionIssuer(SECRET, { ttlMs: 60_000, clock: () => issuedAt });
+    const { token } = await issuer.issue({ personId: 'p-abc-123' });
+
+    const parts = token.split('.');
+    // Push the expiry a year out and keep everything else, signature included.
+    parts[4] = String(new Date('2027-09-15T12:00:00Z').getTime());
+
+    expect(
+      readSignedSession(parts.join('.'), SECRET, { now: new Date('2026-09-20T12:00:00Z') }),
+    ).toBeNull();
+  });
+
+  it('refuses a token whose issued-at is in the future', async () => {
+    const issuedAt = new Date('2026-09-15T12:00:00Z');
+    const issuer = new SignedSessionIssuer(SECRET, { ttlMs: 60_000, clock: () => issuedAt });
+    const { token } = await issuer.issue({ personId: 'p-abc-123' });
+
+    // Well beyond the skew allowance: an `iat` we cannot have written.
+    expect(
+      readSignedSession(token, SECRET, { now: new Date('2026-09-15T11:00:00Z') }),
+    ).toBeNull();
+  });
+
+  it('refuses a token from the previous, unsigned scheme', async () => {
+    expect(readSignedSession('session-488f22ee-abf3-4abe-a006-a09718b5adf6-1', SECRET)).toBeNull();
+    // And the four-segment shape this scheme itself used before expiry was added.
+    expect(readSignedSession('ps1.cC1hYmMtMTIz.bm9uY2U.c2ln', SECRET)).toBeNull();
   });
 });

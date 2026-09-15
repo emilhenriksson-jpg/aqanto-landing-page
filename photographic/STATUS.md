@@ -23,6 +23,21 @@ _Agents append here. Do not edit another package to unblock yourself._
 
 _None open for tokens: shared CSS lives in `@photographic/design-tokens` (`./tokens.css`); apps/web, apps/onboarding and apps/voice import it._
 
+- **Login codes are in the application log in plaintext, and SMS is the only way in.**
+  `PHOTOGRAPHIC_SMS` defaults to `log`, `LogCodeSender` writes
+  `logger.warn('signup_code', { destination, code })`, and `REDACTED_KEYS` in
+  `apps/rest/src/logger.ts` contains `destination` but **not** `code`. So anyone who can
+  read `fly logs` — or any log aggregator added later — can request a code for any number
+  and sign in as that person. The Fly API token can read those logs.
+
+  Deliberately still open, and this is the trade: reading codes out of the log is
+  currently Emil's only way into his own account, so closing it before SMS works locks him
+  out of the product. It lands the moment 46elks is proven, in two parts that should go
+  together — [PR #11](https://github.com/emilhenriksson-jpg/aqanto-landing-page/pull/11)
+  refuses the `log` channel in production, and `code` joins `REDACTED_KEYS` as the second
+  lock so a future channel cannot reintroduce it. Two independent reviews flagged this;
+  neither is wrong, it is sequenced rather than unnoticed.
+
 - **anslutning** — Fly deploy for `mcp.photographic.space` is designed and scripted but
   not executed: no Fly account access from this agent. Needs someone with Emil's Fly
   login + a payment method to run `fly deploy` / `fly certs add` / `fly certs setup`

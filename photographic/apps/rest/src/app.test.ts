@@ -647,12 +647,12 @@ describe('rooms and who can see them', () => {
         expect.objectContaining({
           kind: 'decision',
           body: 'Vi beslutade att skjuta förvärvet till Q3',
-          shortId: expect.stringMatching(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4}$/),
+          shortId: expect.stringMatching(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4,6}$/),
         }),
         expect.objectContaining({
           kind: 'fact',
           body: 'Anna äger due diligence',
-          shortId: expect.stringMatching(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4}$/),
+          shortId: expect.stringMatching(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4,6}$/),
         }),
       ]),
     );
@@ -916,6 +916,76 @@ describe('importing what another system remembers', () => {
     await f.wired.runJobsToCompletion();
     const context = await (await f.get('/v1/context', token)).json();
     expect(context.rendered).toContain('ketchup');
+  });
+
+  /**
+   * The takeover chain, end to end, asserted refused.
+   *
+   * This would have passed — in the sense of completing the takeover — on `main` at
+   * `10179fa`, and it is written as the chain rather than as a unit test of the verifier
+   * because each link was individually defensible and only the composition was fatal:
+   *
+   *   1. `GET /v1/rooms/:id` discloses every member's `personId`
+   *   2. session tokens were verified by shape (`session-<personId>-<n>`), so the id was
+   *      the credential
+   *   3. the resulting session was stamped `FIRST_PARTY_CLIENT_ID` with every scope, so
+   *      it satisfied `firstPartyOnly` — export, account deletion, the approval queue
+   *
+   * Verified against production before the fix: forged tokens returned 200 on
+   * `/v1/export`, `/v1/account/deletion` and `/v1/clients`, and one completed an OAuth
+   * authorization that minted a durable grant with a refresh token — a credential that
+   * would have survived the session fix entirely.
+   *
+   * The assertion is deliberately the whole chain and not just "the verifier rejects a
+   * bad token": what made this reachable was a disclosed id meeting a shape check, and a
+   * future change could reintroduce either half without touching `readSignedSession`.
+   */
+  describe('a co-member cannot become you (regression)', () => {
+    it('refuses a session forged from a personId disclosed by the room', async () => {
+      const emil = await register(f, 'emil@example.com', 'Emil');
+
+      // A room, and a private memory that must not travel.
+      const created = await (await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, emil.token)).json();
+      await f.post('/v1/memory', { body: 'Kodordet är 4711' }, emil.token);
+
+      // Step 1: `GET /v1/rooms/:id` discloses every member's `personId`. Asserted on the
+      // owner's own room rather than through an invite dance, because the disclosure is
+      // the same endpoint and the same field whoever reads it — the vulnerability never
+      // depended on *which* member fetched it, only on the id being handed out at all.
+      // This assertion is here so that removing the disclosure does not silently remove
+      // the reason the rest of this test exists.
+      const room = await (await f.get(`/v1/rooms/${created.room.id}`, emil.token)).json();
+      const emilsId = (room.members as Array<{ personId: string }>)[0]?.personId;
+      expect(emilsId).toBe(emil.person.id);
+
+      // Step 2: the id is not a credential. Every shape the old verifier accepted.
+      for (const forged of [
+        `session-${emilsId}-1`,
+        `session-${emilsId}-42`,
+        `session-${emilsId}--99999`,
+        `ps1.${Buffer.from(String(emilsId), 'utf8').toString('base64url')}.nonce.sig`,
+      ]) {
+        const asHeader = await f.get('/v1/context', forged);
+        expect(asHeader.status, forged).toBe(401);
+
+        // And as a cookie, which is the same credential by another door.
+        const asCookie = await f.app.request('https://photographic.test/v1/context', {
+          headers: { cookie: `photographic_sid=${forged}` },
+        });
+        expect(asCookie.status, forged).toBe(401);
+      }
+
+      // Step 3: the first-party surface stays closed to it, which is what made the
+      // forgery worth attempting rather than merely a read of someone's room.
+      for (const path of ['/v1/export', '/v1/account/deletion', '/v1/clients']) {
+        const res = await f.get(path, `session-${emilsId}-1`);
+        expect(res.status, path).toBe(401);
+      }
+
+      // And the private memory never left.
+      const leaked = await f.get('/v1/context', `session-${emilsId}-1`);
+      expect(await leaked.text()).not.toContain('4711');
+    });
   });
 
   /**

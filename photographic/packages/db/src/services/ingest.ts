@@ -73,6 +73,9 @@ import { canWrite, roleIn } from './permissions.js';
 
 export const MAX_BODY_CHARS = 2000;
 
+/** See `insertingWithFreshShortId`. */
+const SHORT_ID_ATTEMPTS = 3;
+
 const BASE_SALIENCE: Record<ItemKind, number> = {
   identity: 1,
   compass: 1,
@@ -841,7 +844,6 @@ export class PgIngest implements IngestPort {
     },
     db: Db = this.pool,
   ): Promise<Item> {
-    const shortId = generateShortId() as ShortId;
     const tokenEstimate = estimateTokens(input.body);
     const salience = BASE_SALIENCE[input.kind];
     const hash = dedupeHash(input.body);
@@ -851,7 +853,13 @@ export class PgIngest implements IngestPort {
     // `placement_explicit` is what the shared-room trigger checks. An insert without it
     // into a room other people read is refused by the database, which is the point: the
     // policy gate above can be bypassed by a new code path, and this cannot.
-    const row = await this.translatingPlacementRefusal(() =>
+    //
+    // Retried on a short-id collision, which is the other thing `UNIQUE (room_id,
+    // short_id)` can refuse. A collision used to surface as "Något gick fel" with the
+    // memory simply not saved, because the only code translated here was the placement
+    // refusal and a unique violation fell through to the generic handler. Six characters
+    // make it rare; the retry is what makes it harmless.
+    const row = await this.insertingWithFreshShortId((shortId) =>
       queryOne<ItemRow>(
         db,
         `INSERT INTO app.item (short_id, room_id, kind, body, structured, sensitivity, salience,
@@ -1215,6 +1223,43 @@ export class PgIngest implements IngestPort {
       }
       throw error;
     }
+  }
+
+  /**
+   * Inserts an item, generating a fresh short id for each attempt.
+   *
+   * `UNIQUE (room_id, short_id)` can refuse an insert for a reason that is nobody's
+   * fault and entirely recoverable: two memories in one room drew the same handle. That
+   * used to reach the person as "Något gick fel" with the memory not saved, because the
+   * only translated code was the placement refusal and `23505` fell through to the
+   * generic handler. Losing what someone asked to remember, and saying nothing useful
+   * about it, is the worst available outcome in this product.
+   *
+   * Three attempts. With six characters a collision is already unlikely; three draws
+   * failing in a row against a room's worth of ids is not a thing that happens, so if it
+   * does, something other than chance is wrong and an error is the honest answer.
+   */
+  private async insertingWithFreshShortId(
+    run: (shortId: ShortId) => Promise<ItemRow | null>,
+  ): Promise<ItemRow | null> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < SHORT_ID_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.translatingPlacementRefusal(() => run(generateShortId() as ShortId));
+      } catch (error) {
+        // Only a short-id clash is worth another draw. A placement refusal is a policy
+        // decision and would refuse identically every time.
+        if ((error as { code?: string }).code !== '23505') throw error;
+        lastError = error;
+      }
+    }
+
+    throw new Error(
+      `Kunde inte hitta ett ledigt short_id efter ${SHORT_ID_ATTEMPTS} försök: ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }`,
+    );
   }
 
   /**

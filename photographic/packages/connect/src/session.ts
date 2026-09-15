@@ -38,6 +38,15 @@ export const SESSION_TOKEN_PREFIX = `${SCHEME}.`;
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
+ * How far ahead of us a token's `iat` may sit before we stop believing it.
+ *
+ * One process issues and verifies these today, so any skew is a clock stepping rather
+ * than two machines disagreeing. Small enough that it cannot be used to stretch a
+ * session, large enough to survive an NTP correction mid-request.
+ */
+const CLOCK_SKEW_MS = 60_000;
+
+/**
  * `base64url` rather than the raw id, because `personId` contains hyphens and the previous
  * reader split on them with a greedy match. Encoding removes the ambiguity instead of
  * relying on a pattern to resolve it.
@@ -84,14 +93,26 @@ export class SignedSessionIssuer implements SessionIssuer {
   }
 
   async issue(input: { personId: string }): Promise<{ token: string; expiresAt: Date }> {
+    const issuedAt = this.clock().getTime();
+    const expiresAt = new Date(issuedAt + this.ttlMs);
+
     // A nonce so two sessions for the same person are different strings. It buys no
     // security on its own here — the signature does that — but it means a token is not a
     // pure function of the person, so one leaking does not describe every other.
-    const payload = `${SCHEME}.${encodeSegment(input.personId)}.${randomBytes(16).toString('base64url')}`;
-    return {
-      token: `${payload}.${sign(payload, this.secret)}`,
-      expiresAt: new Date(this.clock().getTime() + this.ttlMs),
-    };
+    //
+    // `exp` is *inside* the signed payload, which is the whole point of it being here
+    // rather than only on the cookie. A cookie attribute is a request the browser may
+    // honour; anything that matters has to be something the verifier reads and the
+    // signature covers.
+    const payload = [
+      SCHEME,
+      encodeSegment(input.personId),
+      randomBytes(16).toString('base64url'),
+      String(issuedAt),
+      String(expiresAt.getTime()),
+    ].join('.');
+
+    return { token: `${payload}.${sign(payload, this.secret)}`, expiresAt };
   }
 }
 
@@ -100,17 +121,33 @@ export class SignedSessionIssuer implements SessionIssuer {
  * not mint. The caller still has to confirm the person exists; this only answers whether
  * the token is genuine.
  */
-export function readSignedSession(token: string, secret: string): string | null {
+export function readSignedSession(
+  token: string,
+  secret: string,
+  options: { now?: Date } = {},
+): string | null {
   const parts = token.split('.');
-  if (parts.length !== 4) return null;
+  if (parts.length !== 6) return null;
 
-  const [scheme, encodedPersonId, nonce, signature] = parts;
+  const [scheme, encodedPersonId, nonce, issuedAt, expiresAt, signature] = parts;
   if (scheme !== SCHEME) return null;
-  if (!encodedPersonId || !nonce || !signature) return null;
+  if (!encodedPersonId || !nonce || !issuedAt || !expiresAt || !signature) return null;
 
-  if (!signatureMatches(sign(`${scheme}.${encodedPersonId}.${nonce}`, secret), signature)) {
-    return null;
-  }
+  const payload = [scheme, encodedPersonId, nonce, issuedAt, expiresAt].join('.');
+  if (!signatureMatches(sign(payload, secret), signature)) return null;
+
+  // Only after the signature, so the timestamps being read are ones we wrote. Checking
+  // them first would be reading attacker-controlled numbers.
+  const issued = Number(issuedAt);
+  const expires = Number(expiresAt);
+  if (!Number.isSafeInteger(issued) || !Number.isSafeInteger(expires)) return null;
+  if (expires <= issued) return null;
+
+  const now = (options.now ?? new Date()).getTime();
+  if (now >= expires) return null;
+  // A token claiming to be from the future is not one we issued on a clock we trust, and
+  // accepting it would let a skewed or tampered `iat` extend a session indefinitely.
+  if (issued > now + CLOCK_SKEW_MS) return null;
 
   return decodeSegment(encodedPersonId);
 }

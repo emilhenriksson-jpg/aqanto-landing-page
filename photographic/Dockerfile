@@ -99,4 +99,19 @@ EXPOSE 8080
 # `packages/db/certs`. That was not true before: the migration built a bare pool, never
 # saw `SUPABASE_CA_CERT`, and failed the container here with "self-signed certificate in
 # certificate chain" before anything was served.
-CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then pnpm db:migrate; fi; exec node --import tsx apps/rest/src/server.ts"]
+# The migration's exit status decides whether the server starts.
+#
+# This was `;`, with no `set -e`, so a failed migration was logged and then the server
+# started anyway against a half-applied schema. One audit read the old line as blocking
+# startup; two others re-tested the shell and it does not, which is why the handling here
+# is written out rather than left to `set -e` being read correctly by the next person.
+#
+# The failure mode it removes is specific: a half-migrated schema serves most routes fine
+# and 500s on whichever ones touch the new column, which reads as a bug in those routes
+# rather than as a migration that never ran. Combined with the health check that used to
+# answer `{ok:true}` unconditionally, Fly marked such a deploy healthy.
+#
+# No claim is made here about migrations being safe in general — this only guarantees that
+# a migration which exits non-zero stops the boot. Concurrency is handled separately by
+# the advisory lock in `packages/db/src/migrate.ts`.
+CMD ["sh", "-c", "set -e; if [ -n \"$DATABASE_URL\" ]; then pnpm db:migrate || { echo 'db:migrate failed; refusing to start against a partial schema' >&2; exit 1; }; fi; exec node --import tsx apps/rest/src/server.ts"]
