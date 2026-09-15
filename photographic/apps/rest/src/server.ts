@@ -15,7 +15,15 @@
 import { randomUUID } from 'node:crypto';
 
 import { serve } from '@hono/node-server';
-import type { PersonId, SessionId } from '@photographic/core';
+import type { Actor, PersonId, SessionId } from '@photographic/core';
+import { createAuthServer, createInMemoryRateLimiter } from '@photographic/auth';
+import type { PersonLookup, SessionTokenVerifier } from '@photographic/auth';
+import {
+  MemoryAuthCodeStore,
+  MemoryClientStore,
+  MemoryPendingAuthorizationStore,
+  MemoryTokenStore,
+} from '@photographic/auth/testing';
 import {
   MemoryCodeSender,
   MemoryCodeStore,
@@ -28,6 +36,7 @@ import { createMemoryServices } from '@photographic/services-memory';
 import { createApp } from './app.js';
 import { loadConfigFromEnv } from './config.js';
 import { createLogger } from './logger.js';
+import { createOAuthProvider } from './oauth.js';
 import type { OAuthProvider, TokenClaims } from './oauth-contract.js';
 
 const config = loadConfigFromEnv();
@@ -47,35 +56,80 @@ logger.warn('using_reference_implementation', {
 const wired = createMemoryServices({ baseUrl: config.publicUrl });
 
 /**
- * Development-only token issuing.
+ * Turns the browser session token from the sign-up flow into a person.
  *
- * Every session token the sign-up flow mints is accepted as a bearer token here, so the
- * onboarding app can complete the whole flow against a real API. This exists only while
- * `@photographic/auth` is missing and the process refuses to start in production, because
- * an OAuth provider that trusts a token it minted without checking anything is precisely
- * the bug that makes a memory layer readable by anyone.
+ * `MemorySessionIssuer` mints `session-<personId>-<n>`, and this is the only place that
+ * shape is known. It exists as a named dependency rather than a regex inline because the
+ * authorization server needs it too: `/oauth/authorize/approve` identifies the person
+ * from their session token, so an authorization code is minted for whoever this returns.
  */
-function createDevOAuthProvider(): OAuthProvider {
-  if (config.environment === 'production') {
-    throw new Error('Utvecklingsautentisering får aldrig köra i produktion.');
-  }
+const sessionTokens: SessionTokenVerifier = {
+  verify: async (token) => {
+    const personId = token.match(/^session-(.+)-\d+$/)?.[1] as PersonId | undefined;
+    if (!personId) return null;
+    return (await wired.services.identity.findById(personId)) ? personId : null;
+  },
+};
 
-  const notImplemented = async () => ({
-    status: 501,
-    body: { error: 'temporarily_unavailable', error_description: 'OAuth är inte inkopplad ännu.' },
-  });
+/**
+ * Memberships, read fresh on every token resolution.
+ *
+ * Never cached onto a token: a token that remembered its rooms would keep reading one
+ * after the person left it, and nothing would error.
+ */
+const people: PersonLookup = {
+  exists: async (personId) => (await wired.services.identity.findById(personId)) !== null,
+  accessibleRoomIds: async (personId) => {
+    const actor: Actor = { personId, agentClient: 'api', sessionId: null, roomScope: [] };
+    const rooms = await wired.services.rooms.listForPerson(actor);
+    return rooms.map((room) => room.roomId);
+  },
+};
 
+const auth = createAuthServer({
+  clients: new MemoryClientStore(),
+  codes: new MemoryAuthCodeStore(),
+  pending: new MemoryPendingAuthorizationStore(),
+  tokens: new MemoryTokenStore(),
+  people,
+  sessions: sessionTokens,
+  rateLimiter: createInMemoryRateLimiter({ limit: 30, windowSeconds: 60 }),
+  logger,
+  config: {
+    issuer: config.publicUrl,
+    // The MCP endpoint, not the origin. RFC 8707 audience binding is only worth anything
+    // if the audience names what the token is actually used against.
+    resource: `${config.publicUrl}/mcp`,
+    loginUrl: `${config.publicUrl}/login`,
+  },
+});
+
+/**
+ * The first-party browser credential, alongside real OAuth.
+ *
+ * The onboarding and web clients hold a session token, not an access token: they sign a
+ * person in with a code sent to their email and never run an OAuth flow, because
+ * redirecting our own app to our own authorization server to get back to our own API
+ * would be ceremony with no security to show for it. So the API accepts both, and this
+ * decides which is which by shape.
+ *
+ * What it must never become is a provider that trusts a token because it looks familiar.
+ * Every session token is checked against a real person, and an access token is handed
+ * straight to the authorization server, which is the only thing that can validate one.
+ */
+function withFirstPartySessions(oauth: OAuthProvider): OAuthProvider {
   // One session per person rather than one per request. A fresh session on every call
   // would leave the client health screen reading from a session that never received
   // anything, so the web client would show as red seconds after it worked.
   const webSessions = new Map<PersonId, SessionId>();
 
   return {
+    ...oauth,
     introspect: async (token: string): Promise<TokenClaims | null> => {
-      // `session-<personId>-<n>`, the shape `MemorySessionIssuer` mints.
-      const personId = token.match(/^session-(.+)-\d+$/)?.[1] as PersonId | undefined;
+      if (!token.startsWith('session-')) return oauth.introspect(token);
+
+      const personId = await sessionTokens.verify(token);
       if (!personId) return null;
-      if (!(await wired.services.identity.findById(personId))) return null;
 
       let sessionId = webSessions.get(personId);
       if (!sessionId) {
@@ -92,16 +146,12 @@ function createDevOAuthProvider(): OAuthProvider {
         personId,
         sessionId,
         agentClient: 'web',
-        clientId: 'dev',
-        scopes: ['memory.read', 'memory.write', 'rooms.read', 'rooms.write'],
+        clientId: 'first-party',
+        scopes: ['memory.read', 'memory.write', 'rooms.read', 'rooms.write', 'documents.write'],
         roomScope: [],
         expiresAt: null,
       };
     },
-    authorize: notImplemented,
-    token: notImplemented,
-    register: notImplemented,
-    revoke: notImplemented,
   };
 }
 
@@ -131,7 +181,7 @@ sender.send = async (input) => {
   logger.warn('signup_code', { channel: input.channel, code: input.code });
 };
 
-const oauth = createDevOAuthProvider();
+const oauth = withFirstPartySessions(createOAuthProvider(auth));
 
 /**
  * The MCP endpoint, on the same origin as the API.

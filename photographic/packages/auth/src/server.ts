@@ -11,7 +11,7 @@
  * `authorize.ts` for why the flow has to split in half around a login page.
  */
 
-import type { PersonId, RoomId, SessionId } from '@photographic/core';
+import type { AgentClient, PersonId, RoomId, SessionId } from '@photographic/core';
 
 import {
   approveAuthorization,
@@ -67,7 +67,7 @@ export interface AuthServerDeps {
 export interface AccessTokenClaims {
   personId: PersonId;
   sessionId: SessionId | null;
-  agentClient: string | null;
+  agentClient: AgentClient | null;
   clientId: string;
   scopes: string[];
   roomScope: RoomId[];

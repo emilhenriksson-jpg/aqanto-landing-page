@@ -109,6 +109,9 @@ importers:
       '@photographic/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@photographic/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@photographic/connect':
         specifier: workspace:*
         version: link:../../packages/connect

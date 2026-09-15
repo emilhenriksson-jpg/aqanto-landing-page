@@ -38,6 +38,7 @@ import { connectRoutes, publicConnectRoutes } from './routes/connect.js';
 import { contextRoutes } from './routes/context.js';
 import { historyRoutes } from './routes/history.js';
 import { memoryRoutes } from './routes/memory.js';
+import { oauthRoutes } from './routes/oauth.js';
 import { publicInviteRoutes, roomRoutes } from './routes/rooms.js';
 import { trashRoutes } from './routes/trash.js';
 
@@ -105,7 +106,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   }
 
   // ---------------------------------------------------------------------------
-  // OAuth discovery
+  // OAuth
   // ---------------------------------------------------------------------------
 
   const metadataInput = { publicUrl: config.publicUrl, issuer: config.publicUrl };
@@ -123,6 +124,20 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
         defaultAuthorizationServerMetadata(metadataInput),
     ),
   );
+
+  // Registration and authorize are the two endpoints a stranger can reach, so they get
+  // the tighter budget. Rate limiting them here rather than inside the auth package keeps
+  // one limiter in the process, counting the same way for every route.
+  app.use(OAUTH_PATHS.register, rateLimit({
+    rule: config.rateLimits.register,
+    key: (c) => `dcr:${clientAddress(c)}`,
+  }));
+  app.use(OAUTH_PATHS.authorize, rateLimit({
+    rule: config.rateLimits.unauthenticated,
+    key: (c) => `authorize:${clientAddress(c)}`,
+  }));
+
+  app.route('/', oauthRoutes(oauth));
 
   // ---------------------------------------------------------------------------
   // Unauthenticated

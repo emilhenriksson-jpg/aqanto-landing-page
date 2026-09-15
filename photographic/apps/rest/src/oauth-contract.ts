@@ -1,12 +1,12 @@
 /**
  * The contract this app expects from `@photographic/auth`.
  *
- * The auth package does not exist yet, so the shape lives here: framework-agnostic in,
- * framework-agnostic out, so that mounting the real implementation later is a one-line
- * change in `oauth.ts` and nothing in this file has to move.
+ * Framework-agnostic in, framework-agnostic out: the auth package never imports hono and
+ * `oauth.ts` adapts one to the other, so a framework upgrade cannot reach the
+ * security-critical code.
  *
  * Everything here is transport plumbing. The only part the rest of the API cares about
- * is `introspect`, which turns a bearer token into claims; `middleware/auth.ts` turns
+ * is `introspect`, which turns a bearer token into claims; `middleware.ts` turns
  * those claims into an `Actor`.
  */
 
@@ -19,8 +19,14 @@ export interface OAuthRequest {
   url: string;
   headers: Record<string, string>;
   query: Record<string, string | string[]>;
-  /** Decoded `application/x-www-form-urlencoded` or JSON body; `{}` for GET. */
-  body: Record<string, unknown>;
+  /**
+   * The body, either raw or already decoded.
+   *
+   * Raw is the normal case: which of form-encoding and JSON a body is depends on the
+   * endpoint, and the handler knows that where the transport does not. A pre-decoded
+   * object is accepted so a test can construct a request without serialising one.
+   */
+  body: Record<string, unknown> | string;
   /** Best-effort peer address, for rate limiting and audit inside the auth package. */
   clientAddress: string | null;
 }
@@ -96,6 +102,18 @@ export interface OAuthProvider {
   register(request: OAuthRequest): Promise<OAuthResponse>;
   revoke(request: OAuthRequest): Promise<OAuthResponse>;
 
+  /**
+   * The two halves of the login split, which are not in any RFC.
+   *
+   * Photographic has no passwords, so `authorize` cannot read an identity off the
+   * request: it parks the validated request and sends the browser to a login page. That
+   * page asks `describeRequest` what it is about to approve, and calls `approve` with the
+   * person's session token once they have answered. Optional because a deployment can
+   * omit them and lose only the browser half of the flow.
+   */
+  describeRequest?(request: OAuthRequest): Promise<OAuthResponse>;
+  approve?(request: OAuthRequest): Promise<OAuthResponse>;
+
   /** Optional: served at `/.well-known/jwks.json` when present. */
   jwks?(request: OAuthRequest): Promise<OAuthResponse>;
 
@@ -117,6 +135,9 @@ export const OAUTH_PATHS = {
   token: '/oauth/token',
   register: '/oauth/register',
   revoke: '/oauth/revoke',
+  /** Read and written by the login page, not by an AI client. */
+  authorizeRequest: '/oauth/authorize/request',
+  authorizeApprove: '/oauth/authorize/approve',
   jwks: '/.well-known/jwks.json',
   authorizationServerMetadata: '/.well-known/oauth-authorization-server',
   protectedResourceMetadata: '/.well-known/oauth-protected-resource',

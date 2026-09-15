@@ -16,6 +16,7 @@
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "@photographic/agent": "workspace:*",
+    "@photographic/auth": "workspace:*",
     "@photographic/connect": "workspace:*",
     "@photographic/core": "workspace:*",
     "@photographic/mcp": "workspace:*",
