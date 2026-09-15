@@ -26,7 +26,8 @@
     "db:seed": "pnpm --filter @photographic/db run seed",
     "dev": "pnpm --filter @photographic/rest run dev",
     "check:migrations": "node scripts/check-migrations.mjs",
-    "check:typecheck-coverage": "node scripts/check-typecheck-coverage.mjs"
+    "check:typecheck-coverage": "node scripts/check-typecheck-coverage.mjs",
+    "check:job-producers": "node scripts/check-job-producers.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -62,6 +62,11 @@ jobs:
       # is about the pattern, so the next directory outside the packages cannot go quiet
       # the same way.
       - run: node scripts/check-typecheck-coverage.mjs
+      # Invite expiry and trash purging had handlers registered in both composition roots
+      # with no producer anywhere, so neither had ever run once — and a registration reads
+      # exactly like a finished feature, which is how both passed two reviews. Nobody
+      # scans for the absence of a caller; this does.
+      - run: node scripts/check-job-producers.mjs
 
   typecheck:
     runs-on: ubuntu-latest
@@ -189,6 +194,22 @@ jobs:
       # away either way, so marking it is how CI says that out loud rather than being
       # exempt from the rule.
       - run: pnpm db:mark-test
+
+      # The apply-in-order-from-empty property, asserted where it is actually provable.
+      #
+      # This container was created seconds ago, so nothing in it has been renamed and
+      # `applied_at` genuinely rises with the filename. That is not true on a laptop:
+      # `migrate.ts` recognises a renamed migration by content and moves the ledger row to
+      # the new name while keeping its original timestamp, which is correct and which means
+      # a renumbered migration has a timestamp that does not match its new position. Four
+      # branches renumbered in one afternoon, so that is the normal case. The runner's own
+      # preflight therefore checks everything except the ordering, and `--from-empty` lives
+      # only here.
+      - name: The migrations apply in order from nothing
+        if: matrix.suite == 'db'
+        run: |
+          pnpm db:migrate
+          pnpm exec node --import tsx scripts/check-migration-ledger.ts --from-empty
 
       - run: pnpm test:${{ matrix.suite }}
 
