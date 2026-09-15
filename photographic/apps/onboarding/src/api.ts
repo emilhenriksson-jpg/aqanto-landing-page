@@ -132,10 +132,13 @@ export const httpApi: Api = {
     send('/v1/connect/verify', { method: 'POST', body: JSON.stringify({ clientId }) }),
   verificationStatus: (handle) =>
     send('/v1/connect/status', { method: 'POST', body: JSON.stringify({ handle }) }),
-  health: () => send('/v1/me/clients'),
+  health: async () => {
+    const body = await send<{ clients: ClientHealthEntry[] }>('/v1/clients');
+    return body.clients;
+  },
   renderedProfile: async () => {
-    const body = await send<{ rendered: string }>('/v1/context/rendered');
-    return body.rendered;
+    const body = await send<{ profile: { rendered: string } }>('/v1/profile');
+    return body.profile.rendered;
   },
   describeAuthorization: (requestId) =>
     send(`/oauth/authorize/request?auth_request=${encodeURIComponent(requestId)}`),

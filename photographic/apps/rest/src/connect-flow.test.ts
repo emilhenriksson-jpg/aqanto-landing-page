@@ -342,6 +342,68 @@ describe('connecting an AI with nobody reading instructions', () => {
     expect(after.status).toBe(401);
   });
 
+  /**
+   * The paths the first-party app calls, checked against the ones this app serves.
+   *
+   * Written because they had drifted: the onboarding app asked for `/v1/me/clients` and
+   * `/v1/context/rendered`, neither of which ever existed, and every test on both sides
+   * passed — the app's tests run against a fake, and the API's tests only ever ask for
+   * routes the API defines. The seam had nobody standing on it.
+   */
+  describe('what the web client asks for', () => {
+    it('lists the AI clients a person connected, and not our own app', async () => {
+      const sessionToken = await h.signIn();
+      const { response, body } = await h.json('/v1/clients', {
+        headers: { authorization: `Bearer ${sessionToken}` },
+      });
+
+      expect(response.status).toBe(200);
+
+      const listed = body['clients'] as Array<Record<string, unknown>>;
+      // Signing in opened a web session. It must not appear: this list is headed "your
+      // connected AIs", and the app someone is reading it in is not one of them — least
+      // of all with a red light saying it never received their profile.
+      expect(listed.map((client) => client['agentClient'])).not.toContain('web');
+    });
+
+    it('names each connected client and says whether context arrived the good way', async () => {
+      const { tokens } = await connected(h);
+      // An MCP connection reports as the client that opened it, which is what puts a
+      // light on this list in the first place.
+      await mcpSession(h, tokens['access_token'] as string);
+
+      const { body } = await h.json('/v1/clients', {
+        headers: { authorization: `Bearer ${tokens['access_token']}` },
+      });
+
+      const listed = body['clients'] as Array<Record<string, unknown>>;
+      const cursor = listed.find((client) => client['agentClient'] === 'cursor');
+
+      expect(cursor).toBeDefined();
+      expect(cursor?.['displayName']).toBe('Cursor');
+      // `degraded` is a judgement about what this client was capable of, made here so
+      // every surface that asks gets the same answer.
+      expect(cursor).toHaveProperty('degraded');
+    });
+
+    it('serves the rendered profile for the paste-it-yourself path', async () => {
+      const sessionToken = await h.signIn();
+      const { response, body } = await h.json('/v1/profile', {
+        headers: { authorization: `Bearer ${sessionToken}` },
+      });
+
+      expect(response.status).toBe(200);
+      expect(typeof (body['profile'] as Record<string, unknown>)['rendered']).toBe('string');
+    });
+
+    it('serves the connect screen without a token, because nobody is signed in yet', async () => {
+      const { response, body } = await h.json('/v1/connect');
+
+      expect(response.status).toBe(200);
+      expect(body['mcpUrl']).toBe(`${API}/mcp`);
+    });
+  });
+
   it('treats a replayed refresh token as theft and cuts the family off', async () => {
     const { tokens, clientId } = await connected(h);
 

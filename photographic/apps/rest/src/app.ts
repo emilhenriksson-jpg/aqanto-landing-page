@@ -156,13 +156,15 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   }));
   app.route('/v1', publicInviteRoutes());
 
-  if (deps.connect) {
-    const connectConfig: ConnectConfig = {
-      mcpUrl: `${config.publicUrl}/mcp`,
-      connectPageUrl: `${config.webUrl}/connect`,
-      ...deps.connect.config,
-    };
+  // Derived from config alone, and needed whether or not sign-up is mounted: the client
+  // health lights describe the same clients the connect screen offers.
+  const connectConfig: ConnectConfig = {
+    mcpUrl: `${config.publicUrl}/mcp`,
+    connectPageUrl: `${config.webUrl}/connect`,
+    ...deps.connect?.config,
+  };
 
+  if (deps.connect) {
     app.use('/v1/signup/*', rateLimit({
       rule: config.rateLimits.register,
       key: (c) => `signup:${clientAddress(c)}`,
@@ -191,7 +193,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     }),
   );
 
-  authenticated.route('/', contextRoutes());
+  authenticated.route('/', contextRoutes(connectConfig));
   authenticated.route('/', memoryRoutes());
   authenticated.route('/', trashRoutes());
   authenticated.route('/', historyRoutes());
