@@ -60,6 +60,7 @@ import type { RestConfig } from './config.js';
 import type { AppEnv } from './context.js';
 import type { Logger } from './logger.js';
 import { createOAuthProvider } from './oauth.js';
+import { FIRST_PARTY_CLIENT_ID } from './oauth-contract.js';
 import type { OAuthProvider, TokenClaims } from './oauth-contract.js';
 
 export interface Wiring {
@@ -283,10 +284,16 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
       if (!claims) return null;
 
       return {
-        personId: claims.personId,
-        agentClient: claims.agentClient ?? 'unknown',
-        sessionId: null,
-        roomScope: claims.roomScope,
+        actor: {
+          personId: claims.personId,
+          agentClient: claims.agentClient ?? 'unknown',
+          sessionId: null,
+          roomScope: claims.roomScope,
+        },
+        // Carried through rather than dropped here. Without them the MCP endpoint had no
+        // way to tell a read-only connection from a full one, so every tool was offered
+        // to every token and `DEFAULT_SCOPE` omitting `memory.write` meant nothing.
+        scopes: claims.scopes,
       };
     },
   });
@@ -412,7 +419,7 @@ function withFirstPartySessions(input: {
         personId,
         sessionId,
         agentClient: 'web',
-        clientId: 'first-party',
+        clientId: FIRST_PARTY_CLIENT_ID,
         scopes: [...input.scopes],
         roomScope: [],
         expiresAt: null,

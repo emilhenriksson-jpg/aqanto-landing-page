@@ -12,7 +12,7 @@ import type {
   RoomPort,
   RoomSummary,
 } from '@photographic/core';
-import { NotPermittedError } from '@photographic/core';
+import { matchRoomByName, NotPermittedError } from '@photographic/core';
 import type { Pool } from 'pg';
 
 import { execute, queryOne, queryRows } from '../pool.js';
@@ -153,10 +153,14 @@ export class PgRooms implements RoomPort {
     await execute(this.pool, `UPDATE app.room SET archived_at = now() WHERE id = $1`, [roomId]);
   }
 
+  /**
+   * Exact, or a unique prefix. Never a substring — see `matchRoomByName`.
+   *
+   * Candidates come from `accessible_room_ids`, so a name can only ever select among
+   * rooms the person is already in. The matching rule itself lives in
+   * `@photographic/core` so this and `MemoryRooms` cannot answer differently.
+   */
   async resolveByName(actor: Actor, name: string): Promise<Room | null> {
-    const needle = slugify(name);
-    if (!needle) return null;
-
     const roomIds = await accessibleRoomIds(this.pool, actor.personId);
     if (roomIds.length === 0) return null;
 
@@ -166,15 +170,9 @@ export class PgRooms implements RoomPort {
        FROM app.room WHERE id = ANY($1::uuid[])`,
       [roomIds],
     );
-    const candidates = rows.map(mapRoom);
 
-    return (
-      candidates.find((r) => r.slug === needle) ??
-      candidates.find((r) => slugify(r.title) === needle) ??
-      candidates.find((r) => slugify(r.title).startsWith(needle)) ??
-      candidates.find((r) => slugify(r.title).includes(needle)) ??
-      null
-    );
+    const match = matchRoomByName(rows.map(mapRoom), name);
+    return match.matched ? match.room : null;
   }
 
   async members(

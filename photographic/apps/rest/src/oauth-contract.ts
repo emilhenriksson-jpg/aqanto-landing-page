@@ -13,6 +13,16 @@
 import { SUPPORTED_SCOPES } from '@photographic/auth';
 import type { AgentClient, PersonId, RoomId, SessionId } from '@photographic/core';
 
+/**
+ * The `clientId` on claims resolved from a browser session rather than an access token.
+ *
+ * The web and onboarding apps sign a person in with a code sent to their email and never
+ * run an OAuth flow, so there is no registered client to name. Naming it explicitly is
+ * what lets a route say "the person's own browser, not one of their AIs" — which is the
+ * right rule for managing the AIs themselves.
+ */
+export const FIRST_PARTY_CLIENT_ID = 'first-party';
+
 /** A request reduced to the parts an OAuth handler needs. */
 export interface OAuthRequest {
   method: string;

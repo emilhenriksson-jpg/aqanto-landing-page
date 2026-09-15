@@ -1,0 +1,125 @@
+/**
+ * Which OAuth scope every authenticated route requires.
+ *
+ * Scopes were validated when a token was issued and then never checked again, so they
+ * described what a client had asked for rather than limiting what it could do: a
+ * "read-only" connection was read-only only because nothing tried to write. This table
+ * is what makes them real.
+ *
+ * It is a table rather than a check inside each handler for one reason. The useful
+ * question is not "is this route covered" — you can answer that by reading the handler —
+ * it is "is any route *not* covered", and that is only answerable when every answer sits
+ * in one place someone can read top to bottom. `scope.test.ts` asserts that every
+ * authenticated route appears here, so adding a route without a scope fails a test
+ * rather than shipping an unguarded endpoint.
+ *
+ * Paths are as mounted under `/v1`, so they omit the prefix.
+ */
+
+import {
+  SCOPE_MEMORY_READ,
+  SCOPE_MEMORY_WRITE,
+  SCOPE_PROFILE_READ,
+  SCOPE_ROOMS_READ,
+} from '@photographic/auth';
+
+/** `[method, path, ...requiredScopes]`. */
+export type ScopedRoute = readonly [string, string, ...string[]];
+
+export const SCOPED_ROUTES: readonly ScopedRoute[] = [
+  // -------------------------------------------------------------------------
+  // Reading the person
+  // -------------------------------------------------------------------------
+
+  // The session-start bundle. `profile.read` rather than `memory.read`: this is the
+  // always-injected personal context, which is the one read a client cannot avoid
+  // making, and a client may legitimately be trusted with it and nothing else.
+  ['GET', '/context', SCOPE_PROFILE_READ],
+  ['GET', '/profile', SCOPE_PROFILE_READ],
+
+  // -------------------------------------------------------------------------
+  // Reading memory
+  // -------------------------------------------------------------------------
+
+  ['GET', '/search', SCOPE_MEMORY_READ],
+  ['GET', '/memory/proposals', SCOPE_MEMORY_READ],
+  ['GET', '/trash', SCOPE_MEMORY_READ],
+  ['GET', '/history', SCOPE_MEMORY_READ],
+  ['GET', '/history/:shortId', SCOPE_MEMORY_READ],
+  // "How do you know that about me?" — a read of the log behind one memory.
+  ['GET', '/memory/:shortId/provenance', SCOPE_MEMORY_READ],
+
+  // -------------------------------------------------------------------------
+  // Rooms
+  // -------------------------------------------------------------------------
+
+  ['GET', '/rooms', SCOPE_ROOMS_READ],
+  ['GET', '/rooms/:roomId', SCOPE_ROOMS_READ],
+  ['GET', '/rooms/:roomId/items', SCOPE_ROOMS_READ, SCOPE_MEMORY_READ],
+  ['GET', '/rooms/:roomId/documents', SCOPE_ROOMS_READ, SCOPE_MEMORY_READ],
+
+  // Creating a room is a write to the person's memory structure, not a read of it.
+  ['POST', '/rooms', SCOPE_MEMORY_WRITE],
+  ['DELETE', '/rooms/:roomId', SCOPE_MEMORY_WRITE],
+  ['PATCH', '/rooms/:roomId/description', SCOPE_MEMORY_WRITE],
+
+  // Marking a room seen is bookkeeping about reading, so it rides with the read scope.
+  // Requiring write here would make a read-only client unable to stop re-reporting the
+  // same room as unread.
+  ['POST', '/rooms/:roomId/seen', SCOPE_ROOMS_READ],
+
+  // -------------------------------------------------------------------------
+  // Writing memory
+  // -------------------------------------------------------------------------
+
+  ['POST', '/memory', SCOPE_MEMORY_WRITE],
+  ['POST', '/memory/proposals', SCOPE_MEMORY_WRITE],
+  ['POST', '/memory/proposals/:id', SCOPE_MEMORY_WRITE],
+  ['PATCH', '/memory/:shortId', SCOPE_MEMORY_WRITE],
+  ['DELETE', '/memory/:shortId', SCOPE_MEMORY_WRITE],
+  ['POST', '/memory/undo', SCOPE_MEMORY_WRITE],
+  ['POST', '/trash/:shortId/restore', SCOPE_MEMORY_WRITE],
+
+  // Emptying the trash early, ahead of the thirty days. The only route here that
+  // destroys something unrecoverably, so it carries the write scope like any other
+  // mutation — the extra protection it needs is a confirmation in the UI, not a scope
+  // nothing else uses.
+  ['DELETE', '/trash/:shortId', SCOPE_MEMORY_WRITE],
+
+  // -------------------------------------------------------------------------
+  // Invites
+  // -------------------------------------------------------------------------
+
+  // Inviting someone is a disclosure decision about everything already in the room, so
+  // it needs write and not merely room access.
+  ['POST', '/rooms/:roomId/invites', SCOPE_MEMORY_WRITE],
+  ['DELETE', '/invites/:inviteId', SCOPE_MEMORY_WRITE],
+
+  // -------------------------------------------------------------------------
+  // Managing the connection itself
+  // -------------------------------------------------------------------------
+
+  // Listing connected clients is about the account rather than its contents, so the
+  // weakest read scope every client has is the right bar.
+  ['GET', '/clients', SCOPE_PROFILE_READ],
+
+  /**
+   * Renaming and disconnecting a client are deliberately *not* here.
+   *
+   * No OAuth scope should let one AI client rename or revoke another, which is exactly
+   * what a scope-gated route would permit as soon as two clients hold the same scope.
+   * These are first-party browser actions; `clientManagementOnly` restricts them to the
+   * web session instead.
+   */
+] as const;
+
+/**
+ * Routes only the person's own browser session may call.
+ *
+ * Same list-in-one-place reasoning as above, for the opposite rule: these are guarded by
+ * *who* is calling rather than by what their token may do.
+ */
+export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
+  ['PATCH', '/clients/:clientId'],
+  ['DELETE', '/clients/:clientId'],
+] as const;

@@ -16,7 +16,7 @@ import type { RestConfig, RateLimitRule } from './config.js';
 import type { AppContext, AppEnv } from './context.js';
 import { RateLimitError, RequestValidationError } from './errors.js';
 import type { Logger } from './logger.js';
-import type { OAuthProvider } from './oauth-contract.js';
+import { FIRST_PARTY_CLIENT_ID, type OAuthProvider } from './oauth-contract.js';
 
 export function requestContext(input: {
   config: RestConfig;
@@ -35,6 +35,8 @@ export function requestContext(input: {
     c.set('services', input.services);
     c.set('logger', input.logger.child({ requestId }));
     c.set('actor', null);
+    c.set('scopes', []);
+    c.set('clientId', null);
     c.header('x-request-id', requestId);
 
     await next();
@@ -125,7 +127,88 @@ export function authenticate(oauth: OAuthProvider, options: { required: boolean 
     };
 
     c.set('actor', actor);
+    c.set('scopes', claims.scopes);
+    c.set('clientId', claims.clientId);
     await next();
+  };
+}
+
+/**
+ * Refuses a request whose token does not carry the scope the route needs.
+ *
+ * Scopes were validated at authorization time and then never checked again, which made
+ * them a description of what a client asked for rather than a limit on what it can do.
+ * A read-only connection was read-only because nothing tried to write.
+ *
+ * 403 with `insufficient_scope`, per RFC 6750 — and deliberately *not* the 404 that a
+ * permission denial gets. The two are different facts and only one of them is
+ * confidential: "this room is not yours" must be indistinguishable from "no such room",
+ * while "your token cannot write" is about the token the caller already holds and tells
+ * it nothing it does not know. Flattening it to 404 would leave a client retrying a
+ * request that will never work instead of re-authorizing with the scope it needs.
+ *
+ * The good default this protects: `DEFAULT_SCOPE` has no `memory.write`, so a client
+ * that connects without asking for anything gets a read-only connection.
+ */
+export function requireScope(...needed: string[]): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const held = c.get('scopes');
+    const missing = needed.filter((scope) => !held.includes(scope));
+
+    if (missing.length > 0) {
+      c.get('logger').warn('scope_denied', {
+        route: c.req.routePath,
+        clientId: c.get('clientId'),
+        missing,
+      });
+
+      c.header(
+        'www-authenticate',
+        `Bearer realm="photographic", error="insufficient_scope", scope="${needed.join(' ')}"`,
+      );
+      return c.json(
+        {
+          error: {
+            code: 'insufficient_scope',
+            message: `Den här anslutningen saknar behörighet: ${missing.join(', ')}.`,
+            required: needed,
+          },
+        },
+        403,
+      );
+    }
+
+    return next();
+  };
+}
+
+/**
+ * Restricts a route to the person's own browser session.
+ *
+ * For the handful of actions that manage the AI clients themselves. No OAuth scope is
+ * the right key for these: a scope that let a client rename or disconnect another client
+ * would be held by every client that holds it, so the first thing a compromised AI would
+ * do is revoke the others. Whether the caller is the person's browser is the question
+ * that actually matters, and it is not a question any scope can answer.
+ */
+export function firstPartyOnly(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    if (c.get('clientId') !== FIRST_PARTY_CLIENT_ID) {
+      c.get('logger').warn('first_party_denied', {
+        route: c.req.routePath,
+        clientId: c.get('clientId'),
+      });
+      return c.json(
+        {
+          error: {
+            code: 'forbidden',
+            message: 'Den här åtgärden går bara att göra inifrån Photographic.',
+          },
+        },
+        403,
+      );
+    }
+    return next();
   };
 }
 

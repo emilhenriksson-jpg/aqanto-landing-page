@@ -26,7 +26,10 @@ import {
   handleError,
   rateLimit,
   requestContext,
+  firstPartyOnly,
+  requireScope,
 } from './middleware.js';
+import { FIRST_PARTY_ONLY_ROUTES, SCOPED_ROUTES } from './scoped-routes.js';
 import type { OAuthProvider } from './oauth-contract.js';
 import {
   createStubOAuthProvider,
@@ -204,6 +207,24 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       key: (c) => `person:${c.get('actor')?.personId ?? clientAddress(c)}`,
     }),
   );
+
+  /**
+   * Which scope each route needs, in one list.
+   *
+   * One list rather than a check at the top of each handler, because the interesting
+   * question about scope enforcement is not "is this route covered" but "is any route
+   * *not* covered" — and that is only answerable if the answers are in one place a
+   * reviewer can read top to bottom.
+   *
+   * Registered per method, because the method is half of the answer: reading a room and
+   * writing to it are the same path.
+   */
+  for (const [method, path, ...scopes] of SCOPED_ROUTES) {
+    authenticated.on(method, path, requireScope(...scopes));
+  }
+  for (const [method, path] of FIRST_PARTY_ONLY_ROUTES) {
+    authenticated.on(method, path, firstPartyOnly());
+  }
 
   authenticated.route(
     '/',

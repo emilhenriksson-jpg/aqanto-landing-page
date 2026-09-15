@@ -8,6 +8,7 @@
  * returns whatever the test wants.
  */
 
+import { SUPPORTED_SCOPES } from '@photographic/auth';
 import type { PersonId, Person, SessionId } from '@photographic/core';
 import type { ConnectDeps } from '@photographic/connect';
 import {
@@ -123,7 +124,11 @@ async function fixture(): Promise<Fixture> {
         sessionId: session.id as SessionId,
         agentClient,
         clientId: 'test',
-        scopes: ['memory.read', 'memory.write'],
+        // Everything a client gets when it asks for everything. These assertions are
+        // about routes and serialisers, not about scope narrowing — `scope.test.ts`
+        // owns that — so a fixture short of the full set would fail here for a reason
+        // that has nothing to do with what is being checked.
+        scopes: [...SUPPORTED_SCOPES],
         roomScope: [],
         expiresAt: null,
       });
@@ -586,7 +591,9 @@ describe('rooms and who can see them', () => {
       sessionId: null,
       agentClient: 'cursor',
       clientId: 'test',
-      scopes: ['memory.write'],
+      // Full capabilities, narrowed rooms. The point of this test is that the room
+      // narrowing bites even when nothing else does.
+      scopes: [...SUPPORTED_SCOPES],
       roomScope: [created.room.id],
       expiresAt: null,
     });
