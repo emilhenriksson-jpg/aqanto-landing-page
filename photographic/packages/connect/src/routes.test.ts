@@ -29,7 +29,7 @@ describe('signup routes', () => {
   it('walks request through verify and lands on connect', async () => {
     const h = createHarness({ fixedCode: '424242' });
 
-    const requested = await handleSignupRequest(h.deps, { body: { email: 'emil@example.com' } });
+    const requested = await handleSignupRequest(h.deps, { body: { phone: '070-123 45 67' } });
     expect(requested.status).toBe(200);
     const requestId = (requested.body as { requestId: string }).requestId;
 
@@ -43,7 +43,7 @@ describe('signup routes', () => {
 
   it('maps a bad code to 401 rather than throwing', async () => {
     const h = createHarness({ fixedCode: '424242' });
-    const requested = await handleSignupRequest(h.deps, { body: { email: 'emil@example.com' } });
+    const requested = await handleSignupRequest(h.deps, { body: { phone: '070-123 45 67' } });
     const requestId = (requested.body as { requestId: string }).requestId;
 
     const verified = await handleSignupVerify(h.deps, { body: { requestId, code: '000000' } });
@@ -51,10 +51,42 @@ describe('signup routes', () => {
     expect(verified.body).toMatchObject({ error: 'unauthorized' });
   });
 
-  it('maps a malformed email to 400', async () => {
+  it('maps a malformed number to 400 with the reason in it', async () => {
     const h = createHarness();
-    const result = await handleSignupRequest(h.deps, { body: { email: 'nope' } });
+    const result = await handleSignupRequest(h.deps, { body: { phone: '08-123 45 67' } });
     expect(result.status).toBe(400);
+    expect(result.body).toMatchObject({ message: expect.stringMatching(/börjar på 070/) });
+  });
+
+  /**
+   * The route the form no longer takes.
+   *
+   * A saved link, an old client or a leftover curl can still post an address here, and
+   * answering `200` would hand back a request id for a code nobody receives. Refused, with
+   * the reason, and nothing sent.
+   */
+  it('refuses an email instead of quietly sending nothing', async () => {
+    const h = createHarness();
+
+    const result = await handleSignupRequest(h.deps, { body: { email: 'emil@example.com' } });
+
+    expect(result.status).toBe(400);
+    expect(result.body).toMatchObject({ message: expect.stringContaining('SMS') });
+    expect(h.sender.sent).toEqual([]);
+    expect(h.codes.history).toEqual([]);
+  });
+
+  it('refuses an email even when a valid number rides along with it', async () => {
+    const h = createHarness();
+
+    const result = await handleSignupRequest(h.deps, {
+      body: { email: 'emil@example.com', phone: '070-123 45 67' },
+    });
+
+    // Answering the phone and ignoring the address would tell the caller that sending to
+    // an address worked. It did not, and it is not going to.
+    expect(result.status).toBe(400);
+    expect(h.sender.sent).toEqual([]);
   });
 
   it('requires both fields on verify', async () => {

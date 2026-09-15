@@ -803,11 +803,12 @@ describe('being invited', () => {
 describe('signing up and connecting', () => {
   it('registers a person from a one-time code and points them at connecting', async () => {
     const requested = await (
-      await f.post('/v1/signup/request', { email: 'ny@example.com' })
+      await f.post('/v1/signup/request', { phone: '070-123 45 67' })
     ).json();
 
-    // The masked hint is what goes on screen; the address never comes back.
-    expect(requested.destinationHint).not.toBe('ny@example.com');
+    // The masked hint is what goes on screen; the number never comes back.
+    expect(requested.channel).toBe('sms');
+    expect(requested.destinationHint).toBe('070-••• 45 67');
 
     const verified = await (
       await f.post('/v1/signup/verify', { requestId: requested.requestId, code: f.sender.lastCode })
@@ -821,11 +822,33 @@ describe('signing up and connecting', () => {
 
   it('refuses a wrong code', async () => {
     const requested = await (
-      await f.post('/v1/signup/request', { email: 'ny@example.com' })
+      await f.post('/v1/signup/request', { phone: '070-123 45 67' })
     ).json();
 
     const res = await f.post('/v1/signup/verify', { requestId: requested.requestId, code: '000000' });
     expect(res.status).toBe(401);
+  });
+
+  /**
+   * The route the form no longer takes, closed at the endpoint too.
+   *
+   * Email is not configured to reach anybody, so a `200` here would be a request id for a
+   * code that never arrives — the same dead end as leaving the field on screen, only
+   * reachable from a saved link instead of a button.
+   */
+  it('refuses to send a code to an email address', async () => {
+    const res = await f.post('/v1/signup/request', { email: 'ny@example.com' });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toContain('SMS');
+    expect(f.sender.sent).toEqual([]);
+  });
+
+  it('refuses a number that is not a Swedish mobile number, and says why', async () => {
+    const res = await f.post('/v1/signup/request', { phone: '08-123 45 67' });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/börjar på 070/);
   });
 
   it('offers one shared connect URL with nothing secret on the screen', async () => {
@@ -1097,8 +1120,8 @@ describe('limits', () => {
         headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.42' },
       });
 
-    expect((await request('/v1/signup/request', { email: 'a@example.com' })).status).toBe(200);
-    expect((await request('/v1/signup/request', { email: 'b@example.com' })).status).toBe(200);
+    expect((await request('/v1/signup/request', { phone: '070-111 11 11' })).status).toBe(200);
+    expect((await request('/v1/signup/request', { phone: '070-222 22 22' })).status).toBe(200);
 
     // Verify shares the budget: otherwise the cheap half is metered and the half that
     // guesses codes is not.
@@ -1106,10 +1129,10 @@ describe('limits', () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get('retry-after')).toBeTruthy();
 
-    // A different address is unaffected.
+    // A different caller is unaffected.
     const elsewhere = await app.request('https://photographic.test/v1/signup/request', {
       method: 'POST',
-      body: JSON.stringify({ email: 'c@example.com' }),
+      body: JSON.stringify({ phone: '070-333 33 33' }),
       headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.7' },
     });
     expect(elsewhere.status).toBe(200);

@@ -251,15 +251,17 @@ export const renameClientSchema = z.object({
   displayName: z.string().trim().min(1).max(60).nullable(),
 });
 
-export const signupRequestSchema = z
-  .object({
-    email: z.string().trim().email().optional(),
-    phone: z.string().trim().min(6).max(20).optional(),
-    inviteToken: z.string().trim().min(8).max(200).optional(),
-  })
-  .refine((value) => Boolean(value.email) !== Boolean(value.phone), {
-    message: 'ange antingen e-post eller telefonnummer',
-  });
+/**
+ * A mobile number, and only a mobile number.
+ *
+ * The shape is deliberately loose — `checkSwedishMobile` in `@photographic/connect` is
+ * what decides whether the digits are a number we can text, and it is the same function
+ * the sign-up field runs, so a second rule here would be a second answer.
+ */
+export const signupRequestSchema = z.object({
+  phone: z.string().trim().min(6).max(24),
+  inviteToken: z.string().trim().min(8).max(200).optional(),
+});
 
 export const signupVerifySchema = z.object({
   requestId: z.string().trim().min(1).max(100),

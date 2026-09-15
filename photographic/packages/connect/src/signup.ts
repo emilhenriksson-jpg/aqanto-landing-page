@@ -1,9 +1,16 @@
 /**
- * Passwordless sign-up.
+ * Passwordless sign-up, by SMS.
  *
  * No passwords, because a password is one more thing to invent before the person finds
  * out whether the product is any good, and because "forgot password" is a whole
  * subsystem we would have to build and secure for no benefit.
+ *
+ * **A mobile number is the only way in.** The `email` channel, the sender behind it and
+ * the provider selection are all still here and still tested: this is a decision about
+ * what the product offers, not a capability we tore out. What changed is that no code can
+ * be requested for an address any more, because no address is configured to receive one —
+ * and a channel that accepts a request and delivers nothing is worse than one that is not
+ * offered. Re-offering email later means letting `requestCode` take one again.
  *
  * An invited person never sees a separate account step: preview the room, tap join,
  * type the code, and they are in with a personal room already created. A signup wall
@@ -16,12 +23,22 @@ import type { Person, PersonId, Room } from '@photographic/core';
 import { AuthError, ValidationError } from '@photographic/core';
 
 import type { ConnectDeps, PendingCode, SignupChannel } from './deps.js';
+import { checkSwedishMobile, maskSwedishMobile } from './phone.js';
 
 export const CODE_LENGTH = 6;
 export const CODE_TTL_MS = 10 * 60 * 1000;
 export const MAX_ATTEMPTS = 5;
-/** Per destination, per window. Enough for a fat-fingered email, not enough to spam. */
+/** Per destination, per window. Enough for a mistyped digit, not enough to spam. */
 export const MAX_REQUESTS_PER_HOUR = 5;
+
+/**
+ * What anything still asking to sign up by email is told.
+ *
+ * Said rather than ignored. A request that quietly succeeded without sending would leave
+ * the caller waiting for a code that was never on its way, which is exactly the failure
+ * taking email out of the interface is meant to end.
+ */
+export const SMS_ONLY = 'Koden kommer med SMS. Ange ditt mobilnummer.';
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 
 export function generateCode(): string {
@@ -43,61 +60,27 @@ function codeMatches(expectedHash: string, candidateHash: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-function normaliseEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
 /**
- * The country a bare national number belongs to.
+ * One number, however it was written, in E.164 — or the reason it is not a number we can
+ * text. `checkSwedishMobile` owns the reading; this is only the throwing edge of it.
  *
- * Swedish, because the product is: the copy is Swedish and the SMS provider is 46elks.
- * A number typed with no country code is ambiguous in principle and unambiguous in
- * practice for the people this is for.
- */
-const DEFAULT_COUNTRY_CODE = '46';
-
-/**
- * A typed phone number to E.164, which is the only form an SMS provider accepts.
- *
- * The leading `0` is the thing that matters and the thing that was missing. A Swede
- * writes their own number `070-123 45 67` or `0701234567`, where the `0` is a national
- * trunk prefix that is *replaced* by the country code — not kept. Prefixing `+` to it
- * produced `+0701234567`, which is not a valid number in any country.
- *
- * That failed in the worst available way. The old pattern accepted it, so a code row was
- * written, the request returned an id, and the person was shown "we sent a code" — while
- * the provider had been handed a number it must reject. Nothing in that path errors, and
- * it is invisible while the log sender is in use, because the log accepts anything. So
- * the last line here is as important as the first: the result has to look like a real
- * E.164 number or the person finds out now, at the form, instead of waiting for an SMS
- * that was never sendable.
+ * Resolved toward the shared module and away from a narrower fix that lived here, which
+ * had closed the trunk-prefix bug (`070-123 45 67` becoming `+0701234567`) but only for
+ * the shapes it had thought of. The module covers those and a case that one got wrong:
+ * `701234567`, nine digits with no trunk zero, fell through to `+701234567` — a Russian
+ * number — where `checkSwedishMobile` reads it as the Swedish mobile it is. Two lists of
+ * Swedish number rules, one in the field and one at the endpoint, was the thing worth
+ * removing.
  */
 function normalisePhone(phone: string): string {
-  const cleaned = phone.replace(/[\s()\-.\u2013\u2014]/g, '');
-  if (!/^(\+|00)?\d{6,15}$/.test(cleaned)) throw new ValidationError('Ogiltigt telefonnummer.');
-
-  let e164: string;
-  if (cleaned.startsWith('+')) {
-    e164 = cleaned;
-  } else if (cleaned.startsWith('00')) {
-    // The other way to write a country code: 0046… is +46…
-    e164 = `+${cleaned.slice(2)}`;
-  } else if (cleaned.startsWith('0')) {
-    e164 = `+${DEFAULT_COUNTRY_CODE}${cleaned.slice(1)}`;
-  } else {
-    // Already carries a country code, just without the plus: 46701234567.
-    e164 = `+${cleaned}`;
-  }
-
-  // No country code begins with zero, so this is what catches a trunk prefix that
-  // survived, rather than passing it to the provider and calling that "sent".
-  if (!/^\+[1-9]\d{7,14}$/.test(e164)) throw new ValidationError('Ogiltigt telefonnummer.');
-  return e164;
+  const checked = checkSwedishMobile(phone);
+  if (!checked.ok) throw new ValidationError(checked.message);
+  return checked.e164;
 }
 
 export interface RequestCodeInput {
-  email?: string;
-  phone?: string;
+  /** A Swedish mobile number, in any of the shapes a person writes one. */
+  phone: string;
   /** Present when the person is arriving from a room invite. */
   inviteToken?: string;
 }
@@ -105,7 +88,7 @@ export interface RequestCodeInput {
 export interface RequestCodeResult {
   requestId: string;
   channel: SignupChannel;
-  /** Masked for display: `e***@example.com`. Never the raw destination. */
+  /** Masked for display: `070-••• 45 67`. Never the raw destination. */
   destinationHint: string;
   expiresAt: Date;
 }
@@ -116,21 +99,8 @@ export async function requestCode(
 ): Promise<RequestCodeResult> {
   const now = deps.clock();
 
-  let channel: SignupChannel;
-  let destination: string;
-
-  if (input.email) {
-    channel = 'email';
-    destination = normaliseEmail(input.email);
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(destination)) {
-      throw new ValidationError('Ogiltig e-postadress.');
-    }
-  } else if (input.phone) {
-    channel = 'sms';
-    destination = normalisePhone(input.phone);
-  } else {
-    throw new ValidationError('Ange e-post eller telefonnummer.');
-  }
+  const channel: SignupChannel = 'sms';
+  const destination = normalisePhone(input.phone ?? '');
 
   const recent = await deps.codes.countSince(destination, new Date(now.getTime() - REQUEST_WINDOW_MS));
   if (recent >= MAX_REQUESTS_PER_HOUR) {
@@ -188,7 +158,7 @@ export function maskDestination(channel: SignupChannel, destination: string): st
     if (at <= 1) return destination;
     return `${destination[0]}***${destination.slice(at)}`;
   }
-  return `***${destination.slice(-4)}`;
+  return maskSwedishMobile(destination);
 }
 
 /**
@@ -248,6 +218,9 @@ export async function verifyCode(
   const claimed = await deps.codes.consume(record.id, now);
   if (!claimed) throw new AuthError('Koden är redan använd.');
 
+  // Both channels are still resolved here even though only `sms` can be requested. A code
+  // that was issued for an address is still a code we promised to honour, and the day
+  // email is offered again this is the half that would otherwise have to be rebuilt.
   const existing = record.channel === 'email'
     ? await deps.identity.findByEmail(record.destination)
     : await deps.identity.findByPhone(record.destination);

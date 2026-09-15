@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./phone": "./src/phone.ts",
     "./testing": "./src/testing/index.ts"
   },
   "scripts": {

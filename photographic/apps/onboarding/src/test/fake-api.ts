@@ -1,5 +1,6 @@
 import { buildClients, orderClients } from '@photographic/connect';
 import type { ClientId, VerificationHandle, VerificationState } from '@photographic/connect';
+import { maskSwedishMobile } from '@photographic/connect/phone';
 
 import type {
   Api,
@@ -25,7 +26,7 @@ export interface FakeApiOptions {
 }
 
 export class FakeApi implements Api {
-  readonly requested: Array<{ email?: string; phone?: string; inviteToken?: string }> = [];
+  readonly requested: Array<{ phone: string; inviteToken?: string }> = [];
   readonly started: ClientId[] = [];
   readonly answered: Array<{ requestId: string; approved: boolean }> = [];
   session: string | null = null;
@@ -37,15 +38,17 @@ export class FakeApi implements Api {
     this.session = token;
   }
 
-  async requestCode(input: { email?: string; phone?: string; inviteToken?: string }) {
+  async requestCode(input: { phone: string; inviteToken?: string }) {
     this.requested.push(input);
-    if (input.email && !input.email.includes('@')) {
-      throw new ApiError('Ogiltig e-postadress.', 400);
+    // The screen sends E.164 or nothing, so anything else here is a caller bug and the
+    // fake answers the way the endpoint would rather than accepting it.
+    if (!/^\+46\d{9}$/.test(input.phone)) {
+      throw new ApiError('Koden kommer med SMS. Ange ditt mobilnummer.', 400);
     }
     return {
       requestId: 'req-1',
-      channel: 'email' as const,
-      destinationHint: 'e***@example.com',
+      channel: 'sms' as const,
+      destinationHint: maskSwedishMobile(input.phone),
       expiresAt: new Date(Date.now() + 600_000).toISOString(),
     };
   }

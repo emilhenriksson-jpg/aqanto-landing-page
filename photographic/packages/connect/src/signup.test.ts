@@ -17,7 +17,12 @@ import {
   verifyCode,
 } from './signup.js';
 
-const EMAIL = 'emil@example.com';
+/** How a Swedish person writes their own number, and what it means. */
+const PHONE = '070-123 45 67';
+const E164 = '+46701234567';
+const OTHER = '072-987 65 43';
+const THIRD = '073-111 22 33';
+const FOURTH = '076-444 55 66';
 
 /** The rejection, or a failure saying there wasn't one. Never the success value. */
 async function failureOf(run: () => Promise<unknown>): Promise<Error> {
@@ -46,77 +51,63 @@ function sharedRoom(): Room {
 describe('requesting a code', () => {
   it('sends a code and returns a request id without the code in it', async () => {
     const h = createHarness({ fixedCode: '424242' });
-    const result = await requestCode(h.deps, { email: EMAIL });
+    const result = await requestCode(h.deps, { phone: PHONE });
 
     expect(h.sender.lastCode).toBe('424242');
     expect(JSON.stringify(result)).not.toContain('424242');
-    expect(result.channel).toBe('email');
+    expect(result.channel).toBe('sms');
+  });
+
+  it('sends by SMS and never by email, whatever else is configured', async () => {
+    // The email sender is still in the tree and still tested; nothing can reach it from
+    // here, because there is no longer an input that names an address.
+    const h = createHarness();
+    await requestCode(h.deps, { phone: PHONE });
+
+    expect(h.sender.sent.map((s) => s.channel)).toEqual(['sms']);
+    expect(h.sender.sent[0]?.destination).toBe(E164);
   });
 
   it('masks the destination it echoes back', async () => {
     const h = createHarness();
-    const result = await requestCode(h.deps, { email: EMAIL });
-    expect(result.destinationHint).toBe('e***@example.com');
-    expect(result.destinationHint).not.toContain('mil@');
+    const result = await requestCode(h.deps, { phone: PHONE });
+
+    // Enough to recognise your own number on the code screen, not enough to read over a
+    // shoulder.
+    expect(result.destinationHint).toBe('070-••• 45 67');
+    expect(result.destinationHint).not.toContain('123');
   });
 
   it('never persists the raw code', async () => {
     const h = createHarness({ fixedCode: '424242' });
-    const { requestId } = await requestCode(h.deps, { email: EMAIL });
+    const { requestId } = await requestCode(h.deps, { phone: PHONE });
 
     const stored = h.codes.raw(requestId);
     expect(stored).toBeDefined();
     expect(JSON.stringify(stored)).not.toContain('424242');
-    expect(stored?.codeHash).toBe(hashCode('424242', 'test-secret', EMAIL));
+    expect(stored?.codeHash).toBe(hashCode('424242', 'test-secret', E164));
   });
 
   it('binds the hash to the destination so a code cannot be replayed elsewhere', () => {
-    expect(hashCode('424242', 's', 'a@example.com')).not.toBe(
-      hashCode('424242', 's', 'b@example.com'),
+    expect(hashCode('424242', 's', '+46701234567')).not.toBe(
+      hashCode('424242', 's', '+46729876543'),
     );
   });
 
-  it('normalises email and phone', async () => {
-    const h = createHarness();
-    const byEmail = await requestCode(h.deps, { email: '  EMIL@Example.COM ' });
-    expect(h.codes.raw(byEmail.requestId)?.destination).toBe(EMAIL);
-
-    const byPhone = await requestCode(h.deps, { phone: '070 123 45 67' });
-    expect(h.codes.raw(byPhone.requestId)?.destination).toBe('+46701234567');
-    expect(byPhone.channel).toBe('sms');
-  });
-
   /**
-   * This used to assert `+0701234567`, which is the bug rather than the behaviour.
+   * The four shapes a Swedish number arrives in.
    *
-   * The leading `0` is a national trunk prefix and is *replaced* by the country code,
-   * not kept — so prefixing `+` produced a number valid in no country. It survived
-   * because the expectation was written from what the code did, and because the log
-   * sender accepts any destination, so nothing downstream ever objected. It would have
-   * become visible as "I never got the SMS" the day a real provider was switched on.
+   * A person types their own number the way they always have. Storing one of these and
+   * refusing the other three would mean the same person is two accounts, or locked out of
+   * the one they have, depending on which tab they happened to sign up from.
    */
-  it('reaches one destination however a Swede types their own number', async () => {
+  it('reads the same number whichever way it was written', async () => {
     const h = createHarness();
-    const typed = ['070-123 45 67', '0701234567', '+46701234567', '+46 70 123 45 67', '0046701234567'];
 
-    for (const phone of typed) {
-      const requested = await requestCode(h.deps, { phone });
-      expect(h.codes.raw(requested.requestId)?.destination, phone).toBe('+46701234567');
-    }
-  });
-
-  it('keeps a number that already carries another country code', async () => {
-    const h = createHarness();
-    const requested = await requestCode(h.deps, { phone: '+1 202 555 0143' });
-    expect(h.codes.raw(requested.requestId)?.destination).toBe('+12025550143');
-  });
-
-  it('refuses a number no provider could send to, rather than claiming it sent', async () => {
-    const h = createHarness();
-    // `+0…` is what the old normaliser produced. No country code starts with zero, so
-    // this is the guard that stops a trunk prefix reaching the provider.
-    for (const phone of ['+0701234567', '0', '070-123']) {
-      await expect(requestCode(h.deps, { phone }), phone).rejects.toThrow(/Ogiltigt telefonnummer/i);
+    for (const written of ['070-123 45 67', '0701234567', '+46 70 123 45 67', '+46701234567']) {
+      const result = await requestCode(h.deps, { phone: written });
+      expect(h.codes.raw(result.requestId)?.destination).toBe(E164);
+      expect(result.channel).toBe('sms');
     }
   });
 
@@ -153,56 +144,72 @@ describe('requesting a code', () => {
     await expect(requestCode(h.deps, { phone: '0701234567' })).rejects.toThrow(/För många försök/i);
   });
 
-  it('rejects a request with neither email nor phone', async () => {
+  it('rejects a request with no number', async () => {
     const h = createHarness();
-    await expect(requestCode(h.deps, {})).rejects.toThrow(/e-post eller telefon/i);
+    await expect(requestCode(h.deps, { phone: '' })).rejects.toThrow(/Ange ditt mobilnummer/i);
   });
 
-  it('rejects a malformed email', async () => {
+  it('says what is wrong rather than just saying no', async () => {
     const h = createHarness();
-    await expect(requestCode(h.deps, { email: 'not-an-email' })).rejects.toThrow(/Ogiltig/i);
+
+    await expect(requestCode(h.deps, { phone: '08-123 45 67' })).rejects.toThrow(/börjar på 070/);
+    await expect(requestCode(h.deps, { phone: '070-123 45' })).rejects.toThrow(/för kort/i);
+    await expect(requestCode(h.deps, { phone: '+47 900 12 345' })).rejects.toThrow(/svenskt/i);
+    await expect(requestCode(h.deps, { phone: 'emil@example.com' })).rejects.toThrow(/SMS/);
   });
 
   it('rate limits per destination', async () => {
     const h = createHarness();
     for (let i = 0; i < MAX_REQUESTS_PER_HOUR; i += 1) {
-      await requestCode(h.deps, { email: EMAIL });
+      await requestCode(h.deps, { phone: PHONE });
     }
-    await expect(requestCode(h.deps, { email: EMAIL })).rejects.toThrow(/För många försök/i);
+    await expect(requestCode(h.deps, { phone: PHONE })).rejects.toThrow(/För många försök/i);
 
-    // A different address is unaffected.
-    await expect(requestCode(h.deps, { email: 'jacob@example.com' })).resolves.toBeTruthy();
+    // A different number is unaffected.
+    await expect(requestCode(h.deps, { phone: OTHER })).resolves.toBeTruthy();
+  });
+
+  it('counts a rewritten number as the same destination', async () => {
+    // Otherwise the limit is per spelling, and five requests becomes twenty.
+    const h = createHarness();
+    for (const written of ['070-123 45 67', '0701234567', '+46 70 123 45 67', '+46701234567']) {
+      await requestCode(h.deps, { phone: written });
+    }
+    await requestCode(h.deps, { phone: '070 123 4567' });
+
+    await expect(requestCode(h.deps, { phone: PHONE })).rejects.toThrow(/För många försök/i);
   });
 
   it('lets the window expire', async () => {
     const h = createHarness();
     for (let i = 0; i < MAX_REQUESTS_PER_HOUR; i += 1) {
-      await requestCode(h.deps, { email: EMAIL });
+      await requestCode(h.deps, { phone: PHONE });
     }
     h.setNow(new Date(h.now().getTime() + 61 * 60 * 1000));
-    await expect(requestCode(h.deps, { email: EMAIL })).resolves.toBeTruthy();
+    await expect(requestCode(h.deps, { phone: PHONE })).resolves.toBeTruthy();
   });
 });
 
 describe('verifying a code', () => {
   it('creates the person and their personal room in one step', async () => {
     const h = createHarness({ fixedCode: '424242' });
-    const { requestId } = await requestCode(h.deps, { email: EMAIL });
+    const { requestId } = await requestCode(h.deps, { phone: PHONE });
 
     const result = await verifyCode(h.deps, { requestId, code: '424242' });
 
     expect(result.created).toBe(true);
-    expect(result.person.email).toBe(EMAIL);
+    expect(result.person.phone).toBe(E164);
+    expect(result.person.email).toBeNull();
     expect(result.personalRoom.kind).toBe('personal');
     expect(result.session.token).toContain(result.person.id);
   });
 
   it('logs an existing person back in instead of creating a second one', async () => {
     const h = createHarness({ fixedCode: '424242' });
-    const first = await requestCode(h.deps, { email: EMAIL });
+    const first = await requestCode(h.deps, { phone: PHONE });
     const created = await verifyCode(h.deps, { requestId: first.requestId, code: '424242' });
 
-    const second = await requestCode(h.deps, { email: EMAIL });
+    const second = await requestCode(h.deps, { phone: PHONE });
     const returning = await verifyCode(h.deps, { requestId: second.requestId, code: '424242' });
 
     expect(returning.created).toBe(false);
@@ -210,9 +217,21 @@ describe('verifying a code', () => {
     expect(returning.personalRoom.id).toBe(created.personalRoom.id);
   });
 
+  it('recognises the returning person through a different spelling of their number', async () => {
+    const h = createHarness({ fixedCode: '424242' });
+    const first = await requestCode(h.deps, { phone: '070-123 45 67' });
+    const created = await verifyCode(h.deps, { requestId: first.requestId, code: '424242' });
+
+    const second = await requestCode(h.deps, { phone: '+46 70 123 45 67' });
+    const returning = await verifyCode(h.deps, { requestId: second.requestId, code: '424242' });
+
+    expect(returning.created).toBe(false);
+    expect(returning.person.id).toBe(created.person.id);
+  });
+
   it('rejects the wrong code and counts the attempt', async () => {
     const h = createHarness({ fixedCode: '424242' });
-    const { requestId } = await requestCode(h.deps, { email: EMAIL });
+    const { requestId } = await requestCode(h.deps, { phone: PHONE });
 
     await expect(verifyCode(h.deps, { requestId, code: '000000' })).rejects.toThrow(CODE_REJECTED);
     expect(h.codes.raw(requestId)?.attempts).toBe(1);
@@ -221,7 +240,7 @@ describe('verifying a code', () => {
 
   it('locks out after too many attempts', async () => {
     const h = createHarness({ fixedCode: '424242' });
-    const { requestId } = await requestCode(h.deps, { email: EMAIL });
+    const { requestId } = await requestCode(h.deps, { phone: PHONE });
 
     for (let i = 0; i < MAX_ATTEMPTS; i += 1) {
       await expect(verifyCode(h.deps, { requestId, code: '000000' })).rejects.toThrow();
@@ -234,7 +253,7 @@ describe('verifying a code', () => {
     // Otherwise the counter climbs forever on a row nobody can use, and a flood against
     // one request id is a write per guess.
     const h = createHarness({ fixedCode: '424242' });
-    const { requestId } = await requestCode(h.deps, { email: EMAIL });
+    const { requestId } = await requestCode(h.deps, { phone: PHONE });
 
     for (let i = 0; i < MAX_ATTEMPTS + 3; i += 1) {
       await expect(verifyCode(h.deps, { requestId, code: '000000' })).rejects.toThrow();
@@ -245,7 +264,7 @@ describe('verifying a code', () => {
 
   it('rejects an expired code', async () => {
     const h = createHarness({ fixedCode: '424242' });
-    const { requestId } = await requestCode(h.deps, { email: EMAIL });
+    const { requestId } = await requestCode(h.deps, { phone: PHONE });
 
     h.setNow(new Date(h.now().getTime() + 11 * 60 * 1000));
     await expect(verifyCode(h.deps, { requestId, code: '424242' })).rejects.toThrow(CODE_REJECTED);
@@ -253,7 +272,7 @@ describe('verifying a code', () => {
 
   it('refuses to reuse a code', async () => {
     const h = createHarness({ fixedCode: '424242' });
-    const { requestId } = await requestCode(h.deps, { email: EMAIL });
+    const { requestId } = await requestCode(h.deps, { phone: PHONE });
 
     await verifyCode(h.deps, { requestId, code: '424242' });
     await expect(verifyCode(h.deps, { requestId, code: '424242' })).rejects.toThrow(CODE_REJECTED);
@@ -273,14 +292,14 @@ describe('verifying a code', () => {
     // and this is the test that keeps them that way.
     const h = createHarness({ fixedCode: '424242' });
 
-    const wrongId = (await requestCode(h.deps, { email: EMAIL })).requestId;
+    const wrongId = (await requestCode(h.deps, { phone: PHONE })).requestId;
     const wrong = await failureOf(() => verifyCode(h.deps, { requestId: wrongId, code: '000000' }));
 
-    const usedId = (await requestCode(h.deps, { email: 'a@example.com' })).requestId;
+    const usedId = (await requestCode(h.deps, { phone: OTHER })).requestId;
     await verifyCode(h.deps, { requestId: usedId, code: '424242' });
     const used = await failureOf(() => verifyCode(h.deps, { requestId: usedId, code: '424242' }));
 
-    const expiredId = (await requestCode(h.deps, { email: 'b@example.com' })).requestId;
+    const expiredId = (await requestCode(h.deps, { phone: THIRD })).requestId;
     h.setNow(new Date(h.now().getTime() + 11 * 60 * 1000));
     const expired = await failureOf(() =>
       verifyCode(h.deps, { requestId: expiredId, code: '424242' }),
@@ -302,7 +321,7 @@ describe('the invited person', () => {
     h.invites.seed('invite-token-1', sharedRoom());
 
     const { requestId } = await requestCode(h.deps, {
-      email: 'jacob@example.com',
+      phone: FOURTH,
       inviteToken: 'invite-token-1',
     });
     const result = await verifyCode(h.deps, { requestId, code: '424242' });
@@ -318,7 +337,7 @@ describe('the invited person', () => {
 
   it('still signs the person in when there is no invite', async () => {
     const h = createHarness({ fixedCode: '424242' });
-    const { requestId } = await requestCode(h.deps, { email: EMAIL });
+    const { requestId } = await requestCode(h.deps, { phone: PHONE });
     const result = await verifyCode(h.deps, { requestId, code: '424242' });
 
     expect(result.joinedRoom).toBeNull();

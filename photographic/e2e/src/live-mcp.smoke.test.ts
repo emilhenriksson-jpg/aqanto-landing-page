@@ -26,7 +26,8 @@ import { describe, expect, it } from 'vitest';
 const enabled = process.env.LIVE_MCP === '1';
 const API = process.env.LIVE_MCP_URL ?? 'http://127.0.0.1:8787';
 const PUBLIC = process.env.LIVE_MCP_PUBLIC_URL ?? 'http://localhost:8787';
-const EMAIL = process.env.LIVE_MCP_EMAIL ?? 'emil@photographic.me';
+/** The seeded demo person's number. Signing in is by mobile number and nothing else. */
+const PHONE = process.env.LIVE_MCP_PHONE ?? '+46700000000';
 const LOG = process.env.LIVE_MCP_LOG ?? '/tmp/rest-demo-api.log';
 const REDIRECT_URI = 'cursor://anysphere.cursor-retrieval/oauth/callback';
 
@@ -102,7 +103,7 @@ describe.skipIf(!enabled)(`live MCP against ${API}`, () => {
       beforeBytes = 0;
     }
 
-    const requested = await postJson('/v1/signup/request', { email: EMAIL });
+    const requested = await postJson('/v1/signup/request', { phone: PHONE });
     expect(requested.response.status).toBe(200);
     const requestId = requested.body['requestId'] as string;
     const code = await readSignupCode(beforeBytes);

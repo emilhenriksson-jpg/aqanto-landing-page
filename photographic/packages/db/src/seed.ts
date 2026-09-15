@@ -6,11 +6,18 @@
  *
  * Idempotent on email: re-running against an already-seeded DB prints the existing
  * person rather than inventing a second Emil.
+ *
+ * The demo person also carries a demo mobile number, because a mobile number is the only
+ * way to sign in. Without one, the seeded account could be read by a script and never
+ * logged into — including by the live MCP smoke, whose whole point is to arrive the way a
+ * real client does. `070-000 00 00` is not a number anyone holds, so it cannot collide
+ * with a real person's.
  */
 
 import { createPool, createPostgresServices, databaseUrl } from './index.js';
 
 const DEMO_EMAIL = 'emil@photographic.me';
+const DEMO_PHONE = '+46700000000';
 
 async function main(): Promise<void> {
   const pool = createPool({ connectionString: databaseUrl() });
@@ -21,7 +28,9 @@ async function main(): Promise<void> {
   const { services } = wired;
 
   try {
-    const existing = await services.identity.findByEmail(DEMO_EMAIL);
+    const existing =
+      (await services.identity.findByPhone(DEMO_PHONE)) ??
+      (await services.identity.findByEmail(DEMO_EMAIL));
     const { person, personalRoom } = existing
       ? {
           person: existing,
@@ -29,8 +38,19 @@ async function main(): Promise<void> {
         }
       : await services.identity.register({
           email: DEMO_EMAIL,
+          phone: DEMO_PHONE,
           displayName: 'Emil',
         });
+
+    // A demo person seeded before sign-in went phone-only has no number and so no way
+    // back in. Backfilled here rather than left for someone to discover at a login prompt.
+    if (existing && !existing.phone) {
+      await pool.query('UPDATE app.person SET phone = $2, updated_at = now() WHERE id = $1', [
+        person.id,
+        DEMO_PHONE,
+      ]);
+      person.phone = DEMO_PHONE;
+    }
 
     const actor = wired.actorFor(person.id, 'api');
 
@@ -92,7 +112,8 @@ async function main(): Promise<void> {
     }
 
     console.log(`person:  ${person.id}`);
-    console.log(`email:   ${DEMO_EMAIL}`);
+    console.log(`mobil:   ${DEMO_PHONE}`);
+    console.log(`e-post:  ${DEMO_EMAIL} (kontaktuppgift, inte en väg in)`);
     console.log(`rum:     ${personalRoom.title} (${personalRoom.id})`);
   } finally {
     await wired.close();

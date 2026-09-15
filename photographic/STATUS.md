@@ -988,3 +988,111 @@ against; flagged rather than assumed working.
   `test` script rather than a bare `npx vitest run`, which skips the local
   `fileParallelism: false` config and reproduces exactly the shared-Postgres race
   other tracks already found and recorded above).
+
+## Telefonnummer som enda väg in — email out of signup and login
+
+- **signup design agent** — a mobile number is now the only way into signup and login.
+  No email field, no channel picker, no "or use an address instead", and no copy that
+  reads as an offer of one. Email was a door that does not open: both channels default
+  to the `log` sender, `RESEND_API_KEY` is not set and Emil has decided it will not be,
+  so the field accepted an address, answered `200`, and left the person waiting for a
+  code that was never on its way.
+
+  **Nothing was removed from the domain.** `SignupChannel` still has `email`,
+  `ResendEmailSender` still exists and is still tested end to end over a real socket,
+  `createCodeSenderFromEnv`'s provider selection is untouched, and `verifyCode` still
+  resolves a person by address for a code whose channel is `email`. What changed is
+  what the interface offers. Re-offering email later means letting `requestCode` take an
+  address again — one function, not a rebuild, which is what
+  `packages/delivery/src/integration.test.ts` now exists to keep true: it drives
+  `ChannelCodeSender` through the port instead of through sign-up and still asserts that
+  the code arriving in the mail is the code that verifies.
+
+  **The check that came before the change: no real account was registered by email.**
+  Asked against the live Supabase project rather than reasoned about, because removing
+  email from login would lock such a person out permanently and that is a far worse bug
+  than the one being fixed. `app.person` held four rows at 13:56 and five when re-checked
+  at the end of the work, every one of them with an address and no phone — and every one
+  of them an `@photographic.test` proof account created the same day by the deploy track's
+  own live verification runs (`deploy-proof-…`, `compass-proof-…`, `real-host-…`,
+  `emil-demo-…`), confirmed against that agent's transcript. The count is rising purely
+  from those runs. `app.credential` is empty,
+  `select count(*) … where email not like '%@photographic.test'` is **0**,
+  `emil.henriksson@me.com` has no account, and `.test` is a reserved TLD that cannot
+  receive mail — so none of these is a person and none of them is locked out of anything.
+  **Emil himself has no account yet**, which is the other half of why this was safe to
+  ship: the first real one will be made with a number.
+
+  **The hidden path was the real bug.** `POST /v1/signup/request` still accepted
+  `{"email":…}` after the field came off the screen — a saved link, an old client or a
+  leftover `curl` would have got a request id for a code delivered nowhere, the same dead
+  end as the field but harder to find. It now answers `400` with
+  `Koden kommer med SMS. Ange ditt mobilnummer.` and sends nothing, and it refuses even
+  when a valid number rides along in the same body, because answering the number would
+  tell the caller that the address worked. `requestCode` is reachable from exactly one
+  handler, which is checked by grep in the PR and by two tests in
+  `packages/connect/src/routes.test.ts`. No URL parameter prefills sign-up: `main.tsx`
+  reads `/invite/<token>` and `?auth_request=` and nothing else.
+
+  **Two things confirmed against the running system rather than inferred.** Probed
+  `https://mcp.photographic.space/v1/signup/request` before this branch is deployed:
+
+  - `{"email":"…"}` answers `200` with a request id and `"channel":"email"`. That is the
+    hidden path, on production, today.
+  - `{"phone":"070-123 45 67"}` answers `200` — and the old `normalisePhone` stores that
+    as **`+0701234567`**, because it prefixed `+` to a national number without ever
+    reading the trunk zero. That is not an E.164 number and 46elks could not have
+    delivered to it, so the SMS path was already broken for the way a Swede writes their
+    own number. Worse, `+46 70 123 45 67` stored `+46701234567`, so the same person
+    signing up from two tabs became two accounts with two personal rooms. Fixed by the
+    same normalisation as everything else here.
+
+  **Swedish numbers, read the way people write them.** `packages/connect/src/phone.ts`
+  is a new dependency-free module — the one piece of `@photographic/connect` the browser
+  bundle loads, via a `./phone` subpath export — so the field and the endpoint agree on
+  what a valid number is instead of drifting into two suffix lists. `070-123 45 67`,
+  `0701234567`, `+46 70 123 45 67` and `+46701234567` all normalise to `+46701234567`,
+  as do `0046…`, a bare `46…`, a trunk zero after the country code (`+46 (0)70…`), en
+  dashes, non-breaking spaces, dots and brackets. That normalisation is what makes the
+  rate limit per person rather than per spelling, and what makes a returning person one
+  account rather than four.
+
+  The series are PTS's, from `nrplansammanstallning` 2026-05-18: 070, 072, 073, 076, 079,
+  and 078 A where A is 0–2 or 4–9 from 1 October 2026. `074` (paging) and `0783` (railway)
+  are refused because they cannot receive an SMS, and `0710` mobile broadband with it.
+  078 is accepted two weeks before it opens on purpose: a number that does not exist yet
+  fails at the SMS gateway, and rejecting one that does would lock its owner out.
+
+  Seven distinct messages instead of "ogiltigt telefonnummer", because the honest cases
+  are the common ones — a landline is told it is a landline rather than that it is one
+  digit short, and someone who types an address is told the code comes by SMS. **The
+  field is never rewritten as the person types.** Their own number, their own spacing;
+  the check runs on submit.
+
+  The masked hint on the code screen is now `070-••• 45 67` rather than `***4567` —
+  enough to recognise your own number, not enough to read over a shoulder.
+
+  Coverage: `packages/connect/src/phone.test.ts` (new, 12 — every accepted shape, every
+  allocated series, the three 07 ranges that cannot receive an SMS, and that it never
+  throws), `signup.test.ts` rewritten onto numbers with three new properties (SMS is the
+  only channel used, a rewritten number is the same rate-limit destination, a returning
+  person is recognised through a different spelling), `routes.test.ts` +2 (an address
+  refused, and refused even beside a valid number), `apps/rest/src/app.test.ts` +2 at the
+  HTTP boundary, `apps/onboarding/src/App.test.tsx` +6 (one field only, the four shapes,
+  the input left alone, a landline explained, an address told about SMS, "Använd ett annat
+  nummer"), `packages/delivery/src/integration.test.ts` +1 (sign-up cannot be made to send
+  mail). Monorepo typecheck clean; every package suite green plus `e2e` 62 on
+  `HARNESS=memory` and 62 on `HARNESS=postgres`; `apps/onboarding` builds, with the phone
+  module in the bundle and no `node:crypto` pulled in behind it.
+
+  Checked on a running screen, not only in tests: `apps/rest` serving the real
+  `apps/onboarding` build at `/login` the way the image does, walked in a browser — an
+  address, then a landline, then `073-456 78 90`, then `+46 73 456 78 90` reaching the same
+  `073-••• 78 90`. Nothing was deployed; `main` still serves the old bundle and this
+  branch is not on it.
+
+  **Two things left deliberately alone.** Room invites still carry a `channel: 'email'`
+  destination — an invitation is a link somebody shares, not a code that signs anyone in,
+  and it is not part of signup or login. And `apps/web` was not touched at all: it is not
+  served in production yet and the deploy track is fixing that separately, so nothing here
+  changes SPA mounting or server routing.

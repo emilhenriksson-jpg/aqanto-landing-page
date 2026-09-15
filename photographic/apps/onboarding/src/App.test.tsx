@@ -23,31 +23,97 @@ function connected(overrides: Partial<{ degraded: boolean }> = {}) {
   ];
 }
 
+const PHONE = '070-123 45 67';
+
 describe('signing up', () => {
   it('asks for one field and no password', async () => {
     render(<App api={new FakeApi()} />);
 
-    expect(screen.getByLabelText('E-post eller mobilnummer')).toBeInTheDocument();
+    expect(screen.getByLabelText('Mobilnummer')).toBeInTheDocument();
     expect(document.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it('offers a mobile number and nothing else', async () => {
+    render(<App api={new FakeApi()} />);
+
+    // No second field, no channel picker, and no copy that reads as an offer of one:
+    // email is configured to reach nobody, so naming it here would be a door drawn on a
+    // wall. The field is a `tel` so a phone puts up a number pad.
+    expect(document.querySelectorAll('input')).toHaveLength(1);
+    expect(screen.getByLabelText('Mobilnummer')).toHaveAttribute('type', 'tel');
+    expect(document.body.textContent).not.toMatch(/e-post|mejl|adress/i);
+  });
+
+  it('reads the same number whichever way it is written', async () => {
+    const written = ['070-123 45 67', '0701234567', '+46 70 123 45 67', '+46701234567'];
+
+    for (const number of written) {
+      const user = userEvent.setup();
+      const api = new FakeApi();
+      const { unmount } = render(<App api={api} />);
+
+      await user.type(screen.getByLabelText('Mobilnummer'), number);
+      await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
+
+      await screen.findByLabelText('Kod');
+      expect(api.requested).toEqual([{ phone: '+46701234567' }]);
+      unmount();
+    }
+  });
+
+  it('leaves what the person typed alone', async () => {
+    const user = userEvent.setup();
+    render(<App api={new FakeApi()} />);
+
+    // Their own number, their own spacing. Reformatting it under their fingers is the
+    // form arguing with them about something they know better than we do.
+    const field = screen.getByLabelText('Mobilnummer');
+    await user.type(field, '070-123 45 67');
+    expect(field).toHaveValue('070-123 45 67');
+  });
+
+  it('says what is wrong rather than just refusing', async () => {
+    const user = userEvent.setup();
+    render(<App api={new FakeApi()} />);
+
+    await user.type(screen.getByLabelText('Mobilnummer'), '08-123 45 67');
+    await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/börjar på 070/);
+    // Still on the first screen, with the number intact to correct.
+    expect(screen.getByLabelText('Mobilnummer')).toHaveValue('08-123 45 67');
+  });
+
+  it('tells someone who types an address that the code comes by SMS', async () => {
+    const user = userEvent.setup();
+    const api = new FakeApi();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText('Mobilnummer'), 'emil@example.com');
+    await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/SMS/);
+    // And no request went out, so nothing is waiting on a code that cannot arrive.
+    expect(api.requested).toEqual([]);
   });
 
   it('shows the masked destination and never the code', async () => {
     const user = userEvent.setup();
     render(<App api={new FakeApi()} />);
 
-    await user.type(screen.getByLabelText('E-post eller mobilnummer'), 'emil@example.com');
+    await user.type(screen.getByLabelText('Mobilnummer'), PHONE);
     await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
 
-    expect(await screen.findByText(/e\*\*\*@example\.com/)).toBeInTheDocument();
+    expect(await screen.findByText(/070-••• 45 67/)).toBeInTheDocument();
     expect(screen.queryByText(/424242/)).toBeNull();
-    expect(document.body.textContent).not.toContain('emil@example.com');
+    expect(document.body.textContent).not.toContain('+46701234567');
   });
 
   it('goes straight to connecting rather than to a dashboard', async () => {
     const user = userEvent.setup();
     render(<App api={new FakeApi()} />);
 
-    await user.type(screen.getByLabelText('E-post eller mobilnummer'), 'emil@example.com');
+    await user.type(screen.getByLabelText('Mobilnummer'), PHONE);
     await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
     await user.type(await screen.findByLabelText('Kod'), '424242');
     await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
@@ -59,13 +125,24 @@ describe('signing up', () => {
     const user = userEvent.setup();
     render(<App api={new FakeApi()} />);
 
-    await user.type(screen.getByLabelText('E-post eller mobilnummer'), 'emil@example.com');
+    await user.type(screen.getByLabelText('Mobilnummer'), PHONE);
     await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
     await user.type(await screen.findByLabelText('Kod'), '000000');
     await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Fel kod.');
     expect(screen.getByLabelText('Kod')).toBeInTheDocument();
+  });
+
+  it('offers another number, not another address', async () => {
+    const user = userEvent.setup();
+    render(<App api={new FakeApi()} />);
+
+    await user.type(screen.getByLabelText('Mobilnummer'), PHONE);
+    await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
+    await user.click(await screen.findByRole('button', { name: 'Använd ett annat nummer' }));
+
+    expect(screen.getByLabelText('Mobilnummer')).toBeInTheDocument();
   });
 });
 
@@ -82,7 +159,7 @@ describe('the invite landing', () => {
     expect(await screen.findByRole('heading', { name: 'Buyersclub Ledning' })).toBeInTheDocument();
     expect(screen.getByText(/skjuta förvärvet till Q3/)).toBeInTheDocument();
     // No form field until they choose to join.
-    expect(screen.queryByLabelText('E-post eller mobilnummer')).toBeNull();
+    expect(screen.queryByLabelText('Mobilnummer')).toBeNull();
   });
 
   it('carries the invite token into the signup request', async () => {
@@ -91,7 +168,7 @@ describe('the invite landing', () => {
     render(<App api={api} initial={{ name: 'invite', token: 'tok' }} />);
 
     await user.click(await screen.findByRole('button', { name: 'Gå med' }));
-    await user.type(screen.getByLabelText('E-post eller mobilnummer'), 'jacob@example.com');
+    await user.type(screen.getByLabelText('Mobilnummer'), '072-987 65 43');
     await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
 
     expect(api.requested[0]).toMatchObject({ inviteToken: 'tok' });
@@ -286,7 +363,7 @@ describe('approving an AI', () => {
 
   /** Signs in, which is what the consent screen waits for before showing anything. */
   const signIn = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.type(await screen.findByLabelText('E-post eller mobilnummer'), 'emil@example.com');
+    await user.type(await screen.findByLabelText('Mobilnummer'), PHONE);
     await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
     await user.type(await screen.findByLabelText('Kod'), '424242');
     await user.click(screen.getByRole('button', { name: 'Fortsätt' }));
@@ -298,7 +375,7 @@ describe('approving an AI', () => {
     // Naming the client first, because a person who arrived by redirect needs to know
     // who sent them before they are asked to type an address.
     expect(await screen.findByText(/Claude Desktop/)).toBeInTheDocument();
-    expect(screen.getByLabelText('E-post eller mobilnummer')).toBeInTheDocument();
+    expect(screen.getByLabelText('Mobilnummer')).toBeInTheDocument();
   });
 
   it('spells out each capability in words a person can refuse', async () => {
@@ -364,6 +441,6 @@ describe('approving an AI', () => {
       await screen.findByRole('heading', { name: 'Förfrågan gäller inte längre' }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Ingen åtkomst gavs/)).toBeInTheDocument();
-    expect(screen.queryByLabelText('E-post eller mobilnummer')).toBeNull();
+    expect(screen.queryByLabelText('Mobilnummer')).toBeNull();
   });
 });

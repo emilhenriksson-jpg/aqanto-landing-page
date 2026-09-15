@@ -69,11 +69,15 @@ export interface Harness {
 
   actorFor(person: Person, agentClient?: AgentClient): Actor;
   actorForEmail(email: string, agentClient?: AgentClient): Promise<Actor>;
+  /** Signing up is by mobile number, so the person a journey creates is found by one. */
+  actorForPhone(phone: string, agentClient?: AgentClient): Promise<Actor>;
   registerPerson(email: string, displayName?: string): Promise<{ person: Person; personalRoom: Room }>;
   personByEmail(email: string): Promise<Person>;
+  personByPhone(phone: string): Promise<Person>;
   roomByTitle(actor: Actor, title: string): Promise<Room>;
 
   tokenFor(email: string): Promise<string>;
+  tokenForPhone(phone: string): Promise<string>;
   connectMcpClient(token: string, agentClient?: AgentClient): Promise<{ instructions: string }>;
 
   tokenFromUrl(url: string): string;
@@ -94,7 +98,7 @@ export interface Harness {
 }
 
 interface ConnectSurface {
-  requestCode(input: { email?: string; phone?: string; inviteToken?: string }): Promise<{
+  requestCode(input: { phone: string; inviteToken?: string }): Promise<{
     requestId: string;
     destinationHint: string;
   }>;
@@ -323,6 +327,21 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     return person;
   };
 
+  const personByPhone = async (phone: string): Promise<Person> => {
+    const person = await services.identity.findByPhone(phone);
+    if (!person) throw new Error(`Ingen person med numret ${phone}`);
+    return person;
+  };
+
+  const tokenForPerson = async (person: Person): Promise<string> => {
+    for (const [token, personId] of tokens) {
+      if (personId === person.id) return token;
+    }
+    const token = `token-${person.id}`;
+    tokens.set(token, person.id);
+    return token;
+  };
+
   /**
    * The last invite URL created through `services.invites.create`, tracked by
    * wrapping the method rather than reaching into either backend's storage. Neither
@@ -392,10 +411,14 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     actorForEmail: async (email, agentClient = 'claude-desktop') =>
       backend.actorFor((await personByEmail(email)).id, agentClient),
 
+    actorForPhone: async (phone, agentClient = 'claude-desktop') =>
+      backend.actorFor((await personByPhone(phone)).id, agentClient),
+
     registerPerson: (email, displayName) =>
       services.identity.register({ email, ...(displayName ? { displayName } : {}) }),
 
     personByEmail,
+    personByPhone,
 
     roomByTitle: async (actor, title) => {
       const room = await services.rooms.resolveByName(actor, title);
@@ -403,15 +426,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       return room;
     },
 
-    tokenFor: async (email) => {
-      const person = await personByEmail(email);
-      for (const [token, personId] of tokens) {
-        if (personId === person.id) return token;
-      }
-      const token = `token-${person.id}`;
-      tokens.set(token, person.id);
-      return token;
-    },
+    tokenFor: async (email) => tokenForPerson(await personByEmail(email)),
+
+    tokenForPhone: async (phone) => tokenForPerson(await personByPhone(phone)),
 
     /**
      * An MCP handshake, as far as this suite is concerned.

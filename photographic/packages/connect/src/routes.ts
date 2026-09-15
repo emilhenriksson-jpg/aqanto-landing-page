@@ -12,7 +12,7 @@ import type { ClientId } from './clients.js';
 import type { ConnectDeps } from './deps.js';
 import { detect, orderClients } from './detect.js';
 import { connectHandoffUrl, qrDataUrl } from './qr.js';
-import { requestCode, verifyCode } from './signup.js';
+import { requestCode, SMS_ONLY, verifyCode } from './signup.js';
 import type { VerificationDeps, VerificationHandle, VerificationState } from './verification.js';
 import { pollVerification, startVerification } from './verification.js';
 
@@ -52,18 +52,26 @@ function str(value: unknown): string | undefined {
 // POST /v1/signup/request
 // ---------------------------------------------------------------------------
 
+/**
+ * The only door in, and the only place that says so.
+ *
+ * An `email` in the body is refused rather than dropped. The form no longer sends one,
+ * but a saved link, an old client or a curl left over from before would otherwise get a
+ * `200` and a request id for a code that is never delivered anywhere — the same silent
+ * dead end as offering the field, only harder to find.
+ */
 export async function handleSignupRequest(
   deps: ConnectDeps,
   req: HandlerRequest,
 ): Promise<HandlerResponse> {
   try {
     const body = asRecord(req.body);
-    const input: Parameters<typeof requestCode>[1] = {};
-    const email = str(body.email);
-    const phone = str(body.phone);
+    if (str(body.email)) {
+      return { status: 400, body: { error: 'validation', message: SMS_ONLY } };
+    }
+
+    const input: Parameters<typeof requestCode>[1] = { phone: str(body.phone) ?? '' };
     const inviteToken = str(body.inviteToken);
-    if (email) input.email = email;
-    if (phone) input.phone = phone;
     if (inviteToken) input.inviteToken = inviteToken;
 
     return ok(await requestCode(deps, input));

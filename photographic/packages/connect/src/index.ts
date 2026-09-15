@@ -2,6 +2,7 @@ export * from './install-links.js';
 export * from './clients.js';
 export * from './detect.js';
 export * from './deps.js';
+export * from './phone.js';
 export * from './signup.js';
 export * from './verification.js';
 export * from './qr.js';

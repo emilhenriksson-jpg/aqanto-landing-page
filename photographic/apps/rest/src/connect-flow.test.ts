@@ -29,6 +29,11 @@ const WEB = 'http://web.test';
 const REDIRECT_URI = 'cursor://anysphere.cursor-retrieval/oauth/callback';
 
 const base64url = (value: Buffer) => value.toString('base64url');
+
+/** A distinct Swedish mobile number per sign-up, so two runs are two people. */
+const randomMobile = () =>
+  `+4670${String(randomBytes(4).readUInt32BE(0) % 10_000_000).padStart(7, '0')}`;
+
 const pkce = () => {
   const verifier = base64url(randomBytes(32));
   return { verifier, challenge: base64url(createHash('sha256').update(verifier).digest()) };
@@ -97,9 +102,7 @@ async function harness() {
 
   /** Signs a person up and returns the session token the browser keeps. */
   const signIn = async () => {
-    const requested = await postJson('/v1/signup/request', {
-      email: `flow-${randomBytes(6).toString('hex')}@example.com`,
-    });
+    const requested = await postJson('/v1/signup/request', { phone: randomMobile() });
     const verified = await postJson('/v1/signup/verify', {
       requestId: requested.body['requestId'],
       code: codes.at(-1),

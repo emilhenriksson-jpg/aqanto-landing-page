@@ -16,6 +16,10 @@ export type { ClientDescriptor, ClientId, ConnectPayload, VerificationHandle, Ve
 
 export interface RequestCodeResponse {
   requestId: string;
+  /**
+   * Always `sms`. The union is the wire shape, not an offer: the domain still knows how
+   * to send by email and the endpoint no longer accepts an address for one.
+   */
   channel: 'email' | 'sms';
   destinationHint: string;
   expiresAt: string;
@@ -58,7 +62,8 @@ export interface AuthorizationRequest {
 }
 
 export interface Api {
-  requestCode(input: { email?: string; phone?: string; inviteToken?: string }): Promise<RequestCodeResponse>;
+  /** `phone` is E.164 by the time it gets here; the screen normalises what was typed. */
+  requestCode(input: { phone: string; inviteToken?: string }): Promise<RequestCodeResponse>;
   verifyCode(input: { requestId: string; code: string }): Promise<VerifyCodeResponse>;
   connect(): Promise<ConnectPayload>;
   peekInvite(token: string): Promise<InvitePreview>;
