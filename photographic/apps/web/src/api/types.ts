@@ -130,6 +130,24 @@ export interface TrashEntryDto {
   daysRemaining: number;
 }
 
+/**
+ * GET /v1/search — "Fråga mitt minne". One shape for a memory, a document chunk or a
+ * calendar entry; `occurredAt`/`shortId`/`documentId`/`seq`/`action` are only set for
+ * the kind they belong to.
+ */
+export interface AskHitDto {
+  kind: 'memory' | 'document' | 'event';
+  roomId: string;
+  roomTitle: string;
+  text: string;
+  score: number;
+  occurredAt: string | null;
+  shortId: string | null;
+  documentId: string | null;
+  seq: number | null;
+  action: string | null;
+}
+
 /** GET /v1/history — sparse change log, not an audit dump. */
 export interface HistoryEntryDto {
   seq: number;
