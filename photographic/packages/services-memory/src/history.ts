@@ -102,6 +102,11 @@ export const ACTION_OF: Record<string, HistoryAction> = {
   'room.created': 'room_created',
   'member.joined': 'member_joined',
   'member.left': 'member_left',
+  // Kept identical to `PgHistory`'s copy on purpose: a person must see the same feed
+  // whichever implementation is serving them, and an emergency sign-in is the last thing
+  // that should be visible in one and invisible in the other.
+  'session.break_glass_minted': 'break_glass_minted',
+  'session.break_glass_used': 'break_glass_used',
 };
 
 export const DEFAULT_HISTORY_LIMIT = 100;

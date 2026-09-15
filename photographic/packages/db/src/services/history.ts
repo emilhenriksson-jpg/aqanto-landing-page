@@ -49,6 +49,11 @@ const ACTION_OF: Record<string, HistoryAction> = {
   'room.created': 'room_created',
   'member.joined': 'member_joined',
   'member.left': 'member_left',
+  // The emergency sign-in. Listed here and in `MemoryHistory`'s copy of this map, which
+  // has to stay identical: two implementations of the same feed disagreeing about what a
+  // person can see is the drift the acceptance suite exists to catch.
+  'session.break_glass_minted': 'break_glass_minted',
+  'session.break_glass_used': 'break_glass_used',
 };
 
 export const DEFAULT_HISTORY_LIMIT = 100;

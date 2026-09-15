@@ -423,13 +423,31 @@ const ACTION_TEXT: Record<HistoryEntry['action'], string> = {
   room_created: 'skapade rummet',
   member_joined: 'gick med',
   member_left: 'lämnade',
+  break_glass_minted: 'nödinloggning skapad på servern',
+  break_glass_used: 'nödinloggning använd för att logga in',
 };
+
+/**
+ * Actions that are a statement rather than something somebody did.
+ *
+ * The two emergency sign-in events have no actor a person would recognise — the mint is a
+ * script on the machine — so prefixing `who` would render "api nödinloggning skapad".
+ * Mirrors the same distinction in `apps/web`'s history mapping; the wording is deliberately
+ * identical, because a person may read the same event in both places.
+ */
+const STANDALONE_ACTIONS: ReadonlySet<HistoryEntry['action']> = new Set([
+  'break_glass_minted',
+  'break_glass_used',
+]);
 
 function historyLine(entry: HistoryEntry): string {
   const who = entry.agentClient ?? entry.actorName ?? 'okänd';
   const id = entry.shortId ? ` ${entry.shortId}` : '';
   const approved = entry.wasApproved ? ', godkänt' : '';
-  const head = `${date(entry.occurredAt)} · ${who} ${ACTION_TEXT[entry.action]}${id}${approved}`;
+  const what = STANDALONE_ACTIONS.has(entry.action)
+    ? ACTION_TEXT[entry.action]
+    : `${who} ${ACTION_TEXT[entry.action]}`;
+  const head = `${date(entry.occurredAt)} · ${what}${id}${approved}`;
 
   // Not every action has a text. `room_created` and `member_joined` are the whole event,
   // and a trailing colon with nothing after it reads as a memory whose contents failed to

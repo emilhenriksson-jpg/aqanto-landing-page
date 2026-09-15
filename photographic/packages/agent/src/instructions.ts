@@ -370,6 +370,10 @@ const RECENT_LABEL: Partial<Record<HistoryAction, string>> = {
   room_created: 'skapade rummet',
   member_joined: 'gick med',
   member_left: 'lämnade',
+  // Labelled rather than left out, because an unlabelled action falls through to its enum
+  // name and `break_glass_minted` is not something to show a person through a model.
+  break_glass_minted: 'nödinloggning skapad på servern',
+  break_glass_used: 'nödinloggning använd för att logga in',
 };
 
 const RECENT_PREAMBLE = `Var ni var senast, utan att du behöver fråga (list_history ger hela historiken):`;
