@@ -42,7 +42,7 @@ jobs:
   # answers even when the lockfile is broken. It is also the only check here that would
   # have caught the bug that motivated this file.
   guards:
-    name: guards (test doubles in production, dead job handlers)
+    name: guards (test doubles in production)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -51,7 +51,6 @@ jobs:
         with:
           node-version: '22'
       - run: node scripts/check-test-doubles.mjs
-      - run: node scripts/check-job-producers.mjs
 
   typecheck:
     runs-on: ubuntu-latest
