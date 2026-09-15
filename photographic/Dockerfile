@@ -71,7 +71,15 @@ RUN pnpm --filter @photographic/onboarding... run build
 # `text/html` while the calendar was not served at all, and a nonsense path returned 200
 # too. `mountWebApp` now only serves a shell for a route the app actually declares, so a
 # missing build is a 404 rather than a plausible-looking wrong page.
-RUN pnpm --filter @photographic/web... run build
+#
+# `VITE_USE_DEMO=0` is not a tuning flag, it is the difference between the product and a
+# brochure. `isDemoMode()` returns true unless this is exactly `'0'`, and Vite bakes it in
+# at build time — so without it the deployed app renders `demo.ts` fixtures and never
+# calls the API. Every screen then looks right and belongs to nobody: `/kompass` showed
+# six principles with one marked "Din egen formulering (p-cmp1)" on an account that had
+# never set one. That is the same silent-success shape as the catch-all above, one layer
+# up, and it survived the same way — by looking like a working page.
+RUN VITE_USE_DEMO=0 pnpm --filter @photographic/web... run build
 
 # Fail the build rather than the first boot if a workspace package cannot resolve its
 # own dependencies. This is the exact failure the manifest list caused, and it cost a
