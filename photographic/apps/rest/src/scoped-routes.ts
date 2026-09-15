@@ -90,19 +90,50 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   // Creating a proposal, not answering one. This is the queue's entrance and a model is
   // meant to use it; `POST /memory/proposals/:id` is the exit and is first-party only.
   ['POST', '/memory/proposals', SCOPE_MEMORY_WRITE],
+
+  /**
+   * Importing what another system remembers. Both were outside the scope model entirely.
+   *
+   * `scope.test.ts` exempted them as part of "the same first-run path" as sign-up, which was
+   * false for both: `app.ts` puts `/v1/import` and `/v1/import/*` behind `authenticate`, and
+   * the commit handler calls `ingest.propose` once per parsed candidate. So a token holding
+   * exactly `DEFAULT_SCOPE` — the read-only connection a client gets when it asks for
+   * nothing — was correctly refused on `POST /memory` and got a 201 here, with proposals
+   * queued in somebody's Godkänn queue.
+   *
+   * Nothing was ever saved without approval, so the containment held. What a read-only
+   * connection gained was the ability to fill the queue with text of its choosing, and this
+   * file's own reasoning says why that matters: a queue people learn to clear without
+   * reading is what makes every other safeguard here decorative.
+   *
+   * `preview` reads nothing and writes nothing, but it needs an actor and parses up to
+   * 100 000 characters, so it carries the read scope rather than none.
+   */
+  ['POST', '/import', SCOPE_MEMORY_WRITE],
+  ['POST', '/import/preview', SCOPE_MEMORY_READ],
+
+  // Registering and polling a connect verification. Authenticated all along, and outside
+  // the table for the same wrong reason as import. Both are about the caller's own session
+  // rather than about memory, so the weakest scope every client holds is the right bar.
+  ['POST', '/connect/verify', SCOPE_PROFILE_READ],
+  ['POST', '/connect/status', SCOPE_PROFILE_READ],
+
   ['PATCH', '/memory/:shortId', SCOPE_MEMORY_WRITE],
   ['DELETE', '/memory/:shortId', SCOPE_MEMORY_WRITE],
   ['POST', '/memory/undo', SCOPE_MEMORY_WRITE],
   ['POST', '/trash/:shortId/restore', SCOPE_MEMORY_WRITE],
 
-  // Sharing and moving change which room a memory lives in, which changes who can read
-  // it. That is a write, and the one with the widest consequences on this list — a
-  // read-only connection must not be able to move a private memory into a shared room.
+  /**
+   * Asking to share or move a memory. Both queue a proposal and neither can place anything.
+   *
+   * They stay on the scope side rather than joining `HUMAN_DECISION_ROUTES` on purpose: a
+   * model asking "ska jag lägga det här i Buyersclub Ledning?" is the whole reason the
+   * approval queue exists, and the queue is useless if automation cannot reach its
+   * entrance. What moved is the *yes* — see `placementSchema`, which no longer accepts a
+   * `confirmed` flag, so the answer is only ever given by the first-party route below.
+   */
   ['POST', '/memory/:shortId/share', SCOPE_MEMORY_WRITE],
   ['POST', '/memory/:shortId/move', SCOPE_MEMORY_WRITE],
-
-  // Settling a disagreement supersedes one of the two statements, so it edits memory.
-  ['POST', '/memory/disputes/resolve', SCOPE_MEMORY_WRITE],
 
   // Emptying the trash early, ahead of the thirty days. The only route here that
   // destroys something unrecoverably, so it carries the write scope like any other
@@ -174,17 +205,23 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
 ] as const;
 
 /**
- * Routes only the person's own browser session may call.
+ * The decisions only a person may make.
  *
- * Same list-in-one-place reasoning as above, for the opposite rule: these are guarded by
- * *who* is calling rather than by what their token may do.
+ * A class rather than a handful of routes, because that is what went wrong: the rule was
+ * applied to three of these and not to the other two, and each omission looked defensible on
+ * its own. Answering a proposal, settling a dispute, exporting a memory and deleting an
+ * account are the same kind of act — a judgement the product promises a human makes — and
+ * the only thing they need in common is that no OAuth scope can reach them. A scope cannot,
+ * by construction: whatever scope would authorise one of these is held by every client that
+ * holds it, so the first thing a compromised or over-scoped token would do is exactly this.
+ *
+ * `scope.test.ts` enumerates this list against the live route table and against a
+ * fully-scoped token, so a new decision route added to `SCOPED_ROUTES` instead of here fails
+ * a test rather than shipping.
  */
-export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
-  ['PATCH', '/clients/:clientId'],
-  ['DELETE', '/clients/:clientId'],
-
+export const HUMAN_DECISION_ROUTES: readonly ScopedRoute[] = [
   /**
-   * Answering a proposal.
+   * Answering a proposal, which is the yes the whole write path funnels into.
    *
    * The Godkänn queue exists so that a *person* decides what enters their memory, and
    * this route is where that decision is recorded. It used to require `memory.write`,
@@ -193,10 +230,10 @@ export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
    * live deploy: a model's own access token approved its own `update_compass` proposal
    * and the item landed.
    *
-   * That no shipping client does this is a fact about today's clients, not a property
-   * of the system. Export and deletion are already first-party only on exactly this
-   * reasoning, and approving a write into someone's memory is at least as consequential
-   * as reading it out.
+   * It is now also the *only* way a memory reaches a room it was not written into.
+   * `share` and `move` used to accept a `confirmed` boolean that placed immediately, so a
+   * caller supplied its own claim that a human had agreed; that field is gone, and this
+   * route is what replaced it.
    *
    * Costs nothing legitimate: the web app answers proposals with the person's session
    * token (`apps/web/src/api/client.ts`), which is what `firstPartyOnly` requires, and
@@ -205,13 +242,24 @@ export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
   ['POST', '/memory/proposals/:id'],
 
   /**
+   * Settling a dispute, which is the same decision wearing different clothes.
+   *
+   * `trust-and-permissions.md` 2.2 says a contradiction between two members is resolved
+   * "aldrig av en modell, och aldrig av ett MCP-anrop", and there is deliberately no MCP
+   * tool for it. But the route only required `memory.write`, so the absence of a tool was
+   * the whole defence — and a token talking to the REST API directly does not need a tool.
+   * Resolving supersedes one of two people's statements about the same thing, on behalf of
+   * whoever wrote the losing one. That is not something a scope can be trusted with.
+   */
+  ['POST', '/memory/disputes/resolve'],
+
+  /**
    * Export and deletion.
    *
-   * No scope is the right key for the same reason it is for client management, only
-   * more so. A scope that let a client export the person's entire memory would be held
-   * by every client holding it — so connecting one read-only AI would hand a full copy
-   * of twelve years to whatever else was connected. And "an AI deleted my account" is
-   * not a sentence this product can ever produce.
+   * A scope that let a client export the person's entire memory would be held by every
+   * client holding it — so connecting one read-only AI would hand a full copy of twelve
+   * years to whatever else was connected. And "an AI deleted my account" is not a sentence
+   * this product can ever produce.
    *
    * `GET /export/download/:token` is deliberately absent: it is mounted outside the
    * authenticated group and carries its own signed credential, because the archive is
@@ -224,4 +272,20 @@ export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
   ['GET', '/account/deletion'],
   ['POST', '/account/deletion'],
   ['DELETE', '/account/deletion'],
+] as const;
+
+/**
+ * Routes only the person's own browser session may call.
+ *
+ * Same list-in-one-place reasoning as `SCOPED_ROUTES`, for the opposite rule: these are
+ * guarded by *who* is calling rather than by what their token may do.
+ *
+ * Two groups. Managing the AI clients themselves, where no scope should let one client
+ * rename or disconnect another — the first thing a compromised AI would do is revoke the
+ * others. And `HUMAN_DECISION_ROUTES`, for the reasons stated there.
+ */
+export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
+  ['PATCH', '/clients/:clientId'],
+  ['DELETE', '/clients/:clientId'],
+  ...HUMAN_DECISION_ROUTES,
 ] as const;

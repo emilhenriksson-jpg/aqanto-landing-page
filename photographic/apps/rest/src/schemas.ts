@@ -104,17 +104,24 @@ export const updateSchema = roomRef.and(
 /**
  * Sharing or moving a memory into another room.
  *
- * `confirmed` is the person saying yes, in the app. It is the only thing that turns a
- * share into a write rather than a proposal, which is why it is a separate field from
- * `explicit` on a save: one is a claim about what somebody said, and this is a claim that
- * somebody pressed something.
+ * There is deliberately no `confirmed` here. It used to be an optional boolean the caller
+ * supplied, and `confirmed: true` placed the memory immediately instead of queueing a
+ * proposal — on a route whose only requirement is `memory.write`, which every connected
+ * model holds. So a model reading a poisoned document, or anyone with a stolen token,
+ * could copy private material into a shared room with nobody approving it.
+ *
+ * `.strict()` rather than zod's default of dropping unknown keys: a caller still sending
+ * `confirmed: true` is asking for something this endpoint will not do, and answering 400
+ * says so instead of quietly doing something else. An old client learns; an attacker
+ * learns nothing it could not have learned by reading the 202.
  */
-export const placementSchema = z.object({
-  toRoomId: uuid,
-  fromRoomId: uuid.optional(),
-  confirmed: z.boolean().optional(),
-  motivation: motivationText,
-});
+export const placementSchema = z
+  .object({
+    toRoomId: uuid,
+    fromRoomId: uuid.optional(),
+    motivation: motivationText,
+  })
+  .strict();
 
 export const resolveDisputeSchema = z.object({
   winnerShortId: shortId,

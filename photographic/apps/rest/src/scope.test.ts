@@ -15,12 +15,19 @@
 import { FakeLlm } from '@photographic/core/testing';
 import { createMemoryServices } from '@photographic/services-memory';
 import type { PersonId, Services } from '@photographic/core';
+import type { ConnectDeps } from '@photographic/connect';
+import {
+  MemoryCodeSender,
+  MemoryCodeStore,
+  MemorySessionIssuer,
+} from '@photographic/connect/testing';
 import {
   DEFAULT_SCOPE,
   SCOPE_MEMORY_READ,
   SCOPE_MEMORY_WRITE,
   SCOPE_PROFILE_READ,
   SCOPE_ROOMS_READ,
+  SUPPORTED_SCOPES,
 } from '@photographic/auth';
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -28,7 +35,11 @@ import { createApp } from './app.js';
 import { resolveConfig } from './config.js';
 import { createLogger } from './logger.js';
 import { FIRST_PARTY_CLIENT_ID, type OAuthProvider, type TokenClaims } from './oauth-contract.js';
-import { FIRST_PARTY_ONLY_ROUTES, SCOPED_ROUTES } from './scoped-routes.js';
+import {
+  FIRST_PARTY_ONLY_ROUTES,
+  HUMAN_DECISION_ROUTES,
+  SCOPED_ROUTES,
+} from './scoped-routes.js';
 
 const API = 'http://api.test';
 
@@ -71,11 +82,29 @@ beforeAll(async () => {
   const registered = await services.identity.register({ email: 'scope@photographic.test' });
   personId = registered.person.id;
 
+  // Sign-up and import are mounted only when `connect` is supplied, and the whole point of
+  // the route-table assertions below is that they see every route the real app has. Without
+  // these deps the import routes were absent, so the exemptions covering them could not have
+  // been contradicted by anything this file checked.
+  const connectDeps: ConnectDeps = {
+    identity: services.identity,
+    invites: services.invites,
+    sessions: services.sessions,
+    codes: new MemoryCodeStore(),
+    sender: new MemoryCodeSender(),
+    issuer: new MemorySessionIssuer(),
+    codeSecret: 'scope-test-secret',
+    clock: () => new Date(),
+    randomCode: () => '424242',
+    randomId: () => `scope-${Math.random()}`,
+  };
+
   app = createApp({
     services,
-    config: resolveConfig({ publicUrl: API, environment: 'test' }),
+    config: resolveConfig({ publicUrl: API, environment: 'test', notFoundFloorMs: 0 }),
     logger: createLogger({ level: 'error' }),
     oauth: fakeOAuth(() => personId),
+    connect: { deps: connectDeps },
     clientGrants: {
       list: async () => [],
       rename: async () => true,
@@ -186,6 +215,58 @@ describe('per-route scopes', () => {
     expect(response.status).toBe(403);
   });
 
+  it('refuses an import from a read-only connection', async () => {
+    // The route that escaped this table. It is authenticated and it calls `ingest.propose`
+    // once per parsed candidate, so a token issued without `memory.write` — which is what
+    // `DEFAULT_SCOPE` deliberately gives a client that asks for nothing — used to answer 201
+    // with three proposals queued. Nothing was ever saved without approval, so the
+    // containment held; what a read-only connection gained was the ability to fill the
+    // approval queue with text of its choosing.
+    const response = await call('/v1/import', {
+      method: 'POST',
+      body: JSON.stringify({ text: '- Allergisk mot selleri\n- Bor i Stockholm' }),
+    });
+
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: { code: string; required: string[] } };
+    expect(body.error.code).toBe('insufficient_scope');
+    expect(body.error.required).toContain(SCOPE_MEMORY_WRITE);
+  });
+
+  it('queues nothing when the import is refused', async () => {
+    // The control the reproduction relied on: proving the refusal is a refusal and not a
+    // 403 rendered after the work was already done.
+    const before = await services.ingest.listProposals({
+      personId,
+      agentClient: 'api',
+      sessionId: null,
+      roomScope: [],
+    });
+
+    await call('/v1/import', {
+      method: 'POST',
+      body: JSON.stringify({ text: '- Allergisk mot selleri' }),
+    });
+
+    const after = await services.ingest.listProposals({
+      personId,
+      agentClient: 'api',
+      sessionId: null,
+      roomScope: [],
+    });
+    expect(after.length).toBe(before.length);
+  });
+
+  it('allows the import once the token carries memory.write', async () => {
+    const response = await call('/v1/import', {
+      method: 'POST',
+      body: JSON.stringify({ text: '- Allergisk mot selleri' }),
+      scopes: [SCOPE_MEMORY_WRITE, SCOPE_MEMORY_READ, SCOPE_PROFILE_READ],
+    });
+
+    expect(response.status).toBe(201);
+  });
+
   it('lets a read-only client mark a room seen', async () => {
     // Requiring write here would leave a read-only client re-reporting the same room as
     // unread forever.
@@ -263,32 +344,76 @@ describe('every authenticated route has decided its scope', () => {
   );
 
   /**
-   * Routes outside the scope model, each for a stated reason.
+   * Routes outside the scope model.
    *
-   * Sign-up and the connect flow run before a token exists, and the import surface is
-   * part of that same first-run path. An allowlist rather than a path prefix, so adding
-   * a route under one of those prefixes is still a decision someone makes on purpose.
+   * This list used to be a `Set` of paths under one shared prose comment saying they "run
+   * before a token exists". That was true of sign-up and the invite preview and false of
+   * `POST /v1/import`, which `app.ts` had always put behind `authenticate` and which calls
+   * `ingest.propose` per candidate — so a token issued deliberately *without*
+   * `memory.write` could queue proposals into somebody's Godkänn queue. The exemption
+   * survived every review because it carried a plausible sentence that nobody re-checked
+   * against the route table, and `scope.test.ts` was satisfied by an exemption exactly as
+   * well as by a guard.
+   *
+   * So an entry now names the mechanism that guards it instead of sharing a reason, and the
+   * claim is checked rather than read: `reachableWithoutToken` is asserted below by calling
+   * the route with no `Authorization` header and requiring the answer not to be a 401. On
+   * the day `/v1/import` was added to this list, that assertion would have failed.
    */
-  const exempt = new Set([
-    'POST /v1/signup/request',
-    'POST /v1/signup/verify',
-    'GET /v1/connect',
-    'GET /v1/invites/:token',
-    'POST /v1/import/preview',
-    'POST /v1/import',
-    'GET /v1/connect/verify',
-    'POST /v1/connect/verify',
-    // The export download carries its own credential: a signed, expiring token in the
-    // path. The archive is delivered by email and the browser that opens the link may
-    // never have had a session, so requiring one would make the link useless. Minting
-    // the link *is* scope-gated — first-party only — which is where the decision lives.
-    'GET /v1/export/download/:token',
-  ]);
+  const exempt: ReadonlyArray<{
+    key: string;
+    method: string;
+    path: string;
+    /** True when the route is genuinely part of the pre-token path. Asserted, not asserted-to. */
+    reachableWithoutToken: boolean;
+    guardedBy: string;
+  }> = [
+    {
+      key: 'POST /v1/signup/request',
+      method: 'POST',
+      path: '/v1/signup/request',
+      reachableWithoutToken: true,
+      guardedBy: 'per-address and per-IP rate limits in @photographic/connect; creates no memory',
+    },
+    {
+      key: 'POST /v1/signup/verify',
+      method: 'POST',
+      path: '/v1/signup/verify',
+      reachableWithoutToken: true,
+      guardedBy: 'the six-digit code and its attempt budget; this is where a session begins',
+    },
+    {
+      key: 'GET /v1/connect',
+      method: 'GET',
+      path: '/v1/connect',
+      reachableWithoutToken: true,
+      guardedBy: 'contains no secrets — one shared MCP URL, identity resolved at connect time',
+    },
+    {
+      key: 'GET /v1/invites/:token',
+      method: 'GET',
+      path: '/v1/invites/aaaaaaaaaaaaaaaa',
+      reachableWithoutToken: true,
+      guardedBy: 'the invite token itself, plus the tightest rate limit in the app',
+    },
+    {
+      // The archive is delivered by email and the browser that opens the link may never have
+      // had a session, so requiring one would make the link useless. Minting the link *is*
+      // gated — `HUMAN_DECISION_ROUTES` — which is where the decision lives.
+      key: 'GET /v1/export/download/:token',
+      method: 'GET',
+      path: '/v1/export/download/aaaaaaaaaaaaaaaa',
+      reachableWithoutToken: true,
+      guardedBy: 'a signed, expiring token in the path; POST /v1/export/:id/link is first-party only',
+    },
+  ];
+
+  const exemptKeys = new Set(exempt.map((entry) => entry.key));
 
   it('leaves no authenticated route unguarded', () => {
     const unguarded = authenticatedRoutes()
       .map(({ method, path }) => `${method} ${path}`)
-      .filter((key) => !guarded.has(key) && !exempt.has(key));
+      .filter((key) => !guarded.has(key) && !exemptKeys.has(key));
 
     expect(unguarded).toEqual([]);
   });
@@ -303,4 +428,125 @@ describe('every authenticated route has decided its scope', () => {
 
     expect(stale).toEqual([]);
   });
+
+  it('exempts no route that does not exist either', () => {
+    // Same rule for the other list. `GET /v1/connect/verify` sat here for a route that has
+    // never existed, which is how much attention the entries were getting.
+    const live = new Set(
+      authenticatedRoutes().map(({ method, path }) => `${method} ${path}`),
+    );
+    const stale = exempt.map((entry) => entry.key).filter((key) => !live.has(key));
+
+    expect(stale).toEqual([]);
+  });
+
+  it.each(exempt)('$key really is reachable without a token', async (entry) => {
+    // The claim each exemption rests on, checked. A 401 means the route needs a token after
+    // all, and a route that needs a token belongs in the scope table.
+    expect(entry.reachableWithoutToken).toBe(true);
+
+    const response = await app.fetch(
+      new Request(`${API}${entry.path}`, {
+        method: entry.method,
+        headers: { 'content-type': 'application/json' },
+        ...(entry.method === 'POST' ? { body: '{}' } : {}),
+      }),
+    );
+
+    expect(response.status, `${entry.key} answered 401; guardedBy claims: ${entry.guardedBy}`)
+      .not.toBe(401);
+  });
+});
+
+/**
+ * The decisions reserved for a human, checked as a class.
+ *
+ * The bug this exists for was not any one route: it was that the rule had been applied to
+ * three of five decision routes, each omission looking reasonable on its own. Answering a
+ * proposal was moved because someone noticed; settling a dispute was not, and confirming a
+ * share was a boolean in a request body rather than a route at all.
+ *
+ * Two assertions, neither of which restates the list. Every entry must exist in the live
+ * route table, so this cannot rot into a list of imaginary routes the way the exemptions
+ * did. And every entry must actually refuse a token holding *every* supported scope, which
+ * is the property being claimed — the realistic attacker here is a stolen or over-scoped
+ * token rather than prompt injection, since no MCP tool reaches any of these.
+ */
+describe('decisions only a person may make', () => {
+  function liveRoutes(): Set<string> {
+    const routes = (app as unknown as { routes: Array<{ method: string; path: string }> }).routes;
+    return new Set(
+      routes
+        .filter((route) => route.method !== 'ALL' && !route.path.includes('*'))
+        .map((route) => `${route.method} ${route.path}`),
+    );
+  }
+
+  it('are all routes that exist', () => {
+    const live = liveRoutes();
+    const missing = HUMAN_DECISION_ROUTES.map(
+      ([method, path]) => `${method} /v1${path}`,
+    ).filter((key) => !live.has(key));
+
+    expect(missing).toEqual([]);
+  });
+
+  it('are none of them reachable by scope', () => {
+    // A route in both tables would be gated by `firstPartyOnly` *and* a scope, and the
+    // second one reads as if a scope were sufficient. It never is for these.
+    const scoped = new Set(SCOPED_ROUTES.map(([method, path]) => `${method} ${path}`));
+    const alsoScoped = HUMAN_DECISION_ROUTES.map(
+      ([method, path]) => `${method} ${path}`,
+    ).filter((key) => scoped.has(key));
+
+    expect(alsoScoped).toEqual([]);
+  });
+
+  /**
+   * Named explicitly rather than derived from the list, because a test that iterates a list
+   * disappears when someone shortens the list. `trust-and-permissions.md` 2.2 is the source
+   * for this one: a dispute is settled "aldrig av en modell, och aldrig av ett MCP-anrop".
+   * The absence of an MCP tool was the only thing enforcing that, and a token talking to the
+   * REST API does not need a tool.
+   */
+  it('refuses settling a dispute from a token holding every scope', async () => {
+    const response = await call('/v1/memory/disputes/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ winnerShortId: 'p-7k2m', loserShortId: 'p-8k3n' }),
+      scopes: [...SUPPORTED_SCOPES],
+    });
+
+    expect(response.status).toBe(403);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe('forbidden');
+  });
+
+  /** Same reasoning, for the decision that used to be a boolean instead of a route. */
+  it('refuses answering a proposal from a token holding every scope', async () => {
+    const response = await call('/v1/memory/proposals/00000000-0000-4000-8000-000000000000', {
+      method: 'POST',
+      body: JSON.stringify({ accept: true }),
+      scopes: [...SUPPORTED_SCOPES],
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  it.each(HUMAN_DECISION_ROUTES.map((route) => ({ method: route[0], path: route[1] })))(
+    'refuses $method $path from a token holding every scope',
+    async ({ method, path }) => {
+      // A concrete id for every parameter, so the request reaches the guard rather than
+      // failing validation on the way there.
+      const concrete = path.replace(/:[A-Za-z]+/g, '00000000-0000-4000-8000-000000000000');
+
+      const response = await call(`/v1${concrete}`, {
+        method,
+        scopes: [...SUPPORTED_SCOPES],
+        ...(method === 'POST' ? { body: JSON.stringify({}) } : {}),
+      });
+
+      expect(response.status).toBe(403);
+      const body = (await response.json()) as { error: { code: string } };
+      expect(body.error.code).toBe('forbidden');
+    },
+  );
 });
