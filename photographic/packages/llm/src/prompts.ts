@@ -18,8 +18,12 @@ import { dedupeHash, estimateTokens } from '@photographic/core';
  * is never allowed to land that way — its only door is `update_compass`, which always
  * proposes and never auto-writes. Letting the extractor tag something `compass` would
  * be a second, quieter path to the same instruction a person never approved.
+ *
+ * `name` is excluded for the same shape of reason, for the person's own first name: its
+ * only door is `IngestPort.setFirstName`, set directly from the account screen or first
+ * sign-in, never inferred from something the person said in passing to a model.
  */
-const KIND_COVERAGE: Record<Exclude<ItemKind, 'compass'>, true> = {
+const KIND_COVERAGE: Record<Exclude<ItemKind, 'compass' | 'name'>, true> = {
   identity: true,
   fact: true,
   preference: true,
