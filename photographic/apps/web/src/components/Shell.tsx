@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 const NAV = [
   { to: '/', end: true, label: 'Rum', icon: HomeIcon },
   { to: '/rum', end: true, label: 'Alla', icon: GridIcon },
+  { to: '/klienter', end: true, label: 'Klienter', icon: ClientsIcon },
   { to: '/godkann', end: true, label: 'Godkänn', icon: CheckIcon },
 ] as const;
 
@@ -54,6 +55,16 @@ function GridIcon() {
       <rect x="13" y="4" width="7" height="7" rx="2" stroke="currentColor" strokeWidth="1.6" />
       <rect x="4" y="13" width="7" height="7" rx="2" stroke="currentColor" strokeWidth="1.6" />
       <rect x="13" y="13" width="7" height="7" rx="2" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function ClientsIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="8" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="16" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="12" cy="15.5" r="2.5" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   );
 }
