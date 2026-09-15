@@ -137,8 +137,13 @@ memory private.
 The room match is crude on purpose: token overlap against title, description and the room's
 own memories, with a short function-word list and a few Swedish suffixes stripped. Without
 the suffixes it cannot match "ledningen" to a room called "Ledning", which in a Swedish
-product is most of the misses. It should be replaced by Postgres' Swedish dictionary once
-the search index exists rather than grown here — that is Track 3's.
+product is most of the misses.
+
+**Replace it, do not grow it.** The retrieval track is building its Swedish text handling
+as a reusable function in `core` rather than inline in search, specifically so routing has
+something real to adopt. When that lands, `stem` and `FUNCTION_WORDS` in `routing.ts`
+should be deleted in favour of it — a second hand-rolled suffix list is the thing to avoid.
+Left alone here on purpose while both branches are in flight.
 
 Two things found while building it, both now tested:
 
