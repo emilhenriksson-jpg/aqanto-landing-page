@@ -67,6 +67,9 @@ jobs:
       # exactly like a finished feature, which is how both passed two reviews. Nobody
       # scans for the absence of a caller; this does.
       - run: node scripts/check-job-producers.mjs
+      # A workflow outside the repository root's .github/workflows never runs and nothing
+      # says so. There is one: the off-site document backup, which has executed zero times.
+      - run: node scripts/check-workflow-locations.mjs
 
   typecheck:
     runs-on: ubuntu-latest
