@@ -273,7 +273,7 @@ function RaderaKontoReady({ initial }: { initial: DeletionStateDto }) {
               {immediate ? (
                 <label className="radera-phrase">
                   <span className="radera-phrase__label">
-                    Skriv <span className="mono">{IMMEDIATE_PHRASE}</span> för att bekräfta
+                    Skriv <span className="mono">”{IMMEDIATE_PHRASE}”</span> för att bekräfta
                   </span>
                   <input
                     className="radera-phrase__input"

@@ -455,8 +455,8 @@ h3 {
   height: 6px;
   margin-top: 7px;
   border-radius: var(--radius-pill);
-  background: var(--brand-soft);
-  box-shadow: inset 0 0 0 1px var(--brand);
+  /* Neutral, not violet: the button is the one saturated thing on this screen. */
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
 }
 
 .invite__consent {

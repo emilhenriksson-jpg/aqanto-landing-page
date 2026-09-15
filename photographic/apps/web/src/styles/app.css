@@ -304,6 +304,16 @@
   margin-top: var(--space-16);
 }
 
+/*
+ * Measured on the start screen: `.sections` is a flex column with its own 64px gap, so a
+ * `.section-block` after it — Dokument, on the personal room — inherited no spacing from
+ * the sibling rules above and sat flush against the last memory card while every other
+ * section had 64px. `DESIGN.md` asks for 64–80px between major sections.
+ */
+.sections + .section-block {
+  margin-top: var(--space-16);
+}
+
 /* ----------------------------------------------------------------- cards */
 
 .card {
@@ -403,6 +413,13 @@
   transition:
     transform var(--dur-fast) var(--ease-spring),
     box-shadow var(--dur-fast) var(--ease-spring);
+}
+
+/* A disabled control has to look disabled: both new account screens gate their action on
+   a choice being made, and a button that looks pressable but is not reads as a bug. */
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .btn--quiet {
@@ -968,6 +985,11 @@
   border-bottom: 0;
 }
 
+.export-row .btn {
+  flex: none;
+  white-space: nowrap;
+}
+
 .export-row__main {
   display: grid;
   gap: var(--space-2);
@@ -1097,6 +1119,7 @@
 }
 
 .radera-continue {
+  margin-top: var(--space-8);
   margin-bottom: var(--space-10);
 }
 
@@ -1326,6 +1349,13 @@
 
 .ask-form__input {
   flex: 1;
+  /*
+   * A flex item will not shrink below its intrinsic width without this, and an `input`
+   * carries one from its default `size`. Measured at 320px and 360px — the two commonest
+   * narrow widths — the row pushed "Sök" 53px and 13px past the edge and gave the search
+   * screen a sideways scroll.
+   */
+  min-width: 0;
   border: 0;
   border-radius: var(--radius-pill);
   padding: 12px 20px;

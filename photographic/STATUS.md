@@ -1102,3 +1102,76 @@ against; flagged rather than assumed working.
   and it is not part of signup or login. And `apps/web` was not touched at all: it is not
   served in production yet and the deploy track is fixing that separately, so nothing here
   changes SPA mounting or server routing.
+
+## Export, radering och tre front-end-luckor från granskningarna
+
+- **web** — Export och kontoradering hade **ingen anropare**. Båda var byggda, testade och
+  `firstPartyOnly`-grindade utan att någon skärm kunde trycka på dem, så de två löftena som
+  gör en minnesprodukt värd att lita på — att man kan ta med sig sitt minne och att man kan
+  lämna på riktigt — gällde API:et men inte produkten. De ligger nu bakom en `Konto`-plats i
+  railen:
+
+  - `/konto/export` (`Ta med ditt minne`) säger **vad arkivet innehåller innan man begär
+    det**: hela det privata rummet, personens egna bidrag i delade rum men *inte* de andras
+    anteckningar, rummens metadata, dokumenten i original, plus `README.md` och
+    `manifest.json` med sha256 per fil. Räckvidden är ett beslut (`EXPORT.md` beslut 1), inte
+    en detalj, så den står på skärmen. Jobbet köas, skärmen pollar var femte sekund medan
+    bakgrundssvepet bygger arkivet, och nedladdningslänken mintas när personen ber om den.
+    Inga påhittade nollor medan jobbet inte har körts — "0 händelser" läses som ett tomt
+    minne, vilket är det enda en export aldrig får antyda.
+  - `/konto/radera` (`Radera konto`) **hämtar samtyckestexten från API:et** i stället för att
+    skriva om den, så det en person läser innan hen raderar inte kan glida från det inbjudan
+    lovade. Inget är förvalt, i båda valen. Bekräftelsen säger rakt ut det man annars antar
+    fel: **papperskorgens 30 dagar gäller enskilda minnen, inte ett raderat konto.** Den
+    omedelbara vägen kräver den skrivna frasen som servern validerar
+    (`IMMEDIATE_CONFIRMATION`), och kvittot säger hur många anslutna AI:er som kopplades bort.
+
+- **web** — Papperskorg, Historik och Kompass **var redan nåbara** via fotlänkarna på
+  startskärmen (`App.tsx` beskriver det som ett medvetet val). En tidigare granskning hade
+  fel om det, och ingen andra navigation byggdes. Vad som saknades var skyddsnätet **i det
+  ögonblick det betyder något**: en borttagen rad säger nu "Ligger i papperskorgen i 30
+  dagar" och länkar dit, i stället för att den kunskapen ska hittas en vecka senare.
+
+- **web** — Delade rummens aktivitetsflöde läste `DEMO_ACTIVITY[room.id]` **utan
+  flaggkontroll**. Fixturerna nycklas på slug och ett riktigt `room.id` är en UUID, så
+  uppslaget missade alltid: varje verkligt rum rapporterade "Ingen aktivitet ännu" för alltid.
+  Flödet läser nu rummets egen historik ur event-loggen (`GET /v1/history?room=…&limit=12`),
+  och ett tomt flöde betyder en tom logg. Ett trasigt anrop kostar inte rummet.
+
+- **web/onboarding** — Det fanns **två inbjudningsskärmar**. Alla genererade länkar pekar på
+  `/invite/:token` i auth-appen, som registrerar personen och accepterar inbjudan; kopian på
+  `/i/:token` i produktappen satte bara React-state och gick med i ingenting. Kopian är
+  borttagen (skärm, route, `api/invites.ts`, mappare, fixturer och CSS), `/i/:token` är en
+  302 till den riktiga, och den kvarvarande skärmen bär nu **vem, vad och vad som stannar
+  kvar ovanför knappen**: vem som bjuder in, att rummet är delat, att man får ett eget privat
+  rum, och att det man skriver i rummet stannar där även om man lämnar det. Mätt: allt det
+  plus `Gå med` och hela `SHARED_ROOM_CONSENT` ligger inom första vyn på 320×640 och uppåt.
+
+- **onboarding** — `/start` är en publik sida för apex-värdnamnet, som idag servar
+  ingenting. Plain svenska, en väg in för den som redan har konto (`Logga in`), och
+  ingenting som inte är byggt: ingen röst, inga sammanfattningar, och den säger uttryckligen
+  att nya konton inte är öppna för alla och att svenska mobilnummer är enda vägen in.
+  **Routningen av apex är inte gjord här** — den ägs av deploy-spåret. Det som behövs:
+  `A`/`AAAA` för `photographic.space` mot Fly, plus antingen en redirect till
+  `https://mcp.photographic.space/start` eller en värdbaserad regel som låter apex `/` servera
+  auth-appens shell i stället för produktappens.
+
+- **web** — Layouten är **mätt, inte ögonmätt**, på 320×640, 360×640, 390×664, 414×736 och
+  744×420 (kort landskap), över alla 13 inloggade skärmar plus `/start` och inbjudan: sidled
+  scroll, element utanför skärmen, avkapade tabbaretiketter, innehåll under den fasta
+  tabbaren, träffytor under 40px och sektioner utan luft. Två riktiga fel hittades och är
+  lagade: `.ask-form__input` saknade `min-width: 0`, så `Sök` på `/fraga` låg 53px (320px) och
+  13px (360px) utanför skärmen och gav sidled scroll; och `Dokument` på startskärmen låg
+  tätt intill sista minneskortet eftersom `.sections` är en flex-kolumn med egen gap och
+  syskonreglerna därför inte gällde. Kalenderns mobillayout rördes inte — den är mätt och
+  korrekt sedan tidigare. Efter fixarna: 75 kombinationer, noll problem.
+
+  Verifierat i en riktig webbläsare mot ett riktigt konto (telefonsignup, kod ur loggen,
+  `VITE_USE_DEMO=0`, Postgres): 17 kontroller, inklusive att en export verkligen byggs och
+  laddas ner som en zip med 19 händelser och 7 minnen ur just det kontots logg, att
+  papperskorgen visar det minne kontot självt tog bort, och att aktivitetsflödet visar
+  rummets egna händelser. Ingen radering slutfördes.
+
+  Kvar att veta: en telefonsignup sätter inget `display_name`, så en riktig inbjudan säger
+  "Du är inbjuden till ett delat rum" i stället för "Emil bjuder in dig". Skärmen hanterar
+  båda; att sätta namnet någonstans i flödet är ett produktbeslut, inte en bugg här.
