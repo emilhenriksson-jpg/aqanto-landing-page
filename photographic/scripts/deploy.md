@@ -110,6 +110,22 @@ Skriv `exit` för att lämna serverterminalen. Länken behövs inte längre.
 | Sidan säger `Länken saknar nödkod` | Delen efter `#` följde inte med. | Kopiera länken igen, hela raden. |
 | `fly ssh console` svarar inte | Maskinen är nere, och då finns inget att logga in på. | Titta på `fly status -a photographic` först — det här är ett annat problem. |
 
+### Den är gången, inte bara skriven
+
+Hela vägen kördes mot `mcp.photographic.space` 2026-09-15 mot ett riktigt konto i den
+riktiga databasen: `fly ssh console`, skriptet med numret skrivet som `072-987 65 43`,
+länken öppnad, session satt. Andra försöket med samma länk gav `401` och meddelandet om
+att köra skriptet igen. Skillnaden mot "dokumenterad" är hela poängen med en nödväg.
+
+**Från och med nu är det här enda vägen in när SMS inte fungerar.** Att läsa koden ur
+`fly logs` går inte längre: `PHOTOGRAPHIC_SMS` är `log`, och i produktion vägrar den
+kanalen att skicka i stället för att skriva koden till loggen. `POST /v1/signup/request`
+svarar `502` och loggen får `code_delivery_refused` — ingen kod. Verifierat i samma
+omgång: tre avvisade försök, noll koder i loggen.
+
+Det betyder att `BREAK_GLASS_SECRET` inte är en försiktighetsåtgärd längre utan den enda
+nyckeln till kontot. Är den inte satt finns ingen väg in alls förrän 46elks är på plats.
+
 ### Varför den här vägen finns
 
 Tidigare stod inloggningskoden i klartext i serverloggen. Det var praktiskt, och det
