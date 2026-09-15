@@ -99,7 +99,7 @@ export function createMcpApp(deps: McpDeps): McpApp {
       return Response.json({
         resource: `${deps.config.publicUrl}${resourcePathOf(path)}`,
         authorization_servers: [deps.config.issuerUrl],
-        scopes_supported: ['memory.read', 'memory.write'],
+        scopes_supported: deps.config.scopesSupported,
         bearer_methods_supported: ['header'],
       });
     }

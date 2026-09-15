@@ -8,6 +8,7 @@
  * tested with a three-line fake instead of a running authorisation server.
  */
 
+import { SUPPORTED_SCOPES } from '@photographic/auth';
 import type { Actor, Services } from '@photographic/core';
 
 export interface McpConfig {
@@ -19,6 +20,15 @@ export interface McpConfig {
    * a client noticing.
    */
   issuerUrl: string;
+  /**
+   * What this resource's metadata advertises, and therefore what a client will ask for.
+   *
+   * Taken from the authorization server rather than written down again, because a client
+   * reads this list and requests exactly it. A copy that drifted short of
+   * `offline_access` would hand every client a token with no refresh alongside it, and
+   * the connection would quietly stop working an hour later.
+   */
+  scopesSupported: string[];
   serverName: string;
   serverVersion: string;
   /**
@@ -63,6 +73,7 @@ export function defaultConfig(overrides: Partial<McpConfig> = {}): McpConfig {
   return {
     publicUrl,
     issuerUrl: (overrides.issuerUrl ?? publicUrl).replace(/\/+$/, ''),
+    scopesSupported: overrides.scopesSupported ?? [...SUPPORTED_SCOPES],
     serverName: overrides.serverName ?? 'photographic',
     serverVersion: overrides.serverVersion ?? '0.1.0',
     idleTimeoutMs: overrides.idleTimeoutMs ?? 2 * 60 * 60 * 1000,

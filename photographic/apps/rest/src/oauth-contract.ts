@@ -10,6 +10,7 @@
  * those claims into an `Actor`.
  */
 
+import { SUPPORTED_SCOPES } from '@photographic/auth';
 import type { AgentClient, PersonId, RoomId, SessionId } from '@photographic/core';
 
 /** A request reduced to the parts an OAuth handler needs. */
@@ -122,13 +123,14 @@ export interface OAuthProvider {
   protectedResourceMetadata?(input: MetadataInput): ProtectedResourceMetadata;
 }
 
-export const OAUTH_SCOPES = [
-  'memory.read',
-  'memory.write',
-  'rooms.read',
-  'rooms.write',
-  'documents.write',
-] as const;
+/**
+ * The scope vocabulary, from the package that enforces it.
+ *
+ * Re-exported rather than restated. `validateScope` refuses a scope it does not
+ * recognise at authorization time, so a list here that named a scope it has never heard
+ * of would advertise a capability no client can actually be granted.
+ */
+export const OAUTH_SCOPES: readonly string[] = SUPPORTED_SCOPES;
 
 export const OAUTH_PATHS = {
   authorize: '/oauth/authorize',
