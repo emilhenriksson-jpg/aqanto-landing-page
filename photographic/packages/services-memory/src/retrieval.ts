@@ -220,6 +220,19 @@ export class MemoryRetrieval implements RetrievalPort {
  * implementation and the real one agree on what "the same word, different inflection"
  * means instead of each guessing at it separately.
  */
+/**
+ * Stemmed term overlap, with a substring fallback at half weight.
+ *
+ * The fallback is what keeps this in step with `PgRetrieval`, which has two lexical
+ * arms rather than one: full-text on stemmed lexemes *and* trigram similarity on the
+ * raw text. The stemmer is deliberately partial — it implements the productive noun
+ * and verb endings but not Snowball's step 3, so "allergisk" does not stem to
+ * "allergi" and a query for "allergi" finds nothing by stemmed equality alone. On
+ * Postgres the trigram arm catches exactly that; here, nothing would, and the
+ * in-memory reference implementation would quietly answer worse than the real one for
+ * the same query. Half weight because a substring coincidence is weaker evidence than
+ * two words that stem to the same root, and must never outrank one.
+ */
 function rankLexically(query: string, candidates: Candidate[]): Candidate[] {
   const queryTerms = swedishTerms(query);
   if (queryTerms.length === 0) return [];
@@ -227,9 +240,11 @@ function rankLexically(query: string, candidates: Candidate[]): Candidate[] {
   return candidates
     .map((candidate) => {
       const candidateTerms = new Set(swedishTerms(candidate.text));
+      const haystack = candidate.text.toLowerCase();
       let score = 0;
       for (const term of queryTerms) {
         if (candidateTerms.has(term)) score += term.length;
+        else if (haystack.includes(term)) score += term.length / 2;
       }
       return { candidate, score };
     })

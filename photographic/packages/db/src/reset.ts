@@ -9,7 +9,7 @@
 import { Pool } from 'pg';
 
 import { migrate } from './migrate.js';
-import { databaseUrl } from './pool.js';
+import { createPool } from './pool.js';
 
 export async function reset(pool: Pool): Promise<string[]> {
   await pool.query('DROP SCHEMA IF EXISTS app CASCADE');
@@ -17,7 +17,7 @@ export async function reset(pool: Pool): Promise<string[]> {
 }
 
 async function main(): Promise<void> {
-  const pool = new Pool({ connectionString: databaseUrl() });
+  const pool = createPool();
   try {
     console.log('Släpper schemat app...');
     const ran = await reset(pool);

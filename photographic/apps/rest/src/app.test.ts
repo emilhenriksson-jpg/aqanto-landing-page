@@ -406,12 +406,9 @@ describe('the record', () => {
 describe('searching memory — "Fråga mitt minne"', () => {
   it('finds a plain text match exactly as it always has', async () => {
     const { token } = await register(f, 'emil@example.com', 'Emil');
-    const room = await (await f.post('/v1/rooms', { title: 'Buyersclub Ledning' }, token)).json();
-    await f.post(
-      '/v1/memory',
-      { body: 'Vi beslutade att skjuta förvärvet till Q3', roomId: room.room.id, explicit: true },
-      token,
-    );
+    // The personal room, not a shared one: a shared-room write goes to the Godkänn
+    // queue rather than becoming a memory, and this test is about search.
+    await f.post('/v1/memory', { body: 'Vi beslutade att skjuta förvärvet till Q3', explicit: true }, token);
 
     const res = await f.get('/v1/search?q=förvärvet', token);
     const json = await res.json();

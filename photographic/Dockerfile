@@ -30,9 +30,19 @@ WORKDIR /app
 # packages/delivery/src/errors.ts`.
 #
 # So the list is gone. Adding a package now requires no change to this file.
+#
+# The root `package.json` is the one manifest that still has to be here, and not because
+# `pnpm fetch` reads it. `corepack enable` resolves the pnpm version from the nearest
+# `packageManager` field, and with only the lockfile copied there is no field to find, so
+# corepack quietly installs the newest pnpm instead of the declared one. That is not
+# cosmetic: pnpm 11 turned `minimumReleaseAge` on by default (1440 minutes), which
+# rejects a lockfile containing any dependency published in the last day and fails this
+# stage with an error about the lockfile rather than about the version drift. Copying the
+# root manifest pins pnpm to the `packageManager` version, which is the whole point of
+# declaring one.
 FROM base AS deps
-COPY pnpm-lock.yaml ./
-RUN pnpm fetch
+COPY pnpm-lock.yaml package.json ./
+RUN pnpm --version && pnpm fetch
 
 FROM deps AS build
 COPY . .
