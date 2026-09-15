@@ -9,7 +9,7 @@
  */
 
 import { MIN_HONOURABLE_BUDGET_TOKENS } from '@photographic/agent';
-import { ROOM_HEADLINE_TOKEN_BUDGET, isCalendarDate } from '@photographic/core';
+import { ROOM_HEADLINE_TOKEN_BUDGET, SHORT_ID_PATTERN, isCalendarDate } from '@photographic/core';
 import { z } from 'zod';
 
 const ITEM_KINDS = [
@@ -34,9 +34,10 @@ export const uuid = z.string().uuid();
  * would have been rejected here, so a person could not update, delete or trace the
  * memories they had just saved.
  */
-export const shortId = z
-  .string()
-  .regex(/^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4,6}$/, 'måste vara ett id som p-7k2m9c');
+// The pattern lives in `@photographic/core` beside `generateShortId`, so widening the id
+// cannot leave a reader behind. It already did once: the trash handle parser was written
+// against four characters and refused every id minted after the widening to six.
+export const shortId = z.string().regex(SHORT_ID_PATTERN, 'måste vara ett id som p-7k2m9c');
 
 export const memoryBody = z.string().trim().min(1).max(2000);
 

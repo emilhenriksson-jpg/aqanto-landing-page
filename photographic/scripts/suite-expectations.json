@@ -38,21 +38,21 @@
       "whySkipped": "packages/export: the near-limit archive test behind PHOTOGRAPHIC_NEAR_LIMIT_DISK. It writes a multi-gigabyte archive to a temporary file and reads it back with a zip implementation that is not ours, which is minutes of disk rather than seconds of CPU -- too slow for every pull request and the only thing that proves our writer and a third-party reader agree about zip64. Run it when the zip64 code changes: PHOTOGRAPHIC_NEAR_LIMIT_DISK=1 pnpm --filter @photographic/export test"
     },
     "e2e-memory": {
-      "minPassed": 68,
+      "minPassed": 78,
       "maxSkipped": 0
     },
     "db": {
-      "minPassed": 206,
+      "minPassed": 212,
       "maxSkipped": 4,
       "openAiGated": 2,
-      "whySkipped": "packages/db, keyless: two tls.test.ts tests behind LIVE_SUPABASE=1, and two behind OPENAI_API_KEY -- retrieval.test.ts:223 and search-quality.test.ts:271, the second of which arrived with PR #16 and is what left main red. All four need a credential CI cannot have. Measured both ways on one machine: 206 passed / 4 skipped without a key, exactly what CI reports, and 208 / 2 with one."
+      "whySkipped": "packages/db, keyless: two tls.test.ts tests behind LIVE_SUPABASE=1, and two behind OPENAI_API_KEY -- services/retrieval.test.ts:223 and search-quality.test.ts:271, the second of which arrived with PR #16 and is what left main red. All four need a credential CI cannot have. Measured both ways on one machine: 212 passed / 4 skipped without a key, exactly what CI reports, and 214 / 2 with one."
     },
     "rest": {
-      "minPassed": 185,
+      "minPassed": 187,
       "maxSkipped": 0
     },
     "e2e-postgres": {
-      "minPassed": 68,
+      "minPassed": 78,
       "maxSkipped": 0
     }
   }

@@ -70,6 +70,11 @@ export const MIGRATION_ARTIFACTS: Record<string, string> = {
   // running it would leave every memory unable to answer "did my text go to a model?",
   // which is the half of provenance nothing else in the schema records.
   '0021_embedding_provenance.sql': column('item', 'embedding_model'),
+  // A column on a view rather than a new relation: 0022 replaces `app.trash` with a union
+  // over memories and documents, so `to_regclass('app.trash')` — which 0004 already claims —
+  // is true either way. `entry_type` is the discriminator the union added, and it is exactly
+  // what a database still on the old view does not have.
+  '0022_one_trash.sql': column('trash', 'entry_type'),
 };
 
 /**

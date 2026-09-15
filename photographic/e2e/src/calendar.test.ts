@@ -18,7 +18,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createHarness } from './harness.js';
 
-// `any` for the reason written out in `journey.test.ts`.
+// `any` for the reason written out in `journey.test.ts`, and measured at the same time:
+// typing it surfaces 70 narrowing errors in the assertions below. Worth fixing, and worth
+// fixing on its own rather than inside a change that has to stay reviewable.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let harness: any;
 
@@ -640,5 +642,20 @@ describe('what the trash promises', () => {
     });
 
     expect(await harness.textExistsAnywhere('Bor på Hornsgatan 1 i Stockholm')).toBe(false);
+  });
+});
+
+/**
+ * The invariant every test above depends on without saying so.
+ *
+ * Placed last on purpose: by the time it runs, this file has driven saves, approvals,
+ * corrections, deletions, restores, moves, shares and disputes through whichever backend is
+ * selected. Rebuilding each memory and each document from `app.event` and comparing it to the
+ * projection is therefore one assertion over all of it — and it is the check that gives
+ * `AGENTS.md`'s claim that the tables are projections something behind it.
+ */
+describe('the log and the projections agree', () => {
+  it('has nothing to report after everything above', async () => {
+    expect(await harness.divergences()).toEqual([]);
   });
 });

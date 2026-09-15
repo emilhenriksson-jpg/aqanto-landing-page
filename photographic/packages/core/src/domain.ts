@@ -7,6 +7,9 @@
  */
 
 import type { CompassEntry } from './compass.js';
+// `policy.ts` imports only *types* from this file, so this is not a runtime cycle — and the
+// short-id shape belongs next to the function that mints one rather than copied to each reader.
+import { isShortId } from './policy.js';
 
 export type PersonId = string & { readonly __brand: 'PersonId' };
 export type RoomId = string & { readonly __brand: 'RoomId' };
@@ -170,18 +173,94 @@ export interface Item {
  * that shows the trash needs it, and a model asked "is it really gone" should not have
  * to do date arithmetic to answer.
  */
-export interface TrashEntry {
-  shortId: ShortId;
+/**
+ * What everything in the trash has in common, whichever kind of thing it is.
+ *
+ * One trash rather than two, because a person who deleted something goes looking in one
+ * place, and a thirty-day promise that behaves differently for a document than for a memory
+ * is a promise with a footnote. Documents used to have their own `deleted_at`/`purge_after`
+ * and their own listing endpoint, which was the right call while the memory lifecycle was
+ * still being made transactional and is the wrong one now that it is not.
+ */
+interface TrashEntryShared {
   roomId: RoomId;
   roomTitle: string;
-  kind: ItemKind;
-  body: string;
   deletedAt: Date;
   deletedBy: PersonId | null;
   deletedByClient: AgentClient | null;
   deleteReason: string | null;
   purgeAfter: Date;
   daysRemaining: number;
+}
+
+export interface TrashedMemory extends TrashEntryShared {
+  type: 'memory';
+  shortId: ShortId;
+  /** What kind of memory it is — a fact, an instruction. Not the discriminator. */
+  kind: ItemKind;
+  body: string;
+}
+
+export interface TrashedDocument extends TrashEntryShared {
+  type: 'document';
+  documentId: DocumentId;
+  filename: string;
+  byteSize: number;
+}
+
+/**
+ * One entry in the trash.
+ *
+ * A discriminated union rather than a widened record with half its fields nullable, so a
+ * screen cannot render a document as if it had a body and a `shortId`. `type` and not `kind`
+ * because `kind` already means `ItemKind` on a memory, and two fields called almost the same
+ * thing is how a caller reaches for the wrong one.
+ */
+export type TrashEntry = TrashedMemory | TrashedDocument;
+
+/**
+ * How a caller names one thing in the trash.
+ *
+ * The two are addressed differently and always have been — a memory by the four-character
+ * short id a person can say out loud, a document by its uuid — so unifying the surface means
+ * carrying that difference rather than pretending one id shape fits both.
+ */
+export type TrashHandle =
+  | { type: 'memory'; shortId: ShortId }
+  | { type: 'document'; documentId: DocumentId };
+
+/**
+ * Reads a handle out of a path segment.
+ *
+ * Safe because the two id shapes cannot collide: a short id is `p-7k2m` and a document id is
+ * a uuid. That is what lets one route serve both, so a client — and the `Papperskorg` screen
+ * — restores whatever it is looking at without first working out what kind of thing it is.
+ */
+export function isTrashedMemory(entry: TrashEntry): entry is TrashedMemory {
+  return entry.type === 'memory';
+}
+
+export function isTrashedDocument(entry: TrashEntry): entry is TrashedDocument {
+  return entry.type === 'document';
+}
+
+/** The handle for an entry a person is looking at, so a caller never assembles one by hand. */
+export function trashHandleFor(entry: TrashEntry): TrashHandle {
+  return entry.type === 'document'
+    ? { type: 'document', documentId: entry.documentId }
+    : { type: 'memory', shortId: entry.shortId };
+}
+
+export function trashHandleOf(raw: string): TrashHandle | null {
+  // `isShortId` rather than a regex written out here: the shape widened from four characters
+  // to six, and a second copy of the rule refused every id minted after that.
+  if (isShortId(raw)) {
+    return { type: 'memory', shortId: raw as ShortId };
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+    return { type: 'document', documentId: raw as DocumentId };
+  }
+  return null;
 }
 
 export type HistoryAction =

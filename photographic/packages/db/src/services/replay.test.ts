@@ -153,7 +153,11 @@ describe('app.item is derivable from app.event', () => {
 
     const trash = await wired.services.trash.list(emil, { limit: 200 });
 
-    expect(trash.map((entry) => entry.shortId).sort()).toEqual([...fromLog].sort());
+    // Same narrowing as the in-memory mirror of this test: the trash is one view over two
+    // lifecycles now, and `replayItemLifecycle` derives only the memory one.
+    const memories = trash.filter((entry) => entry.type === 'memory');
+
+    expect(memories.map((entry) => entry.shortId).sort()).toEqual([...fromLog].sort());
   });
 });
 

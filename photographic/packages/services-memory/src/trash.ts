@@ -21,13 +21,15 @@ import type {
   PersonId,
   ProjectionPort,
   RoomId,
-  ShortId,
   TrashEntry,
+  TrashHandle,
   TrashPort,
+  TrashRestored,
 } from '@photographic/core';
 import { NotFoundError, NotPermittedError } from '@photographic/core';
 import { daysRemaining } from '@photographic/core';
 
+import type { MemoryDocuments } from './documents.js';
 import type { MemoryIngest } from './ingest.js';
 import { MemoryStore } from './store.js';
 
@@ -38,6 +40,8 @@ export class MemoryTrash implements TrashPort {
     private readonly store: MemoryStore,
     private readonly ingest: MemoryIngest,
     private readonly projection: ProjectionPort,
+    /** The document half. See `PgTrash` for why the trash holds both. */
+    private readonly documents: MemoryDocuments,
   ) {}
 
   /**
@@ -78,6 +82,7 @@ export class MemoryTrash implements TrashPort {
       if (last?.eventType !== 'item.deleted') continue;
 
       entries.push({
+        type: 'memory',
         shortId: item.shortId,
         roomId: item.roomId,
         roomTitle: this.store.rooms.get(item.roomId)?.title ?? '',
@@ -96,6 +101,32 @@ export class MemoryTrash implements TrashPort {
       });
     }
 
+    // The document half, derived the same way from the same log. Appended before the sort, so
+    // the two interleave by when they were deleted rather than being two lists in one page —
+    // "what did I delete this afternoon" is one question.
+    for (const doc of this.store.documents.values()) {
+      if (!scope.has(doc.roomId)) continue;
+      if (doc.purgeAfter === null || doc.purgeAfter === undefined) continue;
+
+      const last = this.store.lastDocumentLifecycleEvent(doc.id);
+      if (last?.eventType !== 'document.deleted') continue;
+
+      entries.push({
+        type: 'document',
+        documentId: doc.id,
+        filename: doc.filename,
+        byteSize: doc.byteSize,
+        roomId: doc.roomId,
+        roomTitle: this.store.rooms.get(doc.roomId)?.title ?? '',
+        deletedAt: last.occurredAt,
+        deletedBy: last.actorPersonId,
+        deletedByClient: last.agentClient,
+        deleteReason: last.motivation,
+        purgeAfter: doc.purgeAfter,
+        daysRemaining: daysRemaining(doc.purgeAfter, now),
+      });
+    }
+
     return entries
       .sort((a, b) => b.deletedAt.getTime() - a.deletedAt.getTime())
       .slice(0, input.limit ?? 50);
@@ -108,14 +139,20 @@ export class MemoryTrash implements TrashPort {
    * tillbaka p-7k2m" has to still refer to p-7k2m afterwards, or the id is not a name
    * for anything.
    */
-  async restore(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<Item> {
-    const item = this.store.findByShortId(actor.personId, shortId, roomId);
+  async restore(actor: Actor, handle: TrashHandle, roomId?: RoomId): Promise<TrashRestored> {
+    if (handle.type === 'document') {
+      const document = await this.documents.restore(actor, handle.documentId);
+      if (!document) throw new NotFoundError('Det finns inget att återställa.');
+      return { type: 'document', document };
+    }
+
+    const item = this.store.findByShortId(actor.personId, handle.shortId, roomId);
     if (!item || !this.store.isInTrash(item.id)) {
       throw new NotFoundError('Det finns inget att återställa.');
     }
     if (!this.store.canWrite(actor.personId, item.roomId)) throw new NotPermittedError();
 
-    return this.ingest.restore(actor, item);
+    return { type: 'memory', item: await this.ingest.restore(actor, item) };
   }
 
   /**
@@ -133,8 +170,6 @@ export class MemoryTrash implements TrashPort {
       .sort((a, b) => a.purgeAfter!.getTime() - b.purgeAfter!.getTime())
       .slice(0, limit);
 
-    if (due.length === 0) return 0;
-
     for (const item of due) {
       // Appended before the redaction sweep and deliberately carrying no body, so the
       // feed can say that something was removed without saying what it was.
@@ -148,15 +183,35 @@ export class MemoryTrash implements TrashPort {
       });
     }
 
-    this.store.redactItemText(due.map((i) => i.id));
-    await this.forget(due);
+    if (due.length > 0) {
+      this.store.redactItemText(due.map((i) => i.id));
+      await this.forget(due);
+    }
 
-    return due.length;
+    // The document-only half, with its own steps: chunks, row and bytes rather than a
+    // redaction. One method because there is one thirty-day promise.
+    const documents = await this.documents.purgeExpired(limit);
+
+    return due.length + documents;
   }
 
   /** For people who want it gone now rather than in thirty days. */
-  async purgeNow(actor: Actor, shortId: ShortId, roomId?: RoomId): Promise<void> {
-    const item = this.store.findByShortId(actor.personId, shortId, roomId);
+  async purgeNow(actor: Actor, handle: TrashHandle, roomId?: RoomId): Promise<void> {
+    if (handle.type === 'document') {
+      if (!this.store.isDocumentInTrash(handle.documentId)) {
+        throw new NotFoundError('Det finns inget att radera.');
+      }
+      const doc = this.store.documents.get(handle.documentId);
+      if (!doc || !this.store.canWrite(actor.personId, doc.roomId)) throw new NotPermittedError();
+
+      // Deadline forward, then the ordinary sweep — so emptying early removes exactly what
+      // waiting thirty days would have, including the bytes.
+      doc.purgeAfter = new Date(this.store.now().getTime() - 1000);
+      await this.documents.purgeExpired(1);
+      return;
+    }
+
+    const item = this.store.findByShortId(actor.personId, handle.shortId, roomId);
     if (!item || !this.store.isInTrash(item.id)) {
       throw new NotFoundError('Det finns inget att radera.');
     }

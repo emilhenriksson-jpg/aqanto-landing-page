@@ -386,6 +386,23 @@ const SHORT_ID_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz';
  */
 const SHORT_ID_LENGTH = 6;
 
+/**
+ * What a short id looks like, defined once beside the thing that generates them.
+ *
+ * There were two copies of this: the REST parameter regex, and — briefly — the trash handle
+ * parser. The second one hardcoded four characters, because that is what short ids were when
+ * the rule was last written down, and it refused every id minted after the widening above.
+ * A pattern that has to change when `SHORT_ID_LENGTH` changes belongs next to it.
+ *
+ * Four to six because ids minted before the widening are still valid: nothing derives meaning
+ * from the length.
+ */
+export const SHORT_ID_PATTERN = /^[a-z]-[23456789abcdefghjkmnpqrstuvwxyz]{4,6}$/;
+
+export function isShortId(raw: string): boolean {
+  return SHORT_ID_PATTERN.test(raw);
+}
+
 export function generateShortId(prefix = 'p'): string {
   const alphabet = SHORT_ID_ALPHABET;
   // Rejection sampling rather than `byte % 31`. With 256 not a multiple of 31, the modulo

@@ -41,7 +41,9 @@
 import type {
   Actor,
   AgentClient,
+  ItemId,
   ItemKind,
+  ItemStatus,
   Person,
   PersonId,
   Room,
@@ -49,7 +51,13 @@ import type {
   Services,
   ShortId,
 } from '@photographic/core';
-import { BUNDLE_TOKEN_BUDGET } from '@photographic/core';
+import {
+  BUNDLE_TOKEN_BUDGET,
+  documentDivergencesFrom,
+  divergencesFrom,
+  replayDocumentLifecycle,
+  replayItemLifecycle,
+} from '@photographic/core';
 import { createPool, createPostgresServices, reset } from '@photographic/db';
 import {
   MemoryCodeSender,
@@ -114,6 +122,8 @@ export interface Harness {
   /** The same trick for documents: their thirty days, moved into the past. */
   expireDocumentTrash(): Promise<void>;
   textExistsAnywhere(text: string): Promise<boolean>;
+  /** See `Backend.divergences`. Empty means the log and the projections agree. */
+  divergences(): Promise<string[]>;
   commitImport(actor: Actor, preview: ImportPreview): Promise<void>;
 
   teardown(): Promise<void>;
@@ -151,6 +161,18 @@ interface Backend {
   expireTrash(shortId: ShortId): Promise<void>;
   expireDocumentTrash(): Promise<void>;
   textExistsAnywhere(text: string): Promise<boolean>;
+  /**
+   * Every place the log and the tables disagree, for memories and for documents.
+   *
+   * The one assertion that covers every lifecycle transition a suite happens to exercise, and
+   * the reason `EventPort.replay` exists: rebuild each thing's state from `app.event` and
+   * compare it to what the projection says. An empty list is "the log is the truth" as a
+   * checked fact rather than a claim in `AGENTS.md`.
+   *
+   * On the `Backend` seam because reading the projection needs the driver — a table on one
+   * side, a `Map` on the other — and nothing else about it does.
+   */
+  divergences(): Promise<string[]>;
   teardown(): Promise<void>;
 }
 
@@ -181,6 +203,36 @@ async function createMemoryBackend(baseUrl: string): Promise<Backend> {
         moved += 1;
       }
       if (moved === 0) throw new Error('Inget dokument ligger i papperskorgen.');
+    },
+
+    divergences: async () => {
+      const events = await wired.services.events.replay({ limit: 100_000 });
+
+      const items = divergencesFrom(
+        replayItemLifecycle(events),
+        [...store.items.values()].map((item) => ({
+          itemId: item.id,
+          roomId: item.roomId,
+          status: item.status,
+          body: item.body,
+        })),
+      );
+
+      const documents = documentDivergencesFrom(
+        replayDocumentLifecycle(events),
+        [...store.documents.values()].map((doc) => ({
+          documentId: doc.id,
+          roomId: doc.roomId,
+          inTrash: doc.deletedAt !== null,
+        })),
+      );
+
+      return [
+        ...items.map((d) => `item ${d.itemId} ${d.field}: log=${d.fromLog} table=${d.fromProjection}`),
+        ...documents.map(
+          (d) => `document ${d.documentId} ${d.field}: log=${d.fromLog} table=${d.fromProjection}`,
+        ),
+      ];
     },
 
     // Deliberately includes the append-only event log and the cached projections, not
@@ -283,6 +335,49 @@ async function createPostgresBackend(baseUrl: string, databaseUrl: string): Prom
          WHERE deleted_at IS NOT NULL`,
       );
       if (result.rowCount === 0) throw new Error('Inget dokument ligger i papperskorgen.');
+    },
+
+    divergences: async () => {
+      const events = await wired.services.events.replay({ limit: 100_000 });
+
+      const itemRows = await pool.query<{
+        id: string;
+        room_id: string;
+        status: ItemStatus;
+        body: string;
+      }>(`SELECT id, room_id, status, body FROM app.item`);
+
+      const documentRows = await pool.query<{
+        id: string;
+        room_id: string;
+        deleted_at: Date | null;
+      }>(`SELECT id, room_id, deleted_at FROM app.document`);
+
+      const items = divergencesFrom(
+        replayItemLifecycle(events),
+        itemRows.rows.map((row) => ({
+          itemId: row.id as ItemId,
+          roomId: row.room_id as RoomId,
+          status: row.status,
+          body: row.body,
+        })),
+      );
+
+      const documents = documentDivergencesFrom(
+        replayDocumentLifecycle(events),
+        documentRows.rows.map((row) => ({
+          documentId: row.id,
+          roomId: row.room_id as RoomId,
+          inTrash: row.deleted_at !== null,
+        })),
+      );
+
+      return [
+        ...items.map((d) => `item ${d.itemId} ${d.field}: log=${d.fromLog} table=${d.fromProjection}`),
+        ...documents.map(
+          (d) => `document ${d.documentId} ${d.field}: log=${d.fromLog} table=${d.fromProjection}`,
+        ),
+      ];
     },
 
     // Same intent as the memory driver: check every place the text could still be,
@@ -548,6 +643,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
      * is — and the second is how a bug deletes everything.
      */
     expireTrash: backend.expireTrash,
+    divergences: backend.divergences,
     expireDocumentTrash: backend.expireDocumentTrash,
 
     textExistsAnywhere: backend.textExistsAnywhere,
