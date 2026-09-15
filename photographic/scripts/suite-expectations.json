@@ -21,7 +21,15 @@
     "this was first measured on had OPENAI_API_KEY injected, so the retrieval test gated",
     "behind it ran there and skipped in CI: 216 passed / 2 skipped locally against 215 / 3",
     "in CI. A floor of 216 would have been a floor that only holds where a key happens to",
-    "exist. CI is the authority for these numbers; a local run may exceed them."
+    "exist. CI is the authority for these numbers; a local run may exceed them.",
+    "",
+    "openAiGated: how many tests in the group are gated on OPENAI_API_KEY and therefore swap",
+    "sides depending on the machine. minPassed and maxSkipped are the KEYLESS figures, which",
+    "is what CI sees; a machine with a key must pass that many more and skip that many fewer.",
+    "Added because a key-gated test landed twice in one evening and the second one left main",
+    "red -- worse than a wrong number, because a permanently red trunk hides the next real",
+    "regression behind a benign one. If you add a key-gated test, raise openAiGated rather",
+    "than the ceiling: one number then holds on both machines."
   ],
   "groups": {
     "unit": {
@@ -34,9 +42,10 @@
       "maxSkipped": 0
     },
     "db": {
-      "minPassed": 213,
-      "maxSkipped": 3,
-      "whySkipped": "packages/db: two tls.test.ts tests behind LIVE_SUPABASE=1, and one retrieval test behind OPENAI_API_KEY. All three need a credential CI cannot have. The third runs on any machine that does have a key -- 170 passed there against 169 in CI -- which is why the floor is CI’s number."
+      "minPassed": 212,
+      "maxSkipped": 4,
+      "openAiGated": 2,
+      "whySkipped": "packages/db, keyless: two tls.test.ts tests behind LIVE_SUPABASE=1, and two behind OPENAI_API_KEY -- retrieval.test.ts and search-quality.test.ts, the second of which arrived with PR #16 and is what left main red. All four need a credential CI cannot have. The floor is CI's number, measured on the run for 0957dce: 212 passed / 4 skipped without a key, against 214 / 2 on a machine that has one."
     },
     "rest": {
       "minPassed": 187,
