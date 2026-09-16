@@ -9,7 +9,6 @@
 import { Hono } from 'hono';
 
 import type { AppEnv } from '../context.js';
-import { requestHost } from '../web-app.js';
 import { clearSessionCookie } from '../session-cookie.js';
 
 export function sessionRoutes(): Hono<AppEnv> {
@@ -39,7 +38,11 @@ export function sessionRoutes(): Hono<AppEnv> {
 function isSameOrigin(origin: string | undefined, host: string | undefined, url: string): boolean {
   if (!origin) return false;
   try {
-    return new URL(origin).host === requestHost(host, url);
+    // Preserve the port: mcp.localhost:8787 and mcp.localhost:5173 are different
+    // origins. `requestHost` intentionally strips it for hostname routing, which is
+    // right there and wrong for a CSRF boundary.
+    const requestHost = host?.toLowerCase() || new URL(url).host.toLowerCase();
+    return new URL(origin).host.toLowerCase() === requestHost;
   } catch {
     return false;
   }

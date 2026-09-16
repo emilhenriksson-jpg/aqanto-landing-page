@@ -3,7 +3,7 @@ import { Outlet } from 'react-router-dom';
 
 import { ApiError, getAccount, isDemoMode } from '../api/index.js';
 
-type SessionState = 'checking' | 'ready' | 'signed-out' | 'unavailable';
+type SessionState = 'checking' | 'ready' | 'signed-out' | 'expired' | 'unavailable';
 
 /**
  * Product routes only render after the browser's httpOnly cookie has proved itself.
@@ -20,7 +20,7 @@ export function SessionGate({ children }: { children?: ReactNode }) {
 
     let cancelled = false;
     const expired = () => {
-      if (!cancelled) setState('signed-out');
+      if (!cancelled) setState('expired');
     };
     window.addEventListener('photographic:session-expired', expired);
 
@@ -30,7 +30,11 @@ export function SessionGate({ children }: { children?: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        setState(error instanceof ApiError && error.status !== 401 ? 'unavailable' : 'signed-out');
+        if (!(error instanceof ApiError) || error.status === 401) {
+          setState(error instanceof ApiError && error.message.includes('Saknar') ? 'signed-out' : 'expired');
+          return;
+        }
+        setState('unavailable');
       });
 
     return () => {
@@ -40,8 +44,8 @@ export function SessionGate({ children }: { children?: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (state !== 'signed-out') return;
-    window.location.replace(loginUrl());
+    if (state !== 'signed-out' && state !== 'expired') return;
+    window.location.replace(loginUrl(state === 'expired'));
   }, [state]);
 
   if (state === 'ready') return children ?? <Outlet />;
@@ -56,8 +60,11 @@ export function SessionGate({ children }: { children?: ReactNode }) {
   );
 }
 
-function loginUrl(): string {
+function loginUrl(expired: boolean): string {
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  const params = new URLSearchParams({ fran: current, orsak: 'utgangen' });
+  const params = new URLSearchParams({
+    fran: current,
+    ...(expired ? { orsak: 'utgangen' } : {}),
+  });
   return `/start?${params.toString()}`;
 }

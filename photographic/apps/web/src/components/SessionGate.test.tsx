@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '../api/index.js';
 import { SessionGate } from './SessionGate.js';
 
 const getAccount = vi.fn();
@@ -25,13 +26,13 @@ describe('SessionGate', () => {
     const replace = vi.fn();
     window.history.replaceState({}, '', '/rum');
     vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, replace });
-    getAccount.mockRejectedValue({ status: 401 });
+    getAccount.mockRejectedValue(new ApiError('Saknar access token.', 401));
 
     render(<SessionGate><p>Skyddat innehåll</p></SessionGate>);
 
     expect(await screen.findByText('Tar dig till inloggningen…')).toBeInTheDocument();
     await waitFor(() =>
-      expect(replace).toHaveBeenCalledWith('/start?fran=%2Frum&orsak=utgangen'),
+      expect(replace).toHaveBeenCalledWith('/start?fran=%2Frum'),
     );
     expect(screen.queryByText('Skyddat innehåll')).toBeNull();
   });
