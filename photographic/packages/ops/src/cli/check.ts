@@ -47,17 +47,48 @@ async function main(): Promise<number> {
   );
 
   if (test) {
-    // Deliberately a `warning`: it exercises the webhook without pretending the memory is
-    // on fire, and if it does not arrive that is the finding.
+    /**
+     * `critical`, so the test reaches every channel that is configured.
+     *
+     * This was a `warning` on the reasoning that a test should not pretend the memory is
+     * on fire. The intent was right and the severity was the wrong lever: `SmsAlertSink`
+     * is `critical`-only by default, so `atLeast('warning', 'critical')` was false and the
+     * sink returned before contacting 46elks. On an installation whose *only* channel is
+     * SMS — which is the choice the owner made — the channel test therefore tested
+     * nothing, sent nothing, and printed the same output as a successful send. Confirmed
+     * against the 46elks message log: the warning-severity test appears nowhere in it,
+     * while a signup code minutes earlier and the same alert re-sent at a reachable
+     * severity both show `delivered`.
+     *
+     * Severity here routes; it does not describe. The message says in its own words that
+     * nothing is broken, which is what stops it reading as an emergency — and that
+     * sentence is worth more than a severity nobody sees.
+     */
+    const severity = 'critical';
     await sinks.sink.send({
       key: 'alert_channel_test',
       status: 'failing',
-      severity: 'warning',
+      severity,
       title: 'Testlarm från Photografic',
       detail: 'Ingen har gått sönder. Det här är ett medvetet test av larmvägen.',
       resolved: false,
       at: new Date(),
     });
+
+    // Which channels this should have reached, printed because the sinks are silent on
+    // success. Without it, "sent" and "silently skipped" look identical from here, which
+    // is how a channel that had never delivered anything was reported as working.
+    console.log(
+      JSON.stringify({
+        event: 'alert_test_sent',
+        severity,
+        channels: sinks.kinds,
+        detail:
+          sinks.logOnly === true
+            ? 'Inga larmkanaler konfigurerade — testet nådde bara loggen.'
+            : 'Kontrollera att det kom fram i varje kanal ovan. Kanalerna är tysta när de lyckas.',
+      }),
+    );
     return 0;
   }
 
