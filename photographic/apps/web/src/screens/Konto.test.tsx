@@ -50,6 +50,7 @@ describe('Konto', () => {
       'href',
       '/konto/radera',
     );
+    expect(screen.getByRole('button', { name: 'Logga ut' })).toBeInTheDocument();
   });
 
   it('tells a person their account is already on its way out', async () => {
