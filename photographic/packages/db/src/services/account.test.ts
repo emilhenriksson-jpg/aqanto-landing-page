@@ -323,6 +323,117 @@ describe('deletion: the request', () => {
     const job = await exports.run((await exports.request(emil)).id);
     expect(job?.status).toBe('ready');
   });
+
+  /**
+   * The finding this whole block exists to close: `isFrozen` and `AccountFrozenError`
+   * had zero callers outside this file's old assertions, so an account mid-deletion kept
+   * writing new memories and creating rooms through its still-valid session for the
+   * entire thirty-day freeze — exactly what `isFrozen`'s own doc comment says must not
+   * happen. Every case below writes *during* an open freeze window and expects the
+   * refusal, through the real request-path gate (`assertCanWrite`/`assertNotFrozen` in
+   * `permissions.ts`), not through a mock. Setup that itself needs to write (creating a
+   * room, saving a memory to edit or share) happens before the freeze is requested, the
+   * same way a real account would have existing content before choosing to delete it.
+   */
+  describe('a frozen account cannot write, but can still read, export and cancel', () => {
+    async function freeze(): Promise<void> {
+      await accounts.requestDeletion(emil, { immediate: false, contributions: 'keep' });
+      expect(await accounts.isFrozen(emil.personId)).toBe(true);
+    }
+
+    it('refuses a new private memory', async () => {
+      await freeze();
+      await expect(
+        wired.services.ingest.remember(emil, { roomId: personalRoom, body: 'skrivet under fönstret' }),
+      ).rejects.toThrow(/raderas och går inte att skriva/);
+    });
+
+    it('refuses creating a room', async () => {
+      await freeze();
+      await expect(wired.services.rooms.create(emil, { title: 'Nytt rum' })).rejects.toThrow(
+        /raderas och går inte att skriva/,
+      );
+    });
+
+    it('refuses sharing a memory into another room', async () => {
+      const target = await wired.services.rooms.create(elias, { title: 'Eliass rum' });
+      const invite = await wired.services.invites.create(elias, {
+        roomId: target.id,
+        channel: 'email',
+        destination: 'emil@konto.test',
+      });
+      await wired.services.invites.accept(
+        invite.url.split('/').filter(Boolean).at(-1)!,
+        emil.personId,
+      );
+      await remember(emil, personalRoom, 'redo att delas');
+      const [item] = await wired.services.retrieval.listForRoom(emil, personalRoom);
+
+      await freeze();
+      await expect(
+        wired.services.ingest.share(emil, { shortId: item!.shortId, toRoomId: target.id }),
+      ).rejects.toThrow(/raderas och går inte att skriva/);
+    });
+
+    it('refuses editing an existing memory', async () => {
+      await remember(emil, personalRoom, 'text innan frysningen');
+      const [item] = await wired.services.retrieval.listForRoom(emil, personalRoom);
+
+      await freeze();
+      await expect(
+        wired.services.ingest.update(emil, item!.shortId, personalRoom, 'ändrad under frysningen'),
+      ).rejects.toThrow(/raderas och går inte att skriva/);
+    });
+
+    it('refuses uploading a document', async () => {
+      await freeze();
+      await expect(
+        upload(emil, personalRoom, 'note.md', '# ett dokument under frysningen'),
+      ).rejects.toThrow(/raderas och går inte att skriva/);
+    });
+
+    it('still allows reading', async () => {
+      await freeze();
+      await expect(wired.services.rooms.listForPerson(emil)).resolves.toBeDefined();
+      await expect(wired.services.bundle.build(emil)).resolves.toBeDefined();
+    });
+
+    it('still allows exporting', async () => {
+      await freeze();
+      const job = await exports.run((await exports.request(emil)).id);
+      expect(job?.status).toBe('ready');
+    });
+
+    it('still allows cancelling the deletion, which un-freezes the account', async () => {
+      await freeze();
+      const cancelled = await accounts.cancelDeletion(emil);
+      expect(cancelled?.status).toBe('cancelled');
+      expect(await accounts.isFrozen(emil.personId)).toBe(false);
+
+      // The write refused above now succeeds.
+      const decision = await wired.services.ingest.remember(emil, {
+        roomId: personalRoom,
+        body: 'skrivet efter avbruten radering',
+        explicit: true,
+      });
+      expect(decision.outcome).not.toBe('needs_approval');
+    });
+
+    it('does not block a different, non-frozen account from writing to a room it shares', async () => {
+      await freeze();
+      // Elias is a member of the shared room emil owns and is not himself frozen. A
+      // shared room always queues for approval regardless of freeze (a separate gate —
+      // see fix 2), so the assertion here is only that Elias's own write is never
+      // refused outright — the freeze belongs to Emil's account, not his.
+      await expect(
+        wired.services.ingest.remember(elias, {
+          roomId: sharedRoom,
+          body: 'elias skriver medan emil fryser',
+          explicit: true,
+        }),
+      ).resolves.toMatchObject({ outcome: expect.stringMatching(/^(auto|needs_approval|duplicate)$/) });
+    });
+  });
 });
 
 describe('deletion: what it removes and what it keeps', () => {

@@ -3,7 +3,14 @@
  * `Services`, so this package can be tested with in-memory doubles and no database.
  */
 
-import type { IdentityPort, InvitePort, SessionPort } from '@photographic/core';
+import type {
+  IdentityPort,
+  InvitePort,
+  MemberRole,
+  Person,
+  Room,
+  SessionPort,
+} from '@photographic/core';
 
 export type SignupChannel = 'email' | 'sms';
 
@@ -66,4 +73,22 @@ export interface ConnectDeps {
   /** Injected so tests are deterministic. Production uses a CSPRNG. */
   randomCode: () => string;
   randomId: () => string;
+  /**
+   * Registers a new person and accepts a room invite as one atomic step, when the
+   * backing store can offer that. `verifyCode` uses this instead of calling
+   * `identity.register` and `invites.accept` one after the other whenever both a new
+   * person and an invite are involved — that sequence is exactly how a reused, expired
+   * or otherwise invalid invite used to manufacture an account nobody ever agreed to and
+   * no session was ever handed to: `register` committed on its own before `accept` had
+   * any chance to refuse.
+   *
+   * Optional because the in-memory reference implementation has no transaction to offer
+   * and nothing in that harness needs one — it is a test double, not a deployment. The
+   * Postgres composition root always provides it; see
+   * `PostgresServices.registerWithInvite`.
+   */
+  registerWithInvite?(
+    input: { email?: string; phone?: string },
+    inviteToken: string,
+  ): Promise<{ person: Person; personalRoom: Room; joinedRoom: { room: Room; role: MemberRole } }>;
 }

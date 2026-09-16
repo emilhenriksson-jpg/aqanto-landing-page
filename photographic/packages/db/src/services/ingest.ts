@@ -74,7 +74,7 @@ import { appendEvent } from './events.js';
 import { personalRoomIdOf } from './identity.js';
 import { enqueueJob } from './jobs.js';
 import { markStaleWithin, restoreWithin, softDeleteWithin } from './lifecycle.js';
-import { canWrite, roleIn } from './permissions.js';
+import { assertCanWrite, assertNotFrozen, canWrite, roleIn } from './permissions.js';
 
 export const MAX_BODY_CHARS = 2000;
 
@@ -163,7 +163,7 @@ export class PgIngest implements IngestPort {
       : await routeMemory(this.routingDeps(), actor, { body, kind });
     const roomId = input.roomId ?? routing!.roomId;
 
-    if (!(await canWrite(this.pool, actor.personId, roomId))) throw new NotPermittedError();
+    await assertCanWrite(this.pool, actor.personId, roomId);
 
     const sensitivity = input.sensitivity ?? 'normal';
     const room = await this.room(roomId);
@@ -286,7 +286,7 @@ export class PgIngest implements IngestPort {
       structured?: Record<string, unknown>;
     },
   ): Promise<Proposal> {
-    if (!(await canWrite(this.pool, actor.personId, input.roomId))) throw new NotPermittedError();
+    await assertCanWrite(this.pool, actor.personId, input.roomId);
 
     const body = input.body.trim().replace(/\s+/g, ' ');
     if (!body) throw new ValidationError('Tomt förslag kan inte sparas.');
@@ -351,7 +351,7 @@ export class PgIngest implements IngestPort {
     body: string,
     provenance: WriteProvenance = {},
   ): Promise<UpdateDecision> {
-    if (!(await canWrite(this.pool, actor.personId, roomId))) throw new NotPermittedError();
+    await assertCanWrite(this.pool, actor.personId, roomId);
 
     const item = await this.findByShortId(roomId, shortId);
     if (!item || item.status === 'deleted') throw new NotFoundError('Minnet finns inte.');
@@ -364,7 +364,14 @@ export class PgIngest implements IngestPort {
       kind: item.kind,
       body: next,
       contradicts: false,
-      explicit: true,
+      // Never claimed. `updateSchema` has no `explicit` field — there is nothing for a
+      // caller to set — so this used to be a literal `true`, which switched off the
+      // "too long to save automatically" gate that a fresh `remember` cannot skip: an
+      // edit could silently grow a memory to `MAX_BODY_CHARS` with no approval. `false`
+      // is the conservative reading, since nothing in the product currently lets a
+      // person say "yes, save this long edit without asking" the way `remember`'s
+      // `explicit` flag is meant to represent.
+      explicit: false,
       roomIsShared: room.kind === 'shared',
       sensitivity: item.sensitivity,
     });
@@ -394,7 +401,7 @@ export class PgIngest implements IngestPort {
     roomId: RoomId,
     reason?: string,
   ): Promise<{ item: Item; undoToken: string }> {
-    if (!(await canWrite(this.pool, actor.personId, roomId))) throw new NotPermittedError();
+    await assertCanWrite(this.pool, actor.personId, roomId);
 
     const item = await this.findByShortId(roomId, shortId);
     if (!item) throw new NotFoundError('Minnet finns inte.');
@@ -446,7 +453,7 @@ export class PgIngest implements IngestPort {
     );
     if (!row) throw new NotFoundError('Det finns inget att ta tillbaka.');
     const item = mapItem(row);
-    if (!(await canWrite(this.pool, actor.personId, item.roomId))) throw new NotPermittedError();
+    await assertCanWrite(this.pool, actor.personId, item.roomId);
 
     const restored = await withTransaction(this.pool, async (tx) => {
       // Claims the token and the state together: two clicks on "säg undo" race here, and
@@ -1309,6 +1316,7 @@ export class PgIngest implements IngestPort {
     );
     if (!item || item.status === 'deleted') throw new NotFoundError('Minnet finns inte.');
 
+    await assertNotFrozen(this.pool, actor.personId);
     if (!(await canWrite(this.pool, actor.personId, input.toRoomId))) {
       throw new NotFoundError('Rummet finns inte.');
     }

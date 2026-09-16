@@ -30,7 +30,6 @@
 
 import {
   DELETION_FREEZE_DAYS,
-  NotPermittedError,
   ValidationError,
   type Actor,
   type PersonId,
@@ -43,6 +42,15 @@ import { execute, queryOne, queryRows, withTransaction } from '../pool.js';
 import { ITEM_COLUMNS, mapItem, type ItemRow } from '../rows.js';
 import { appendEvent } from './events.js';
 import { softDeleteWithin } from './lifecycle.js';
+import { isFrozen as isFrozenPersisted } from './permissions.js';
+
+/**
+ * Re-exported so nothing that already imports `AccountFrozenError` from here breaks: the
+ * class itself now lives in `permissions.ts`, beside `assertCanWrite`, which is what a
+ * write path actually calls. See that file for why the definition moved rather than
+ * `permissions.ts` importing it from here.
+ */
+export { AccountFrozenError } from './permissions.js';
 
 export type ContributionChoice = 'keep' | 'remove';
 
@@ -571,22 +579,15 @@ export class PgAccounts {
   }
 
   /**
-   * Whether this person may still act. Checked by the API on every request.
+   * Whether this person may still act. Checked by every write path via `assertCanWrite`
+   * and `assertNotFrozen` in `permissions.ts`, which this delegates to so the two never
+   * check different things.
    *
    * A frozen account can log in — that is the whole point, so the person can cancel or
    * export — but must not be able to write. Writing into a memory scheduled for deletion
    * is either a mistake or someone who does not know the account is going.
    */
   async isFrozen(personId: PersonId): Promise<boolean> {
-    return (await this.pendingDeletion(personId)) !== null;
-  }
-}
-
-/** Refused for a frozen account. Not an error the person caused; a state they chose. */
-export class AccountFrozenError extends NotPermittedError {
-  constructor() {
-    super(
-      'Kontot är på väg att raderas och går inte att skriva till. Avbryt raderingen först.',
-    );
+    return isFrozenPersisted(this.pool, personId);
   }
 }

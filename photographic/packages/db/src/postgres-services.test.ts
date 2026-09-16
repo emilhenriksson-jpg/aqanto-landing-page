@@ -318,6 +318,91 @@ describe('createPostgresServices', () => {
     ).rejects.toThrow(/kontosidan/);
   });
 
+  /**
+   * The orphan-account finding: a reused, expired or otherwise invalid invite used to
+   * throw *after* `identity.register` had already committed on its own connection,
+   * leaving a person and a personal room nobody could sign in as — `verifyCode` in
+   * `@photographic/connect` had no session to hand back and no way to undo what had
+   * already been saved. `registerWithInvite` is the fix: one transaction, so a failed
+   * `accept` rolls the registration back with it.
+   */
+  describe('registerWithInvite', () => {
+    itIfDb('registers the person and accepts the invite together', async () => {
+      const ownerEmail = `db-test-${randomUUID()}@example.com`;
+      const guestEmail = `db-test-${randomUUID()}@example.com`;
+
+      const owner = await wired!.services.identity.register({ email: ownerEmail, displayName: 'Ägare' });
+      const ownerActor = wired!.actorFor(owner.person.id);
+      const room = await wired!.services.rooms.create(ownerActor, {
+        title: `Delat rum ${randomUUID()}`,
+      });
+      const { url } = await wired!.services.invites.create(ownerActor, {
+        roomId: room.id,
+        channel: 'email',
+        destination: guestEmail,
+      });
+      const token = url.split('/').filter(Boolean).at(-1)!;
+
+      const result = await wired!.registerWithInvite({ email: guestEmail }, token);
+
+      expect(result.person.email).toBe(guestEmail);
+      expect(result.personalRoom.kind).toBe('personal');
+      expect(result.joinedRoom.room.id).toBe(room.id);
+      expect(result.joinedRoom.role).toBe('editor');
+
+      // Both halves are really there, not just in the returned value: the person can be
+      // found again, and they are a member of the room they were invited to.
+      const found = await wired!.services.identity.findByEmail(guestEmail);
+      expect(found?.id).toBe(result.person.id);
+
+      const guestActor = wired!.actorFor(result.person.id);
+      const rooms = await wired!.services.rooms.listForPerson(guestActor);
+      expect(rooms.map((r) => r.roomId)).toContain(room.id);
+    });
+
+    itIfDb('leaves no new account behind when the invite has already been spent', async () => {
+      const ownerEmail = `db-test-${randomUUID()}@example.com`;
+      const firstGuestEmail = `db-test-${randomUUID()}@example.com`;
+      const secondGuestEmail = `db-test-${randomUUID()}@example.com`;
+
+      const ownerActor = wired!.actorFor(
+        (await wired!.services.identity.register({ email: ownerEmail, displayName: 'Ägare' })).person
+          .id,
+      );
+      const room = await wired!.services.rooms.create(ownerActor, {
+        title: `Delat rum ${randomUUID()}`,
+      });
+      const { url } = await wired!.services.invites.create(ownerActor, {
+        roomId: room.id,
+        channel: 'email',
+        destination: firstGuestEmail,
+      });
+      const token = url.split('/').filter(Boolean).at(-1)!;
+
+      // Spent by the first, legitimate use.
+      await wired!.registerWithInvite({ email: firstGuestEmail }, token);
+
+      // Reused for a second, different person — exactly the reproduction from the
+      // review: a spent invite must not manufacture an account for whoever tries it.
+      await expect(
+        wired!.registerWithInvite({ email: secondGuestEmail }, token),
+      ).rejects.toThrow(/Inbjudan finns inte/);
+
+      const orphan = await wired!.services.identity.findByEmail(secondGuestEmail);
+      expect(orphan).toBeNull();
+    });
+
+    itIfDb('leaves no new account behind when the invite is simply unknown', async () => {
+      const email = `db-test-${randomUUID()}@example.com`;
+
+      await expect(
+        wired!.registerWithInvite({ email }, 'not-a-real-token'),
+      ).rejects.toThrow(/Inbjudan finns inte/);
+
+      expect(await wired!.services.identity.findByEmail(email)).toBeNull();
+    });
+  });
+
   itIfDb('an invited person sees the shared room, not the inviter\'s personal room', async () => {
     const ownerEmail = `db-test-${randomUUID()}@example.com`;
     const guestEmail = `db-test-${randomUUID()}@example.com`;

@@ -421,10 +421,25 @@ fly secrets set ALERT_WEBHOOK_URL='https://hooks.slack.com/services/...'   # or 
 fly secrets set ALERT_SMS_TO='+467...'      # criticals only; reuses the 46elks sign-up credentials
 fly secrets set HEARTBEAT_URL='https://hc-ping.com/<uuid>'                 # dead-man's switch
 # And so the process can tell whether the documents have an off-site copy at all:
-fly secrets set DOCUMENT_ARCHIVE_S3_BASE_URL='https://<account>.r2.cloudflarestorage.com/photographic-dokumentarkiv' \
+fly secrets set DOCUMENT_ARCHIVE_S3_BASE_URL='https://<account>.eu.r2.cloudflarestorage.com/photographic-document-archive' \
                 DOCUMENT_ARCHIVE_S3_ACCESS_KEY_ID='...' \
                 DOCUMENT_ARCHIVE_S3_SECRET_ACCESS_KEY='...'
 ```
+
+**The `.eu.` in that hostname is not optional, and getting it wrong costs hours.** The
+bucket was created in R2's EU jurisdiction, and a jurisdictional bucket is reachable only
+through its own endpoint — `https://<account>.eu.r2.cloudflarestorage.com`. Through the
+plain `https://<account>.r2.cloudflarestorage.com` the same bucket, with the same correct
+credentials, answers `403 AccessDenied`, which reads exactly like a bad key or a token
+scoped to the wrong bucket. Two tokens were recreated chasing that before the endpoint was
+the answer. Checked both ways on the live bucket: plain endpoint refuses, `.eu.` endpoint
+accepts a `PUT`, a `GET` and a byte-identical round trip.
+
+Diagnosing this class again: an `AccessDenied` that survives a freshly recreated,
+all-buckets **Object Read & Write** token is not about the token. Widen the endpoint
+before widening the key. `404 NoSuchBucket` from the plain endpoint against a bucket you
+can see in the dashboard is the same finding wearing a clearer label — jurisdictional
+buckets are invisible to the standard endpoint rather than forbidden by it.
 
 | Variable | Default | What it does |
 | --- | --- | --- |

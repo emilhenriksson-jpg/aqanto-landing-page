@@ -19,7 +19,7 @@
 
 import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 
-import type { Person, PersonId, Room } from '@photographic/core';
+import type { Person, Room } from '@photographic/core';
 import { AuthError, ValidationError } from '@photographic/core';
 
 import type { ConnectDeps, PendingCode, SignupChannel } from './deps.js';
@@ -228,10 +228,31 @@ export async function verifyCode(
   let person: Person;
   let personalRoom: Room;
   let created = false;
+  let joinedRoom: VerifyCodeResult['joinedRoom'] = null;
 
   if (existing) {
+    // Already has an account, so there is nothing here an invite failure could orphan:
+    // the person existed before this call and still exists if `accept` throws.
     person = existing;
     personalRoom = await deps.identity.personalRoomOf(person.id);
+    if (record.inviteToken) {
+      const accepted = await deps.invites.accept(record.inviteToken, person.id);
+      joinedRoom = { room: accepted.room, role: accepted.role };
+    }
+  } else if (record.inviteToken && deps.registerWithInvite) {
+    // The one sequence that could manufacture an orphan: a brand-new person, arriving
+    // with an invite that turns out to be reused, expired or otherwise invalid. Routed
+    // through the atomic composite instead of `identity.register` followed by
+    // `invites.accept`, so a failure here never leaves a person behind — see
+    // `ConnectDeps.registerWithInvite`.
+    const registered = await deps.registerWithInvite(
+      record.channel === 'email' ? { email: record.destination } : { phone: record.destination },
+      record.inviteToken,
+    );
+    person = registered.person;
+    personalRoom = registered.personalRoom;
+    joinedRoom = registered.joinedRoom;
+    created = true;
   } else {
     const registered = await deps.identity.register(
       record.channel === 'email'
@@ -241,12 +262,11 @@ export async function verifyCode(
     person = registered.person;
     personalRoom = registered.personalRoom;
     created = true;
-  }
 
-  let joinedRoom: VerifyCodeResult['joinedRoom'] = null;
-  if (record.inviteToken) {
-    const accepted = await deps.invites.accept(record.inviteToken, person.id as PersonId);
-    joinedRoom = { room: accepted.room, role: accepted.role };
+    if (record.inviteToken) {
+      const accepted = await deps.invites.accept(record.inviteToken, person.id);
+      joinedRoom = { room: accepted.room, role: accepted.role };
+    }
   }
 
   const session = await deps.issuer.issue({ personId: person.id });
