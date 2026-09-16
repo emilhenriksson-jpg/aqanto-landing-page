@@ -23,8 +23,8 @@ afterEach(() => {
 describe('SessionGate', () => {
   it('sends a visitor with no browser session to the one public start page', async () => {
     const replace = vi.fn();
-    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, replace });
     window.history.replaceState({}, '', '/rum');
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, replace });
     getAccount.mockRejectedValue({ status: 401 });
 
     render(<SessionGate><p>Skyddat innehåll</p></SessionGate>);
