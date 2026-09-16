@@ -689,6 +689,162 @@ describe('with no BREAK_GLASS_SECRET set, which is every deployment by default',
   });
 });
 
+/**
+ * Own process so these do not spend the parent suite's signup budget. The cookie
+ * path is the one a returning person actually uses, and it used to be ignored.
+ */
+describe('approving with the session cookie', () => {
+  let h: Harness;
+
+  beforeAll(async () => {
+    h = await harness();
+  });
+
+  afterAll(async () => {
+    await h.close();
+  });
+
+  it('mints a code when the browser sends photographic_sid and a same-origin Origin', async () => {
+    const { verifier, challenge } = pkce();
+    const { body: client } = await h.registerClient();
+    const clientId = client['client_id'] as string;
+    const started = await h.startAuthorization(clientId, { code_challenge: challenge });
+    const requestId = new URL(started.headers.get('location') as string).searchParams.get(
+      'auth_request',
+    ) as string;
+    const sessionToken = await h.signIn();
+
+    const approved = await h.json('/oauth/authorize/approve', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `photographic_sid=${sessionToken}`,
+        origin: API,
+      },
+      body: JSON.stringify({ requestId, approved: true }),
+    });
+
+    expect(approved.response.status).toBe(200);
+    const code = new URL(approved.body['redirectUrl'] as string).searchParams.get('code');
+    expect(code).toBeTruthy();
+
+    const exchanged = await h.postForm('/oauth/token', {
+      grant_type: 'authorization_code',
+      code: code as string,
+      redirect_uri: REDIRECT_URI,
+      client_id: clientId,
+      code_verifier: verifier,
+    });
+    expect(exchanged.status).toBe(200);
+  });
+
+  /**
+   * The cookie is a credential, so it has to be checked like one.
+   *
+   * This branch proved the cookie *works* and that CSRF is locked, but not that a cookie
+   * nobody signed is refused — and that is the property that matters here, because
+   * approving mints a lasting MCP grant. This is the same endpoint whose earlier shape
+   * was the account takeover: session tokens used to be verified by their pattern, so
+   * anyone who learned a `personId` could mint one.
+   *
+   * Every forgery below is same-origin, so CSRF cannot be what rejects them. The only
+   * thing standing between these and a granted token is `readSignedSession` checking the
+   * HMAC.
+   */
+  it('refuses a cookie that was not signed with the session secret', async () => {
+    const { challenge } = pkce();
+    const { body: client } = await h.registerClient();
+    const clientId = client['client_id'] as string;
+    const started = await h.startAuthorization(clientId, { code_challenge: challenge });
+    const requestId = new URL(started.headers.get('location') as string).searchParams.get(
+      'auth_request',
+    ) as string;
+
+    // A real session, so each forgery differs from it in exactly one way.
+    const real = await h.signIn();
+    const [scheme, person, nonce, issued, expires, signature] = real.split('.');
+
+    // Every one of these keeps the six-segment shape. That matters: a malformed token is
+    // rejected by a length check long before the HMAC, so a forgery of the wrong shape
+    // would pass this test without the signature ever being consulted.
+    const forgeries: Array<[string, string]> = [
+      [
+        'signature replaced, everything else genuine',
+        [scheme, person, nonce, issued, expires, 'A'.repeat((signature as string).length)].join('.'),
+      ],
+      [
+        'signature genuine, person id swapped',
+        [scheme, Buffer.from('p-someone-else').toString('base64url'), nonce, issued, expires, signature].join('.'),
+      ],
+      [
+        'signature genuine, expiry pushed out',
+        [scheme, person, nonce, issued, String(Number(expires) + 31_536_000_000), signature].join('.'),
+      ],
+      ['the pre-signature shape that was the takeover', `session-${'a'.repeat(32)}-1`],
+    ];
+
+    for (const [what, cookie] of forgeries) {
+      const attempt = await h.json('/oauth/authorize/approve', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: `photographic_sid=${cookie}`,
+          origin: API,
+        },
+        body: JSON.stringify({ requestId, approved: true }),
+      });
+
+      expect(attempt.response.status, what).not.toBe(200);
+      expect(JSON.stringify(attempt.body), what).not.toMatch(/redirectUrl/);
+    }
+
+    // The genuine cookie still approves the same pending request, so the loop above was
+    // rejecting signatures rather than a request that was already spent.
+    const approved = await h.json('/oauth/authorize/approve', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `photographic_sid=${real}`,
+        origin: API,
+      },
+      body: JSON.stringify({ requestId, approved: true }),
+    });
+    expect(approved.response.status).toBe(200);
+  });
+
+  it('refuses a cookie approval that did not come from our own page', async () => {
+    const { body: client } = await h.registerClient();
+    const started = await h.startAuthorization(client['client_id'] as string, {
+      code_challenge: pkce().challenge,
+    });
+    const requestId = new URL(started.headers.get('location') as string).searchParams.get(
+      'auth_request',
+    ) as string;
+    const sessionToken = await h.signIn();
+
+    const crossSite = await h.json('/oauth/authorize/approve', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `photographic_sid=${sessionToken}`,
+        origin: 'https://evil.example',
+      },
+      body: JSON.stringify({ requestId, approved: true }),
+    });
+    expect(crossSite.response.status).toBe(403);
+
+    const noOrigin = await h.json('/oauth/authorize/approve', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `photographic_sid=${sessionToken}`,
+      },
+      body: JSON.stringify({ requestId, approved: true }),
+    });
+    expect(noOrigin.response.status).toBe(403);
+  });
+});
+
 /** A person connected all the way to a token, for the tests that start after that. */
 async function connected(h: Harness) {
   const { verifier, challenge } = pkce();
