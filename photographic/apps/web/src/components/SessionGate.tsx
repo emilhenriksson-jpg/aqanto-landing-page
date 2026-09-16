@@ -30,7 +30,7 @@ export function SessionGate({ children }: { children?: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        if (!(error instanceof ApiError) || error.status === 401) {
+        if (error instanceof ApiError && error.status === 401) {
           setState(error instanceof ApiError && error.message.includes('Saknar') ? 'signed-out' : 'expired');
           return;
         }
@@ -49,7 +49,12 @@ export function SessionGate({ children }: { children?: ReactNode }) {
   }, [state]);
 
   if (state === 'ready') return children ?? <Outlet />;
-  if (state === 'unavailable') return children ?? <Outlet />;
+  if (state === 'unavailable') return (
+    <main className="session-gate">
+      <p>Vi kunde inte ansluta just nu. Försök igen om en stund.</p>
+      <button className="btn btn--brand" onClick={() => window.location.reload()}>Försök igen</button>
+    </main>
+  );
 
   return (
     <main className="session-gate" aria-busy="true">

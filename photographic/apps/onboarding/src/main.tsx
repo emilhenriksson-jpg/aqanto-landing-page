@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 import type { Step } from './App.js';
 import { httpApi } from './api.js';
+import { safeReturnTo } from './return-path.js';
 import './styles/app.css';
 
 /**
@@ -41,12 +42,6 @@ function initialStep(): Step | undefined {
   if (authRequest) return { name: 'approve', requestId: authRequest };
 
   return undefined;
-}
-
-/** Never turn a query string on a public page into a redirect off this origin. */
-function safeReturnTo(value: string | null): string | undefined {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) return undefined;
-  return value;
 }
 
 const root = document.querySelector('#root');

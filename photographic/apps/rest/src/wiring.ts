@@ -38,7 +38,6 @@ import type { ConnectDeps } from '@photographic/connect';
 import {
   BREAK_GLASS_SECRET_MIN_LENGTH,
   generateCode,
-  readSignedSession,
   SESSION_TOKEN_PREFIX,
   SignedSessionIssuer,
 } from '@photographic/connect';
@@ -54,6 +53,7 @@ import {
   defaultBlobRoot,
   describeDatabaseTls,
   PgAccounts,
+  PgBrowserSessionRevocations,
   PgAuthCodeStore,
   PgClientGrants,
   PgOAuthClientStore,
@@ -81,6 +81,7 @@ import {
 import type { Hono } from 'hono';
 
 import { createApp } from './app.js';
+import { browserSessions, MemorySessionRevocations, type SessionRevocations } from './browser-sessions.js';
 import { BREAK_GLASS_PATH } from './break-glass-page.js';
 import type { RestConfig } from './config.js';
 import type { AppEnv } from './context.js';
@@ -170,6 +171,7 @@ interface AuthStores {
 }
 
 interface WiredServices {
+  sessionRevocations: SessionRevocations;
   services: Services;
   authStores: AuthStores;
   /** Queue observability, when there is a real queue to observe. */
@@ -277,6 +279,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     const exportsService = new PgExports(pool, effectiveBlobs);
     return {
       services: wired.services,
+      sessionRevocations: new PgBrowserSessionRevocations(pool),
       authStores: {
         clients: new PgOAuthClientStore(pool),
         codes: new PgAuthCodeStore(pool),
@@ -310,6 +313,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
   const wired = createMemoryServices({ baseUrl: config.publicUrl, llm });
   return {
     services: wired.services,
+    sessionRevocations: new MemorySessionRevocations(),
     authStores: {
       clients: new MemoryClientStore(),
       codes: new MemoryAuthCodeStore(),
@@ -477,9 +481,10 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
    * `findById` still runs after the signature: a genuine token for a person who has since
    * been deleted must not authenticate.
    */
+  const browser = browserSessions(sessionSecret, wired.sessionRevocations);
   const sessionTokens: SessionTokenVerifier = {
     verify: async (token) => {
-      const personId = readSignedSession(token, sessionSecret) as PersonId | null;
+      const personId = await browser.verify(token) as PersonId | null;
       if (!personId) return null;
       return (await wired.services.identity.findById(personId)) ? personId : null;
     },
@@ -655,6 +660,7 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
   });
 
   const app = createApp({
+    revokeBrowserSession: (token) => browser.revoke(token),
     services: wired.services,
     config,
     logger,

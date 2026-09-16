@@ -110,6 +110,7 @@ function KontoReady({ account }: { account: AccountState }) {
         >
           {signingOut ? 'Loggar ut…' : 'Logga ut'}
         </button>
+        <p className="meta">Du loggar ut ur den här webbläsaren. Dina anslutna AI-klienter är kvar.</p>
         {signOutError ? <p className="meta" role="alert">{signOutError}</p> : null}
       </div>
 

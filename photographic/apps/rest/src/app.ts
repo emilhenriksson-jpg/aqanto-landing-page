@@ -66,6 +66,7 @@ import {
 } from './web-app.js';
 
 export interface AppDeps {
+  revokeBrowserSession?: (token: string) => Promise<void>;
   services: Services;
   config?: RestConfig;
   logger?: Logger;
@@ -330,7 +331,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.route('/v1', publicExportRoutes({ exports: deps.exports ?? null }));
   // Browser sign-out must work even when the cookie is stale. It owns no data and
   // clears only the cookie, while the route itself still rejects cross-site requests.
-  app.route('/v1', sessionRoutes());
+  app.route('/v1', sessionRoutes(deps.revokeBrowserSession));
 
   // Derived from config alone, and needed whether or not sign-up is mounted: the client
   // health lights describe the same clients the connect screen offers.

@@ -95,6 +95,7 @@ async function fixture(): Promise<Fixture> {
     logger: silentLogger(),
     oauth: fakeOAuth(tokens),
     connect: { deps: connectDeps },
+    revokeBrowserSession: async () => {},
   });
 
   const call =
@@ -1637,6 +1638,7 @@ describe('limits', () => {
       logger: silentLogger(),
       oauth: fakeOAuth(f.tokens),
       connect: { deps: connectDeps },
+    revokeBrowserSession: async () => {},
     });
 
     const request = (path: string, body: unknown) =>

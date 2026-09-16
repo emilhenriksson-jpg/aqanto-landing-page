@@ -9,6 +9,7 @@ import { Health } from './screens/Health.js';
 import { InviteLanding } from './screens/InviteLanding.js';
 import { Landing } from './screens/Landing.js';
 import { Name } from './screens/Name.js';
+import { safeReturnTo } from './return-path.js';
 import { Signup } from './screens/Signup.js';
 import { Verify } from './screens/Verify.js';
 
@@ -85,7 +86,7 @@ export function App({
         />
       )}
 
-      {step.name === 'name' && <Name api={api} onDone={() => setStep({ name: 'connect' })} />}
+      {step.name === 'name' && <Name api={api} onDone={() => returnTo ? go(returnTo) : setStep({ name: 'connect' })} />}
 
       {step.name === 'approve' && (
         <Approve api={api} requestId={step.requestId} {...(navigate ? { navigate } : {})} />
@@ -115,6 +116,5 @@ export function App({
 function returnPathFromLocation(): string | undefined {
   if (typeof window === 'undefined') return undefined;
   const value = new URLSearchParams(window.location.search).get('fran');
-  if (!value || !value.startsWith('/') || value.startsWith('//')) return undefined;
-  return value;
+  return safeReturnTo(value) ?? (window.location.pathname === '/login' ? '/rum' : undefined);
 }

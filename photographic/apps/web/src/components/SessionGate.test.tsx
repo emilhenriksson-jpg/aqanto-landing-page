@@ -36,4 +36,23 @@ describe('SessionGate', () => {
     );
     expect(screen.queryByText('Skyddat innehåll')).toBeNull();
   });
+  it('shows a retry on network failure without rendering the protected shell or claiming expiry', async () => {
+    getAccount.mockRejectedValue(new TypeError('Failed to fetch'));
+    render(<SessionGate><p>Skyddat innehåll</p></SessionGate>);
+    expect(await screen.findByRole('button', { name: 'Försök igen' })).toBeInTheDocument();
+    expect(screen.queryByText('Skyddat innehåll')).toBeNull();
+    expect(screen.queryByText('Tar dig till inloggningen…')).toBeNull();
+  });
+
+  it('redirects when an authenticated session expires during use', async () => {
+    const replace = vi.fn();
+    window.history.replaceState({}, '', '/konto');
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, replace });
+    getAccount.mockResolvedValue({ firstName: 'Test' });
+    render(<SessionGate><p>Skyddat innehåll</p></SessionGate>);
+    expect(await screen.findByText('Skyddat innehåll')).toBeInTheDocument();
+    window.dispatchEvent(new Event('photographic:session-expired'));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/start?fran=%2Fkonto&orsak=utgangen'));
+  });
+
 });

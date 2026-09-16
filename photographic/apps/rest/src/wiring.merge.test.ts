@@ -16,6 +16,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { SignedSessionIssuer } from '@photographic/connect';
 import { createCodeSenderFromEnv } from '@photographic/delivery';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -109,6 +110,24 @@ describe('OAuth state is persistent when there is a database', () => {
     } finally {
       await pool.end();
     }
+  });
+
+  it('keeps browser logout revoked after a fresh process connects to Postgres', async () => {
+    const secret = 'persistent-browser-session-test-secret';
+    vi.stubEnv('SESSION_SECRET', secret);
+    const first = await wiring();
+    const { person } = await first.services.identity.register({ email: `logout-${randomUUID()}@example.test` });
+    const issuer = new SignedSessionIssuer(secret);
+    const { token } = await issuer.issue({ personId: person.id });
+    const other = await issuer.issue({ personId: person.id });
+    expect(await first.oauth.introspect(token)).not.toBeNull();
+    const result = await first.app.request('http://api.test/v1/session/logout', {
+      method: 'POST', headers: { origin: 'http://api.test', cookie: `photographic_sid=${token}` },
+    });
+    expect(result.status).toBe(204);
+    const second = await wiring();
+    expect(await second.oauth.introspect(token)).toBeNull();
+    expect(await second.oauth.introspect(other.token)).not.toBeNull();
   });
 
   it('offers the per-client management the Klienter screen needs', async () => {

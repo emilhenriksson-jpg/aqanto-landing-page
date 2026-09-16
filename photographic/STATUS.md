@@ -246,6 +246,9 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- 2026-09-16: Completed PR #36 entry/exit with database-backed hashed browser-session revocation (migration 0024), shared by REST and OAuth consent. Logout preserves separate OAuth grants and clears legacy browser storage. Network errors offer retry; safe return paths restore the intended product page after phone sign-in, including first signup. Local web/onboarding/session tests and Chrome desktop flow verified; PostgreSQL persistence/restart tests added for CI. Deployment awaits authenticated Fly CLI on this workstation.
+
+
 - **web/rest/onboarding** — Logged-out product visits now lead to the existing calm start and
   phone sign-in flow; a same-origin sign-out route clears even a stale browser cookie, Konto
   exposes it, and a 401 returns the person to a clear session-expired start instead of a dead shell.

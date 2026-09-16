@@ -1,3 +1,4 @@
+import { SESSION_STORAGE_KEY } from './config.js';
 /**
  * The person's own account: their name, their export, and their deletion.
  *
@@ -22,8 +23,9 @@ export function getAccount(): Promise<AccountDto> {
 }
 
 /** Ends this browser's session. Connected AI clients keep their separate credentials. */
-export function signOut(): Promise<void> {
-  return apiFetch('/v1/session/logout', { method: 'POST' });
+export async function signOut(): Promise<void> {
+  await apiFetch('/v1/session/logout', { method: 'POST' });
+  try { localStorage.removeItem(SESSION_STORAGE_KEY); } catch { /* Storage may be disabled. */ }
 }
 
 /** Sets it. First-party only server-side — no connected AI can call this. */
