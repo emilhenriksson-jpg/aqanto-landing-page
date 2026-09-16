@@ -306,6 +306,14 @@ describe('ending a browser session', () => {
     expect(res.headers.get('cache-control')).toBe('no-store');
   });
 
+  it.each(['http://photographic.test', 'https://photographic.test:444', 'null'])('rejects a different origin: %s', async (origin) => {
+    const res = await f.app.request('https://photographic.test/v1/session/logout', {
+      method: 'POST', headers: { origin },
+    });
+    expect(res.status).toBe(403);
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
   it('does not let another site sign a person out', async () => {
     const res = await f.app.request('https://photographic.test/v1/session/logout', {
       method: 'POST',

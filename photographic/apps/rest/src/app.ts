@@ -329,8 +329,8 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     key: (c) => `export-download:${clientAddress(c)}`,
   }));
   app.route('/v1', publicExportRoutes({ exports: deps.exports ?? null }));
-  // Browser sign-out must work even when the cookie is stale. It owns no data and
-  // clears only the cookie, while the route itself still rejects cross-site requests.
+  // Browser sign-out must also work with a stale cookie. Revoke the credential before
+  // clearing the cookie; the route rejects cross-site requests. OAuth grants are separate.
   app.route('/v1', sessionRoutes(deps.revokeBrowserSession));
 
   // Derived from config alone, and needed whether or not sign-up is mounted: the client
