@@ -14,11 +14,6 @@
       "count": 1
     }
   },
-  "apps/onboarding/src/screens/Approve.tsx": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    }
-  },
   "apps/onboarding/src/screens/Connect.tsx": {
     "@typescript-eslint/no-floating-promises": {
       "count": 1
@@ -54,7 +49,7 @@
       "count": 1
     },
     "@typescript-eslint/unbound-method": {
-      "count": 6
+      "count": 5
     }
   },
   "apps/rest/src/server.ts": {
