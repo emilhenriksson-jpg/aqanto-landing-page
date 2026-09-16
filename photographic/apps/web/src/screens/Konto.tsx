@@ -100,7 +100,14 @@ function KontoReady({ account }: { account: AccountState }) {
       </ul>
 
       <div className="konto-session">
-        <button type="button" className="btn btn--quiet" disabled={signingOut} onClick={() => void endSession()}>
+        <button
+          type="button"
+          className="btn btn--quiet"
+          disabled={signingOut}
+          onClick={() => {
+            void endSession().catch(() => {});
+          }}
+        >
           {signingOut ? 'Loggar ut…' : 'Logga ut'}
         </button>
         {signOutError ? <p className="meta" role="alert">{signOutError}</p> : null}
