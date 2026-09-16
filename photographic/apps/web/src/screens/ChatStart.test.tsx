@@ -20,6 +20,29 @@ describe('conversation home', () => {
     expect(screen.getAllByText('Ingen bekräftad leverans ännu.')).toHaveLength(4);
   });
 
+  it('keeps the Mac app handoff on the user click and offers the web separately', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)', maxTouchPoints: 0 });
+    render(<MemoryRouter><ChatStart /></MemoryRouter>);
+    const link = screen.getByRole('link', { name: 'Öppna ChatGPT' });
+    expect(link.getAttribute('href')).toMatch(/^codex:\/\/threads\/new\?prompt=/);
+    expect(link).not.toHaveAttribute('target');
+    expect(screen.getAllByRole('link', { name: 'Öppna i webbläsaren' }).some((entry) => entry.getAttribute('href') === 'https://chatgpt.com/?no_universal_links=1')).toBe(true);
+  });
+
+  it.each([
+    ['iPhone; CPU iPhone OS 18_0 like Mac OS X', 5, 'https://chatgpt.com/?q='],
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X)', 5, 'https://chatgpt.com/?q='],
+    ['Mozilla/5.0 (Linux; Android 14)', 5, 'intent://chatgpt.com/?q='],
+  ])('uses mobile launches for %s even if the server sent desktop descriptors', (userAgent, maxTouchPoints, prefix) => {
+    vi.stubGlobal('navigator', { userAgent, maxTouchPoints });
+    render(<MemoryRouter><ChatStart /></MemoryRouter>);
+    expect(screen.getByRole('link', { name: 'Öppna ChatGPT' }).getAttribute('href')).toContain(prefix);
+    expect(screen.getByRole('link', { name: 'Öppna ChatGPT' })).not.toHaveAttribute('target');
+    expect(screen.queryByRole('link', { name: 'Öppna Codex' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Öppna Cursor' })).not.toBeInTheDocument();
+    for (const button of screen.getAllByRole('button', { name: 'Öppna på datorn' })) expect(button).toBeDisabled();
+  });
+
   it('shows selectable text if clipboard permission is denied', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
     render(<MemoryRouter><ChatStart /></MemoryRouter>);

@@ -22,9 +22,26 @@ endpoints. Identity stays in OAuth. First-time authorization is still necessary.
   chat; web handoff available; no auto-send.
 - Claude Desktop: `claude://claude.ai/new?q=...`; new composer, no auto-send.
   Web fallback opens a blank chat, with copyable start text on Photographic.
-- ChatGPT: website plus an attempt to copy the generic start text. User pastes it
-  and attaches Photographic from the tools menu. Clipboard denial exposes selectable
-  text. We do not invent a published plugin id or connector-selection URL.
+- ChatGPT Desktop: `codex://threads/new?prompt=...`, the URL scheme retained by
+  the current ChatGPT desktop app. Its installed macOS Info.plist also registers
+  `codex`, not `chatgpt`. Opens a local composer; does not select a connector or send.
+- ChatGPT iOS: associated `https://chatgpt.com/?q=...` Universal Link. Android:
+  explicit HTTPS intent for verified package `com.openai.chatgpt`.
+- Claude iOS: associated `https://claude.ai/new` Universal Link. Android: explicit
+  HTTPS intent for verified package `com.anthropic.claude`. Mobile start text is
+  copied for pasting; we do not substitute the separately documented Code routes.
+- Codex and Cursor: no supported mobile launch for this flow; cards explain this
+  and do not expose desktop chat links on phones. Setup instructions remain available.
+
+The server selects links from the request platform. The web app uses the same central
+resolver with browser touch information to handle iPad desktop-mode user agents.
+App launches are direct user-click anchors in the same tab, preserving mobile app
+handoff. There is no timer redirect or Android browser fallback. The browser option
+is separate; ChatGPT uses its documented association exclusion `no_universal_links=1`.
+OS preferences, app installation and browser restrictions can still prevent opening
+an app. iOS Universal Links can stay on the web when disabled by the user; the UI
+explains the long-press/app option. We cannot override those OS preferences.
+Clipboard denial exposes selectable text. No published plugin id is invented.
 
 Desktop links require the corresponding app. Directory publication and provider
 approval could reduce setup, but are not completed or claimed by this change.
@@ -40,6 +57,20 @@ correlated. Opening an app, copying text and installing configuration never coun
 - https://cursor.com/docs/reference/deeplinks.md
 - https://support.claude.com/id/articles/14729294-buka-claude-desktop-dengan-tautan
 - https://developers.openai.com/plugins/deploy/connect-chatgpt
+
+- https://chatgpt.com/.well-known/apple-app-site-association
+- https://chatgpt.com/.well-known/assetlinks.json
+- https://claude.ai/.well-known/apple-app-site-association
+- https://claude.ai/.well-known/assetlinks.json
+- https://developer.chrome.com/docs/android/intents
+
+## Native launch verification (2026-09-16)
+
+Unit/component tests cover native Mac links, iOS/Android routes, iPad desktop mode,
+explicit web alternatives, unavailable mobile clients, and clipboard/receipt behavior.
+Physical mobile app handoff has not been tested here. Native ChatGPT UI verification
+is unavailable: the computer-use tool denies control of `com.openai.codex` (the
+installed ChatGPT desktop app). Its registration and official route docs were checked.
 
 ## Verification
 

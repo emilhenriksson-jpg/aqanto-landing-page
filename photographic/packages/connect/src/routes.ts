@@ -133,7 +133,7 @@ export async function handleConnect(
 ): Promise<HandlerResponse> {
   try {
     const userAgent = req.headers?.['user-agent'] ?? null;
-    const clients = orderClients(buildClients(config), userAgent);
+    const clients = orderClients(buildClients(config, detect(userAgent).platform), userAgent);
 
     return ok({
       mcpUrl: config.mcpUrl,

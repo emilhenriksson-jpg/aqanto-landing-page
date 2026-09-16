@@ -6,6 +6,7 @@
  * Adding a client should mean adding one entry here.
  */
 
+import type { Platform } from './detect.js';
 import type { AgentClient, DeliveryMethod } from '@photographic/core';
 import {
   claudeCodeCommand,
@@ -57,10 +58,11 @@ export interface ClientDescriptor {
 }
 
 export interface ChatLaunch {
-  url: string;
+  /** Null when no supported native chat launch exists on this device. */
+  url: string | null;
   prompt: string;
   note: string;
-  /** Installed desktop app required. Web clients open in a separate tab. */
+  /** This launch requires a desktop app, rather than a mobile app. */
   desktop: boolean;
   copyPromptOnOpen?: boolean;
   fallbackUrl?: string;
@@ -69,9 +71,35 @@ export interface ChatLaunch {
 /** No profile, room identifiers, credentials or personal data belong in a URL. */
 export const CHAT_START_PROMPT = `Använd Photographic som mitt minne. Börja den här nya chatten med att anropa get_context utan rum, även om du fick kontext när anslutningen öppnades. Läs min personliga profil och kompass, översikten över mina rum och senaste kalenderhändelserna. Jag ska inte behöva välja rum. När samtalet handlar om ett rum, hämta dess kontext med get_context och relevanta detaljer med search_memory eller list_history. Spara varaktiga uppgifter med remember enligt min kompass; gemensamma ändringar ska följa rummets godkännanderegler. Om kopplingen saknas eller hämtningen misslyckas, säg det tydligt och hitta inte på något om mitt minne.`;
 
-export function chatLaunch(id: ClientId): ChatLaunch | undefined {
+export function chatLaunch(id: ClientId, platform: Platform = 'unknown'): ChatLaunch | undefined {
   const prompt = CHAT_START_PROMPT;
   const encoded = encodeURIComponent(prompt);
+  const mobile = platform === 'ios' || platform === 'android';
+  if (mobile) {
+    if (id === 'codex' || id === 'cursor') return {
+      url: null, prompt, desktop: false,
+      note: `${id === 'codex' ? 'Codex' : 'Cursor'} har ingen stödd länk för att starta den här chatten i en mobilapp. Öppna Photographic på datorn, eller välj ChatGPT eller Claude här.`,
+    };
+    if (id === 'chatgpt') return {
+      // iOS Universal Link: the official association explicitly accepts ?q=.
+      // Android Intent targets the vendor's verified package; no web redirect timer.
+      url: platform === 'android'
+        ? `intent://chatgpt.com/?q=${encoded}#Intent;scheme=https;package=com.openai.chatgpt;end`
+        : `https://chatgpt.com/?q=${encoded}`,
+      prompt, desktop: false, copyPromptOnOpen: true,
+      fallbackUrl: 'https://chatgpt.com/?no_universal_links=1',
+      note: 'Öppnar ChatGPT-appen på telefonen med starttexten. Om texten saknas kan du klistra in den. Välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald.',
+    };
+    if (id === 'claude') return {
+      // /new is an associated mobile route; unlike /code/new this is a regular chat.
+      url: platform === 'android'
+        ? 'intent://claude.ai/new#Intent;scheme=https;package=com.anthropic.claude;end'
+        : 'https://claude.ai/new',
+      prompt, desktop: false, copyPromptOnOpen: true,
+      fallbackUrl: 'https://claude.ai/new',
+      note: 'Öppnar Claude-appen på telefonen. Starttexten kopieras; klistra in den i den nya chatten för att hämta ditt minne.',
+    };
+  }
   switch (id) {
     case 'codex': return {
       url: `codex://threads/new?prompt=${encoded}`, prompt, desktop: true,
@@ -88,8 +116,10 @@ export function chatLaunch(id: ClientId): ChatLaunch | undefined {
       note: 'Öppnar en ny chatt i datorappen med starttexten. På webben: kopiera starttexten och klistra in den i chatten.',
     };
     case 'chatgpt': return {
-      url: 'https://chatgpt.com/', prompt, desktop: false, copyPromptOnOpen: true,
-      note: 'Starttexten kopieras när du öppnar ChatGPT. Klistra in den och välj Photographic i chattens verktygsmeny. ChatGPT tillåter inte att vi gör den kopplingen åt dig.',
+      // The current ChatGPT desktop app retains the codex:// scheme.
+      url: `codex://threads/new?prompt=${encoded}`, prompt, desktop: true,
+      fallbackUrl: 'https://chatgpt.com/?no_universal_links=1',
+      note: 'Öppnar en ny chatt i den aktuella ChatGPT-appen på datorn med starttexten. Skicka den och välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald.',
     };
     default: return undefined;
   }
@@ -105,7 +135,7 @@ export interface ConnectConfig {
 
 const VERIFY = 'Vad vet du om mig?';
 
-export function buildClients(config: ConnectConfig): ClientDescriptor[] {
+export function buildClients(config: ConnectConfig, platform: Platform = 'unknown'): ClientDescriptor[] {
   const name = config.serverName ?? DEFAULT_SERVER_NAME;
   const { mcpUrl } = config;
 
@@ -113,7 +143,7 @@ export function buildClients(config: ConnectConfig): ClientDescriptor[] {
     {
       id: 'cursor',
       displayName: 'Cursor',
-      launch: chatLaunch('cursor')!,
+      launch: chatLaunch('cursor', platform)!,
       agentClients: ['cursor'],
       capability: 'deterministic',
       expectedDelivery: 'mcp_instructions',
@@ -140,7 +170,7 @@ export function buildClients(config: ConnectConfig): ClientDescriptor[] {
     {
       id: 'claude',
       displayName: 'Claude',
-      launch: chatLaunch('claude')!,
+      launch: chatLaunch('claude', platform)!,
       agentClients: ['claude-desktop', 'claude-mobile'],
       capability: 'deterministic',
       expectedDelivery: 'mcp_instructions',
@@ -214,7 +244,7 @@ export function buildClients(config: ConnectConfig): ClientDescriptor[] {
     {
       id: 'codex',
       displayName: 'Codex',
-      launch: chatLaunch('codex')!,
+      launch: chatLaunch('codex', platform)!,
       agentClients: ['codex'],
       capability: 'best_effort',
       expectedDelivery: 'tool_call',
@@ -233,7 +263,7 @@ export function buildClients(config: ConnectConfig): ClientDescriptor[] {
     {
       id: 'chatgpt',
       displayName: 'ChatGPT',
-      launch: chatLaunch('chatgpt')!,
+      launch: chatLaunch('chatgpt', platform)!,
       agentClients: ['chatgpt-web'],
       capability: 'best_effort',
       expectedDelivery: 'tool_call',

@@ -246,6 +246,9 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- 2026-09-16 — Native app launch: ChatGPT desktop now uses the installed app's documented scheme; ChatGPT/Claude mobile use associated app routes, Android explicitly targets official packages. Device-aware resolver handles iPad desktop mode. Desktop-only chat actions are unavailable on phones, web is a separate choice, and no app click counts as context delivery. See CHAT-START.md for verification and device limitations.
+
+
 - 2026-09-16: Added room-independent `/chatt` start with ChatGPT, Codex, Cursor and Claude launch descriptors, explicit first-time setup, clipboard fallback and delivery verification separate from opening an app. Personal room moved to `/personligt`; direct phone login returns to chat start. Every new conversation requests fresh context; calendar/open-thread samples are reserved with room overviews even for a full profile. Added real MCP SDK reuse and cross-client continuity/approval/isolation tests (memory and PostgreSQL). Desktop/mobile Chrome signup/start/setup verified locally. See `CHAT-START.md` for provider limitations and test scope. CI and deployment are verified before merging this work.
 
 - 2026-09-16: Completed PR #36 entry/exit with database-backed hashed browser-session revocation (migration 0024), shared by REST and OAuth consent. Logout preserves separate OAuth grants and clears legacy browser storage. Network errors offer retry; safe return paths restore the intended product page after phone sign-in, including first signup. Local web/onboarding/session tests and Chrome desktop flow verified; PostgreSQL persistence/restart tests added for CI. Deployment awaits authenticated Fly CLI on this workstation.

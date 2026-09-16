@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./clients": "./src/clients.ts",
+    "./detect": "./src/detect.ts",
     "./phone": "./src/phone.ts",
     "./testing": "./src/testing/index.ts"
   },

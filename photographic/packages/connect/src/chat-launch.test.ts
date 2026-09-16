@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildClients, CHAT_START_PROMPT } from './clients.js';
+import { buildClients, chatLaunch, CHAT_START_PROMPT } from './clients.js';
 
 describe('room-independent chat launch', () => {
   const clients = buildClients({ mcpUrl: 'https://memory.example/mcp', connectPageUrl: 'https://memory.example/connect' });
@@ -15,16 +15,38 @@ describe('room-independent chat launch', () => {
   it('uses documented prompt parameters with a lossless Unicode round trip', () => {
     for (const [id, scheme, parameter] of [['codex', 'codex:', 'prompt'], ['cursor', 'cursor:', 'text'], ['claude', 'claude:', 'q']]) {
       const launch = clients.find((client) => client.id === id)!.launch!;
-      const url = new URL(launch.url);
+      const url = new URL(launch.url!);
       expect(url.protocol).toBe(scheme);
       expect(url.searchParams.get(parameter!)).toBe(CHAT_START_PROMPT);
-      expect(launch.url.length).toBeLessThan(8000);
+      expect(launch.url!.length).toBeLessThan(8000);
       expect(url.searchParams.has('submit')).toBe(false);
     }
   });
+  it.each(['ios', 'android'] as const)('does not offer desktop-only launches on %s', (platform) => {
+    expect(chatLaunch('codex', platform)?.url).toBeNull();
+    expect(chatLaunch('cursor', platform)?.url).toBeNull();
+    for (const id of ['chatgpt', 'claude'] as const) {
+      const launch = chatLaunch(id, platform)!;
+      expect(launch.url).not.toMatch(/^(codex|cursor|claude):/);
+      expect(launch.url).not.toContain('browser_fallback_url');
+      expect(launch.desktop).toBe(false);
+      expect(launch.copyPromptOnOpen).toBe(true);
+    }
+  });
+  it('uses associated iOS chat routes, not a desktop site or Claude Code', () => {
+    const chatgpt = new URL(chatLaunch('chatgpt', 'ios')!.url!);
+    expect(chatgpt.origin + chatgpt.pathname).toBe('https://chatgpt.com/');
+    expect(chatgpt.searchParams.get('q')).toBe(CHAT_START_PROMPT);
+    expect(chatLaunch('claude', 'ios')!.url).toBe('https://claude.ai/new');
+  });
+  it('targets the official Android packages without automatic browser fallback', () => {
+    expect(chatLaunch('chatgpt', 'android')!.url).toContain('#Intent;scheme=https;package=com.openai.chatgpt;end');
+    expect(chatLaunch('claude', 'android')!.url).toBe('intent://claude.ai/new#Intent;scheme=https;package=com.anthropic.claude;end');
+  });
   it('does not promise to attach an unpublished ChatGPT connector from a URL', () => {
     const chatgpt = clients.find((client) => client.id === 'chatgpt')!;
-    expect(chatgpt.launch?.url).toBe('https://chatgpt.com/');
+    expect(chatgpt.launch?.url).toMatch(/^codex:\/\/threads\/new\?prompt=/);
+    expect(chatgpt.launch?.fallbackUrl).toBe('https://chatgpt.com/?no_universal_links=1');
     expect(chatgpt.launch?.note).toContain('verktygsmeny');
   });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { buildClients } from '@photographic/connect/clients';
+import { detect } from '@photographic/connect/detect';
+import { buildClients, chatLaunch } from '@photographic/connect/clients';
 import type { ClientDescriptor, ConnectAction, ConnectPayload, VerificationHandle, VerificationState } from '@photographic/connect';
 import { apiFetch } from '../api/client.js';
 import { isDemoMode } from '../api/config.js';
@@ -53,7 +54,9 @@ export function ChatStart() {
 }
 
 function LaunchCard({ client, health }: { client: ClientDescriptor; health: ClientHealthDto[] }) {
-  const launch = client.launch!;
+  // Browser touch information distinguishes iPad desktop mode from a Mac.
+  const platform = detect(navigator.userAgent, navigator.maxTouchPoints).platform;
+  const launch = chatLaunch(client.id, platform)!;
   const [handle, setHandle] = useState<VerificationHandle | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -113,8 +116,8 @@ function LaunchCard({ client, health }: { client: ClientDescriptor; health: Clie
     <p className="chat-start__status">{previous
       ? `Kontext skickades senast ${new Date(previous.lastSeenAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })}.`
       : 'Ingen bekräftad leverans ännu.'}</p>
-    <a className="btn btn--brand chat-start__open" href={launch.url}
-      target={launch.desktop ? undefined : '_blank'} rel="noopener noreferrer"
+    {launch.url ? <a className="btn btn--brand chat-start__open" href={launch.url}
+      rel="noopener noreferrer"
       onClick={() => {
         if (launch.copyPromptOnOpen) {
           if (!navigator.clipboard) setCopyStatus('Kopiera starttexten med knappen nedan.');
@@ -126,11 +129,12 @@ function LaunchCard({ client, health }: { client: ClientDescriptor; health: Clie
         verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'));
       }}>
       Öppna {client.displayName}<span aria-hidden="true"> ↗</span>
-    </a>
+    </a> : <button className="btn chat-start__open" disabled>Öppna på datorn</button>}
     <p className="chat-start__note">{launch.note}</p>
+    {launch.url && <p className="chat-start__note">Öppnades inte appen? Kontrollera att den är installerad och tillåt webbläsaren att öppna den. På iPhone kan du hålla inne länken och välja att öppna i appen.</p>}
     {copyStatus && <p role="status" className="chat-start__note">{copyStatus}</p>}
     <CopyText value={launch.prompt} label="Kopiera starttext" />
-    {launch.fallbackUrl && <a href={launch.fallbackUrl} target="_blank" rel="noopener noreferrer" className="chat-start__fallback">Öppna via webben</a>}
+    {launch.fallbackUrl && <a href={launch.fallbackUrl} target="_blank" rel="noopener noreferrer" className="chat-start__fallback">Öppna i webbläsaren</a>}
     {status && <p className="chat-start__receipt" role="status">{status}</p>}
     {status && !checking && <button className="btn btn--quiet" onClick={() => void verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'))}>Kontrollera nästa hämtning</button>}
     <details className="chat-start__setup">

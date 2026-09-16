@@ -17,10 +17,10 @@ export interface Detection {
   likelyClient: ClientId | null;
 }
 
-export function detect(userAgent: string | null | undefined): Detection {
+export function detect(userAgent: string | null | undefined, maxTouchPoints = 0): Detection {
   const ua = (userAgent ?? '').toLowerCase();
 
-  const platform: Platform = ua.includes('iphone') || ua.includes('ipad')
+  const platform: Platform = ua.includes('iphone') || ua.includes('ipad') || (ua.includes('macintosh') && maxTouchPoints > 1)
     ? 'ios'
     : ua.includes('android')
       ? 'android'

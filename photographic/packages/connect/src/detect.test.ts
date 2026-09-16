@@ -22,6 +22,11 @@ describe('detection', () => {
     expect(detect('Mozilla/5.0 (Linux; Android 14)').platform).toBe('android');
   });
 
+  it('recognises iPad requesting desktop pages', () => {
+    expect(detect(MAC, 5).platform).toBe('ios');
+    expect(detect(MAC, 0).platform).toBe('macos');
+  });
+
   it('flags mobile only for phones', () => {
     expect(detect(IPHONE).mobile).toBe(true);
     expect(detect(MAC).mobile).toBe(false);

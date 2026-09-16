@@ -115,6 +115,14 @@ describe('the connect payload', () => {
     expect(payload.headline).toMatch(/Samma adress/);
   });
 
+  it('returns mobile app links for a phone request', async () => {
+    const result = await handleConnect(CONFIG, { headers: { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' } });
+    const payload = result.body as ConnectPayload;
+    expect(payload.detected.platform).toBe('ios');
+    expect(payload.clients.find((client) => client.id === 'chatgpt')?.launch?.url).toMatch(/^https:\/\/chatgpt.com\/\?q=/);
+    expect(payload.clients.find((client) => client.id === 'cursor')?.launch?.url).toBeNull();
+  });
+
   it('works with no user agent at all', async () => {
     const result = await handleConnect(CONFIG, {});
     expect(result.status).toBe(200);
