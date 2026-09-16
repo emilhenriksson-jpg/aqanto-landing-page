@@ -50,7 +50,7 @@ beforeEach(() => {
       archivedAt: null,
     },
     brief: { roomId: ROOM_ID, rendered: 'Renoveringen', tokenCount: 40, stale: false, builtAt: '' },
-    members: [{ personId: 'p1', displayName: 'Emil', role: 'owner' }],
+    members: [{ displayName: 'Emil', role: 'owner' }],
   });
   listRoomItems.mockResolvedValue({ items: [] });
   listRoomDocuments.mockResolvedValue({ documents: [] });

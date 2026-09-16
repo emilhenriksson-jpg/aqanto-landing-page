@@ -29,7 +29,7 @@ import type {
   TrashRestored,
   ShortId,
 } from '@photographic/core';
-import { NotFoundError, NotPermittedError } from '@photographic/core';
+import { NotFoundError } from '@photographic/core';
 import type { Pool } from 'pg';
 
 import { queryOne, queryRows } from '../pool.js';
@@ -43,7 +43,7 @@ import {
 import { appendEvent } from './events.js';
 import type { PgDocuments } from './documents.js';
 import type { PgIngest } from './ingest.js';
-import { accessibleRoomIds, canRead, canWrite } from './permissions.js';
+import { accessibleRoomIds, assertCanWrite, canRead } from './permissions.js';
 
 export const DEFAULT_PURGE_LIMIT = 500;
 
@@ -102,7 +102,7 @@ export class PgTrash implements TrashPort {
     if (!item || !(await this.isInTrash({ item_id: item.id }))) {
       throw new NotFoundError('Det finns inget att återställa.');
     }
-    if (!(await canWrite(this.pool, actor.personId, item.roomId))) throw new NotPermittedError();
+    await assertCanWrite(this.pool, actor.personId, item.roomId);
 
     return { type: 'memory', item: await this.ingest.restore(actor, item) };
   }
@@ -171,9 +171,8 @@ export class PgTrash implements TrashPort {
         `SELECT room_id FROM app.trash WHERE document_id = $1`,
         [handle.documentId],
       );
-      if (!room || !(await canWrite(this.pool, actor.personId, room.room_id as RoomId))) {
-        throw new NotPermittedError();
-      }
+      if (!room) throw new NotFoundError('Det finns inget att radera.');
+      await assertCanWrite(this.pool, actor.personId, room.room_id as RoomId);
 
       await this.pool.query(`UPDATE app.document SET purge_after = now() WHERE id = $1`, [
         handle.documentId,
@@ -186,7 +185,7 @@ export class PgTrash implements TrashPort {
     if (!item || !(await this.isInTrash({ item_id: item.id }))) {
       throw new NotFoundError('Det finns inget att radera.');
     }
-    if (!(await canWrite(this.pool, actor.personId, item.roomId))) throw new NotPermittedError();
+    await assertCanWrite(this.pool, actor.personId, item.roomId);
 
     await appendEvent(this.pool, {
       roomId: item.roomId,

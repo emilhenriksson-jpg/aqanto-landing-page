@@ -30,7 +30,6 @@ export interface BriefDto {
 }
 
 export interface RoomMemberDto {
-  personId: string;
   displayName: string | null;
   role: string;
   /** Computed server-side from the request's own actor — never guessed client-side. */

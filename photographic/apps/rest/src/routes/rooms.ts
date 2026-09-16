@@ -59,12 +59,19 @@ export function roomRoutes(): Hono<AppEnv> {
     return c.json({
       room: serialiseRoom(room),
       brief: serialiseBrief(brief),
-      // `isSelf` is computed here, from the actor this request already resolved, rather
-      // than asking the client to know its own person id: nothing before this exposed it,
-      // and the room screen's only use for it is telling other members apart from you
-      // when naming who a room is shared with.
+      // No `personId`. Every route that acts on a specific member (`removeMember`,
+      // leaving) resolves who is calling from the actor's own token, never from a
+      // client-supplied id — and this field is the one that completed a real account
+      // takeover once already, back when session tokens were verified by shape, so a
+      // disclosed `personId` *was* the credential. Handing out a raw person id the
+      // product has no present use for is a cost with nothing on the other side.
+      //
+      // `isSelf` is what the room screen actually needed it for, and it is computed here
+      // from the actor this request already resolved. It answers the one question the
+      // client had been deriving from the id — which of these is me — without being a
+      // credential, and `loadSharedRoomFromApi` relies on it to leave the viewer out of
+      // "Delad med …" rather than telling a person their room is shared with themselves.
       members: members.map((m) => ({
-        personId: m.person.id,
         displayName: m.person.displayName,
         role: m.role,
         isSelf: m.person.id === actor.personId,

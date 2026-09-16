@@ -180,6 +180,13 @@ interface WiredServices {
    */
   exports: PgExports | null;
   accounts: PgAccounts | null;
+  /**
+   * Registers a new person and accepts a room invite atomically. Null without a
+   * database: the in-memory reference has no transaction to offer, and `verifyCode`
+   * falls back to its sequential register-then-accept there, which is fine for a test
+   * double and never what production runs.
+   */
+  registerWithInvite: ConnectDeps['registerWithInvite'] | null;
   runJobs(): Promise<unknown>;
   close(): Promise<void>;
   llmKind: 'fake' | 'openai';
@@ -282,6 +289,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
       // memory, so neither belongs on `Services`.
       exports: exportsService,
       accounts: new PgAccounts(pool, effectiveBlobs),
+      registerWithInvite: (input, inviteToken) => wired.registerWithInvite(input, inviteToken),
       queue: {
         jobStats: () => wired.jobs.stats(),
         failedKinds: () => wired.jobs.failedKinds(),
@@ -311,6 +319,7 @@ async function createServices(config: RestConfig): Promise<WiredServices> {
     },
     exports: null,
     accounts: null,
+    registerWithInvite: null,
     queue: null,
     runJobs: () => wired.jobs.runOnce(),
     close: async () => {
@@ -607,6 +616,7 @@ export async function createWiring(input: { config: RestConfig; logger: Logger }
     // codes mean watching one signup tells you the next person's code.
     randomCode: generateCode,
     randomId: () => randomUUID(),
+    ...(wired.registerWithInvite ? { registerWithInvite: wired.registerWithInvite } : {}),
   };
 
   /**

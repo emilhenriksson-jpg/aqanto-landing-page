@@ -23,10 +23,10 @@ import { NotFoundError, NotPermittedError, ValidationError } from '@photographic
 import { canInvite } from '@photographic/core';
 import type { Pool } from 'pg';
 
-import { queryOne, queryRows, withTransaction } from '../pool.js';
+import { queryOne, queryRows, withTransaction, type Db } from '../pool.js';
 import { mapInvite, mapPerson, mapRoom, type InviteRow, type PersonRow, type RoomRow } from '../rows.js';
 import { appendEvent } from './events.js';
-import { roleIn } from './permissions.js';
+import { assertNotFrozen, roleIn } from './permissions.js';
 
 export const INVITE_TTL_DAYS = 14;
 export const PREVIEW_ITEM_COUNT = 3;
@@ -51,6 +51,8 @@ export class PgInvites implements InvitePort {
     actor: Actor,
     input: { roomId: RoomId; channel: 'email' | 'sms'; destination: string; role?: MemberRole },
   ): Promise<{ invite: Invite; url: string }> {
+    await assertNotFrozen(this.pool, actor.personId);
+
     // Owner only. Inviting is not a write, it is a disclosure decision: it settles who
     // gets to read everything already in the room, retroactively.
     await this.assertOwner(actor, input.roomId);
@@ -156,7 +158,18 @@ export class PgInvites implements InvitePort {
    * and then written, so two people clicking the same link at the same moment cannot both
    * pass: one row update wins and the other gets the same not-found as an unknown token.
    */
-  async accept(token: string, personId: PersonId): Promise<{ room: Room; role: MemberRole }> {
+  /**
+   * `db` defaults to the pool. Passed an already-open client — from
+   * `registerWithInvite` in `postgres-services.ts` — `withTransaction` nests as a
+   * savepoint on the same transaction that just registered the person, so a spent,
+   * expired or otherwise invalid invite rolls the registration back with it instead of
+   * leaving an orphan account behind.
+   */
+  async accept(
+    token: string,
+    personId: PersonId,
+    db: Db = this.pool,
+  ): Promise<{ room: Room; role: MemberRole }> {
     const row = await queryOne<InviteRow>(
       this.pool,
       `SELECT id, room_id, invited_by, channel, destination, role, status, preview_allowed, expires_at, accepted_by
@@ -178,11 +191,14 @@ export class PgInvites implements InvitePort {
 
     // Before the status check, because the link genuinely does arrive by email and get
     // clicked twice by the same person — and the second click must not read as a stranger
-    // reusing a spent invite.
+    // reusing a spent invite. Read through the pool rather than `db`: a person freshly
+    // registered inside the same not-yet-committed transaction cannot already be a member
+    // of anything, so this answer is correct either way, and reading the ambient snapshot
+    // avoids a query that would otherwise need to know whether it is inside one.
     const already = await roleIn(this.pool, personId, invite.roomId);
     if (already) return { room, role: already };
 
-    return withTransaction(this.pool, async (tx) => {
+    return withTransaction(db, async (tx) => {
       const claimed = await tx.query(
         `UPDATE app.invite
          SET status = 'accepted', accepted_by = $1, accepted_at = now()

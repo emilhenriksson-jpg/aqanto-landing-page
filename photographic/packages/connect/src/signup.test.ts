@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { AuthError } from '@photographic/core';
 import type { Room, RoomId } from '@photographic/core';
 
+import { checkSwedishMobile } from './phone.js';
 import { createHarness } from './testing/index.js';
 
 /** Stands in for `DeliveryError`, which lives in a package this one must not depend on. */
@@ -342,5 +343,95 @@ describe('the invited person', () => {
 
     expect(result.joinedRoom).toBeNull();
     expect(h.invites.accepted).toEqual([]);
+  });
+
+  /**
+   * The orphan-account finding: `identity.register` used to commit on its own, and only
+   * then did `invites.accept` get a chance to refuse a reused, expired or otherwise
+   * invalid token — so the failure left a person and a personal room behind with no
+   * session ever handed out. `registerWithInvite` is the atomic replacement for exactly
+   * that one sequence (a brand-new person arriving with an invite); everything else
+   * (an existing person, or no invite at all) is unaffected because there is nothing to
+   * orphan in either of those cases.
+   */
+  describe('a failed invite acceptance leaves no new account behind', () => {
+    /** A rollback-honouring double: register, then accept, then undo on failure. */
+    function atomicRegisterWithInvite(h: ReturnType<typeof createHarness>) {
+      return async (
+        input: { email?: string; phone?: string },
+        inviteToken: string,
+      ) => {
+        const registered = await h.identity.register(input);
+        try {
+          const accepted = await h.invites.accept(inviteToken, registered.person.id);
+          return { ...registered, joinedRoom: { room: accepted.room, role: accepted.role } };
+        } catch (error) {
+          h.identity.forget(registered.person.id);
+          throw error;
+        }
+      };
+    }
+
+    it('uses the atomic path instead of registering unconditionally, and rolls back when the invite turns out invalid', async () => {
+      // A token nobody seeded stands in for "reused, expired, or otherwise invalid" —
+      // in production all three collapse to the same `NotFoundError` (see
+      // `PgInvites.accept`'s own doc comment on why an already-spent link is refused
+      // identically to a fictional one), so a double that only distinguishes "known" from
+      // "unknown" already exercises the failure this test is about. The real single-use
+      // enforcement itself is unchanged and tested against Postgres in
+      // `packages/db/src/postgres-services.test.ts`.
+      const h = createHarness({ fixedCode: '424242' });
+      const deps = { ...h.deps, registerWithInvite: atomicRegisterWithInvite(h) };
+      const { requestId } = await requestCode(deps, {
+        phone: FOURTH,
+        inviteToken: 'never-seeded',
+      });
+
+      await expect(verifyCode(deps, { requestId, code: '424242' })).rejects.toThrow();
+
+      // No orphan: the phone number this attempt used has no account at all.
+      const checked = checkSwedishMobile(FOURTH);
+      if (!checked.ok) throw new Error('expected FOURTH to be a valid Swedish mobile number');
+      expect(await h.identity.findByPhone(checked.e164)).toBeNull();
+    });
+
+    it('never orphans an already-existing person when their invite acceptance fails', async () => {
+      // The other half of the fix's scope: an *existing* person accepting a bad invite
+      // has nothing to roll back, because they existed before this call and still exist
+      // if `accept` throws — asserted so nobody "fixes" that branch into the atomic path
+      // too and breaks the ordinary sign-in case by accident.
+      const h = createHarness({ fixedCode: '424242' });
+      const first = await requestCode(h.deps, { phone: PHONE });
+      const original = await verifyCode(h.deps, { requestId: first.requestId, code: '424242' });
+
+      const deps = { ...h.deps, registerWithInvite: atomicRegisterWithInvite(h) };
+      const second = await requestCode(deps, {
+        phone: PHONE,
+        inviteToken: 'not-seeded-anywhere',
+      });
+      await expect(
+        verifyCode(deps, { requestId: second.requestId, code: '424242' }),
+      ).rejects.toThrow();
+
+      const stillThere = await h.identity.findByPhone(E164);
+      expect(stillThere?.id).toBe(original.person.id);
+    });
+
+    it('falls back to the old sequential path when no atomic dependency is provided', async () => {
+      // Backward compatible for the in-memory harness and any other caller that has not
+      // wired `registerWithInvite`: still creates the person and joins the room when
+      // the invite is genuinely valid.
+      const h = createHarness({ fixedCode: '424242' });
+      h.invites.seed('invite-token-1', sharedRoom());
+
+      const { requestId } = await requestCode(h.deps, {
+        phone: FOURTH,
+        inviteToken: 'invite-token-1',
+      });
+      const result = await verifyCode(h.deps, { requestId, code: '424242' });
+
+      expect(result.created).toBe(true);
+      expect(result.joinedRoom?.room.title).toBe('Buyersclub Ledning');
+    });
   });
 });

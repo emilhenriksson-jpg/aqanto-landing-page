@@ -29,7 +29,7 @@ import {
 import { slugify } from '../slug.js';
 import { appendEvent } from './events.js';
 import type { PgIngest } from './ingest.js';
-import { accessibleRoomIds, canRead, canWrite, roleIn } from './permissions.js';
+import { accessibleRoomIds, assertNotFrozen, canRead, roleIn } from './permissions.js';
 
 export class PgRooms implements RoomPort {
   constructor(
@@ -40,6 +40,8 @@ export class PgRooms implements RoomPort {
   ) {}
 
   async create(actor: Actor, input: { title: string; description?: string }): Promise<Room> {
+    await assertNotFrozen(this.pool, actor.personId);
+
     const title = input.title.trim();
     if (!title) throw new NotPermittedError('Rummet måste ha ett namn.');
 
@@ -127,6 +129,8 @@ export class PgRooms implements RoomPort {
   }
 
   async describe(actor: Actor, roomId: RoomId, description: string | null): Promise<Room> {
+    await assertNotFrozen(this.pool, actor.personId);
+
     const role = await roleIn(this.pool, actor.personId, roomId);
     if (role !== 'owner' && role !== 'editor') throw new NotPermittedError();
 
