@@ -36,9 +36,10 @@ export function App({
 }) {
   const [step, setStep] = useState<Step>(initial ?? { name: 'signup' });
   const [joined, setJoined] = useState<VerifyCodeResponse['joinedRoom']>(null);
-  // The only route passed across the sign-in boundary comes from `/start`; it is
-  // validated in `main.tsx` so a public landing page cannot become an open redirect.
-  const returnTo = initial?.name === 'landing' ? initial.returnTo : undefined;
+  // A landing page first passes this on to `/login`; read it there too, after that real
+  // navigation remounts the app. Only a same-origin path can survive the boundary.
+  const returnTo =
+    initial?.name === 'landing' ? initial.returnTo : returnPathFromLocation();
 
   /** Leaving the app is a real navigation, so the URL matches the screen afterwards. */
   const go = navigate ?? ((url: string) => window.location.assign(url));
@@ -109,4 +110,11 @@ export function App({
       )}
     </div>
   );
+}
+
+function returnPathFromLocation(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const value = new URLSearchParams(window.location.search).get('fran');
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return undefined;
+  return value;
 }
