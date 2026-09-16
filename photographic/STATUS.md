@@ -2416,3 +2416,12 @@ start. Not yet
 reconciled with PR #22, which independently built its own `apps/web/src/screens/Konto.tsx`
 and `apps/web/src/api/account.ts` — real overlap for whoever merges second, flagged rather
 than resolved here since merges are the deploy agent's call.
+
+**Reconciled on merge.** One screen at `/konto` now carries the name field, export and
+deletion; `account.ts` is the union of both sides; this branch's separate `Account.tsx` is
+gone. The two PRs also disagreed on where the account link lives — #22 put it in the rail,
+this branch at the personal-room footer, explicitly off the rail. **The rail won**, because
+it was already deployed and verified in a browser. Worth recording that the footer is the
+convention `Konto.tsx` itself documents for secondary destinations, and #22's own comment
+concedes the rail is tight at 320px, so the footer variant is the one to revisit if anyone
+wants to — it is a one-line change and `Account.test.tsx` says so.
