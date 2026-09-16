@@ -16,7 +16,10 @@ import './styles/app.css';
  * authorization server and waiting on the person to answer it.
  */
 function initialStep(): Step | undefined {
-  if (/^\/start\/?$/.test(window.location.pathname)) {
+  // The REST host serves this bundle at `/` only on photographic.space; on mcp. the
+  // product bundle owns that path. Treating both paths as the same public start keeps
+  // the typed address and the post-logout redirect in one identity.
+  if (/^\/(?:start\/?)?$/.test(window.location.pathname)) {
     const params = new URLSearchParams(window.location.search);
     const returnTo = safeReturnTo(params.get('fran'));
     const reason = params.get('orsak');
