@@ -95,6 +95,7 @@ async function fixture(): Promise<Fixture> {
     logger: silentLogger(),
     oauth: fakeOAuth(tokens),
     connect: { deps: connectDeps },
+    revokeBrowserSession: async () => {},
   });
 
   const call =
@@ -286,6 +287,41 @@ describe('reaching the API at all', () => {
       headers: { origin: 'https://evil.example' },
     });
     expect(other.headers.get('access-control-allow-origin')).toBeNull();
+  });
+});
+
+describe('ending a browser session', () => {
+  it('clears the httpOnly cookie from the same origin, even without a live token', async () => {
+    const res = await f.app.request('https://photographic.test/v1/session/logout', {
+      method: 'POST',
+      headers: {
+        origin: 'https://photographic.test',
+        cookie: 'photographic_sid=stale-browser-token',
+      },
+    });
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get('set-cookie')).toContain('photographic_sid=');
+    expect(res.headers.get('set-cookie')).toMatch(/Max-Age=0|Expires=/i);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it.each(['http://photographic.test', 'https://photographic.test:444', 'null'])('rejects a different origin: %s', async (origin) => {
+    const res = await f.app.request('https://photographic.test/v1/session/logout', {
+      method: 'POST', headers: { origin },
+    });
+    expect(res.status).toBe(403);
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('does not let another site sign a person out', async () => {
+    const res = await f.app.request('https://photographic.test/v1/session/logout', {
+      method: 'POST',
+      headers: { origin: 'https://elsewhere.example' },
+    });
+
+    expect(res.status).toBe(403);
+    expect(res.headers.get('set-cookie')).toBeNull();
   });
 });
 
@@ -1610,6 +1646,7 @@ describe('limits', () => {
       logger: silentLogger(),
       oauth: fakeOAuth(f.tokens),
       connect: { deps: connectDeps },
+    revokeBrowserSession: async () => {},
     });
 
     const request = (path: string, body: unknown) =>

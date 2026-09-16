@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
-import { isDemoMode, setFirstName as saveFirstNameApi } from '../api/index.js';
+import { isDemoMode, setFirstName as saveFirstNameApi, signOut } from '../api/index.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
 import { Wordmark } from '../components/Wordmark.js';
 import { loadAccountDemo } from '../data/demo.js';
@@ -47,6 +47,20 @@ export function Konto() {
 
 function KontoReady({ account }: { account: AccountState }) {
   const { deletion } = account;
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
+  async function endSession() {
+    setSigningOut(true);
+    setSignOutError(null);
+    try {
+      if (!isDemoMode()) await signOut();
+      window.location.assign('/start?orsak=utloggad');
+    } catch {
+      setSignOutError('Kunde inte logga ut just nu. Försök igen.');
+      setSigningOut(false);
+    }
+  }
 
   return (
     <article className="page page--konto">
@@ -84,6 +98,21 @@ function KontoReady({ account }: { account: AccountState }) {
           detail="Lämna på riktigt — direkt, eller med 30 dagars ångerfrist."
         />
       </ul>
+
+      <div className="konto-session">
+        <button
+          type="button"
+          className="btn btn--quiet"
+          disabled={signingOut}
+          onClick={() => {
+            void endSession().catch(() => {});
+          }}
+        >
+          {signingOut ? 'Loggar ut…' : 'Logga ut'}
+        </button>
+        <p className="meta">Du loggar ut ur den här webbläsaren. Dina anslutna AI-klienter är kvar.</p>
+        {signOutError ? <p className="meta" role="alert">{signOutError}</p> : null}
+      </div>
 
       <footer className="page-foot">
         <Link to="/" className="page-foot__link">

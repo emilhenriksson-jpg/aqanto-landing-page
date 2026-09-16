@@ -44,6 +44,7 @@ function minutes(ms: number): number {
  * cannot fail on a permission the app does not have.
  */
 export const MIGRATION_ARTIFACTS: Record<string, string> = {
+  '0024_browser_session_revocations.sql': `to_regclass('app.browser_session_revocation') IS NOT NULL`,
   '0001_init.sql': `to_regclass('app.person') IS NOT NULL`,
   '0002_trash_and_history.sql': fn('purge_expired_items'),
   '0003_provenance_and_authorship.sql': fn('reject_implicit_shared_placement'),

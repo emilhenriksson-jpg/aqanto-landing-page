@@ -8,6 +8,7 @@ export {
   requestDeletion,
   requestExport,
   setFirstName,
+  signOut,
 } from './account.js';
 export { getCalendarDay, getCalendarEvent } from './calendar.js';
 export { ApiError, apiFetch, apiUpload } from './client.js';

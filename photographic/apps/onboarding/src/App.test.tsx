@@ -321,6 +321,26 @@ describe('the public landing page', () => {
     expect(visited).toEqual(['/login']);
   });
 
+  it('explains an expired session and preserves the product destination through login', async () => {
+    const user = userEvent.setup();
+    const visited: string[] = [];
+    render(
+      <App
+        api={new FakeApi()}
+        initial={{
+          name: 'landing',
+          notice: 'Din session har gått ut. Logga in igen för att fortsätta.',
+          returnTo: '/konto',
+        }}
+        navigate={(url) => visited.push(url)}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Din session har gått ut');
+    await user.click(screen.getByRole('button', { name: 'Logga in' }));
+    expect(visited).toEqual(['/login?fran=%2Fkonto']);
+  });
+
   /**
    * The landing page is the one screen strangers read, so it may only promise what runs.
    * Voice, summaries and open signup are the three things it would be easiest to imply.

@@ -407,6 +407,17 @@ describe('every authenticated route has decided its scope', () => {
       guardedBy: 'a signed, expiring token in the path; POST /v1/export/:id/link is first-party only',
     },
     {
+      // Deliberately available without a valid token: a stale browser cookie is one of the
+      // cases this route repairs. It changes no server-side state and clears only the
+      // caller's host-only cookie; matching Origin and Host keeps another site from
+      // forcing that change in their browser.
+      key: 'POST /v1/session/logout',
+      method: 'POST',
+      path: '/v1/session/logout',
+      reachableWithoutToken: true,
+      guardedBy: 'same-origin Origin/Host check; only clears the caller’s browser cookie',
+    },
+    {
       /**
        * The break-glass sign-in, and the one exemption that is the point rather than a
        * concession. A recovery path that required a token would require you to already be

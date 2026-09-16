@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 import { Shell } from './components/Shell.js';
+import { SessionGate } from './components/SessionGate.js';
 import { Approvals } from './screens/Approvals.js';
 import { ClientHealth } from './screens/ClientHealth.js';
 import { Export } from './screens/Export.js';
@@ -30,28 +31,30 @@ import { Historik } from './screens/Historik.js';
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<Shell />}>
-        <Route index element={<PersonalRoom />} />
-        <Route path="rum" element={<Rooms />} />
-        <Route path="rum/:roomId" element={<SharedRoom />} />
-        <Route path="klienter" element={<ClientHealth />} />
-        <Route path="godkann" element={<Approvals />} />
-        <Route path="fraga" element={<FragaMittMinne />} />
-        <Route path="papperskorg" element={<Trash />} />
-        <Route path="historik" element={<Historik />} />
-        <Route path="kompass" element={<Kompass />} />
-        <Route path="konto" element={<Konto />} />
-        <Route path="konto/export" element={<Export />} />
-        <Route path="konto/radera" element={<RaderaKonto />} />
-        {/*
-          The calendar is a rail destination, not a footer link: the scope calls it a
-          central part of the app rather than something internal to the AI. `/kalender`
-          with no date is today.
-        */}
-        <Route path="kalender" element={<Kalender />} />
-        <Route path="kalender/handelse/:seq" element={<Handelse />} />
-        <Route path="kalender/:date" element={<Kalender />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+      <Route element={<SessionGate />}>
+        <Route element={<Shell />}>
+          <Route index element={<PersonalRoom />} />
+          <Route path="rum" element={<Rooms />} />
+          <Route path="rum/:roomId" element={<SharedRoom />} />
+          <Route path="klienter" element={<ClientHealth />} />
+          <Route path="godkann" element={<Approvals />} />
+          <Route path="fraga" element={<FragaMittMinne />} />
+          <Route path="papperskorg" element={<Trash />} />
+          <Route path="historik" element={<Historik />} />
+          <Route path="kompass" element={<Kompass />} />
+          <Route path="konto" element={<Konto />} />
+          <Route path="konto/export" element={<Export />} />
+          <Route path="konto/radera" element={<RaderaKonto />} />
+          {/*
+            The calendar is a rail destination, not a footer link: the scope calls it a
+            central part of the app rather than something internal to the AI. `/kalender`
+            with no date is today.
+      */}
+          <Route path="kalender" element={<Kalender />} />
+          <Route path="kalender/handelse/:seq" element={<Handelse />} />
+          <Route path="kalender/:date" element={<Kalender />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
       </Route>
     </Routes>
   );

@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 import type { Step } from './App.js';
 import { httpApi } from './api.js';
+import { safeReturnTo } from './return-path.js';
 import './styles/app.css';
 
 /**
@@ -16,7 +17,23 @@ import './styles/app.css';
  * authorization server and waiting on the person to answer it.
  */
 function initialStep(): Step | undefined {
-  if (/^\/start\/?$/.test(window.location.pathname)) return { name: 'landing' };
+  // The REST host serves this bundle at `/` only on photographic.space; on mcp. the
+  // product bundle owns that path. Treating both paths as the same public start keeps
+  // the typed address and the post-logout redirect in one identity.
+  if (/^\/(?:start\/?)?$/.test(window.location.pathname)) {
+    const params = new URLSearchParams(window.location.search);
+    const returnTo = safeReturnTo(params.get('fran'));
+    const reason = params.get('orsak');
+    return {
+      name: 'landing',
+      ...(returnTo ? { returnTo } : {}),
+      ...(reason === 'utloggad'
+        ? { notice: 'Du är utloggad.' }
+        : reason === 'utgangen'
+          ? { notice: 'Din session har gått ut. Logga in igen för att fortsätta.' }
+          : {}),
+    };
+  }
 
   const invite = /^\/invite\/([^/]+)/.exec(window.location.pathname);
   if (invite?.[1]) return { name: 'invite', token: decodeURIComponent(invite[1]) };

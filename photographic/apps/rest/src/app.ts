@@ -55,6 +55,7 @@ import { oauthRoutes } from './routes/oauth.js';
 import { opsRoutes, type QueueSource } from './routes/ops.js';
 import { personRoutes } from './routes/person.js';
 import { publicInviteRoutes, roomRoutes } from './routes/rooms.js';
+import { sessionRoutes } from './routes/session.js';
 import { trashRoutes } from './routes/trash.js';
 import {
   APEX_ROOT_ROUTES,
@@ -65,6 +66,7 @@ import {
 } from './web-app.js';
 
 export interface AppDeps {
+  revokeBrowserSession?: (token: string) => Promise<void>;
   services: Services;
   config?: RestConfig;
   logger?: Logger;
@@ -327,6 +329,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     key: (c) => `export-download:${clientAddress(c)}`,
   }));
   app.route('/v1', publicExportRoutes({ exports: deps.exports ?? null }));
+  // Browser sign-out must also work with a stale cookie. Revoke the credential before
+  // clearing the cookie; the route rejects cross-site requests. OAuth grants are separate.
+  app.route('/v1', sessionRoutes(deps.revokeBrowserSession));
 
   // Derived from config alone, and needed whether or not sign-up is mounted: the client
   // health lights describe the same clients the connect screen offers.

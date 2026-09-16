@@ -8,12 +8,11 @@
  * the people the product exists to let collaborate were exactly the people who could
  * authenticate as each other.
  *
- * A signature closes forgery without needing a store: the token still carries who it is
- * for, but only the holder of `CODE_SECRET` can produce a valid one. What it deliberately
- * does *not* give is revocation — nothing here can be withdrawn before it expires, which
- * is why a stored, revocable session is the next step and why sign-out needs that step
- * rather than this one. A sign-out built on this would clear the cookie and leave the
- * credential live.
+ * A signature prevents forgery. Production also checks a persistent hash revocation
+ * store in the REST composition root before accepting a token, including for OAuth
+ * consent. This reader only verifies the signature and lifetime; it is not by itself
+ * an authentication decision. Logout revokes the browser credential without touching
+ * any OAuth grant. Opaque stored session tokens remain a possible later format change.
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';

@@ -85,3 +85,5 @@ export {
   PgTokenStore,
   type ClientGrantRow,
 } from './services/oauth.js';
+
+export { PgBrowserSessionRevocations } from './services/browser-sessions.js';
