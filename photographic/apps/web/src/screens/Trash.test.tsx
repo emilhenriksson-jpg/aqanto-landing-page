@@ -39,7 +39,7 @@ describe('Papperskorg', () => {
 
   it('is reachable from a quiet personal-room footer link, not the rail', async () => {
     const user = userEvent.setup();
-    renderApp('/');
+    renderApp('/personligt');
 
     expect(screen.getByRole('heading', { level: 1, name: 'Ditt rum' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Papperskorg', hidden: false })).toBeTruthy();

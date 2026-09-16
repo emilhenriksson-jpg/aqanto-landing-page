@@ -29,7 +29,7 @@ import { useRoomData } from '../hooks/useRoomData.js';
 export function SharedRoom({ documents }: { documents?: DocumentLine[] } = {}) {
   const { roomId = '' } = useParams();
   if (!roomId) return <Navigate to="/rum" replace />;
-  if (roomId === 'personal') return <Navigate to="/" replace />;
+  if (roomId === 'personal') return <Navigate to="/personligt" replace />;
 
   return <SharedRoomLoader roomId={roomId} documents={documents} />;
 }

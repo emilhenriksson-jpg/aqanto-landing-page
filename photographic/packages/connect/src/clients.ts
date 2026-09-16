@@ -43,6 +43,8 @@ export interface ClientDescriptor {
   expectedDelivery: DeliveryMethod;
   /** True only when a single click finishes the configuration. */
   oneClick: boolean;
+  /** Chat launch is distinct from first-time authorization. */
+  launch?: ChatLaunch;
   primary: ConnectAction;
   secondary: ConnectAction[];
   steps: string[];
@@ -52,6 +54,45 @@ export interface ClientDescriptor {
   verifyPrompt: string;
   /** Shown when verification times out. Specific to this client, never generic. */
   remedy: string;
+}
+
+export interface ChatLaunch {
+  url: string;
+  prompt: string;
+  note: string;
+  /** Installed desktop app required. Web clients open in a separate tab. */
+  desktop: boolean;
+  copyPromptOnOpen?: boolean;
+  fallbackUrl?: string;
+}
+
+/** No profile, room identifiers, credentials or personal data belong in a URL. */
+export const CHAT_START_PROMPT = `Använd Photographic som mitt minne. Börja den här nya chatten med att anropa get_context utan rum, även om du fick kontext när anslutningen öppnades. Läs min personliga profil och kompass, översikten över mina rum och senaste kalenderhändelserna. Jag ska inte behöva välja rum. När samtalet handlar om ett rum, hämta dess kontext med get_context och relevanta detaljer med search_memory eller list_history. Spara varaktiga uppgifter med remember enligt min kompass; gemensamma ändringar ska följa rummets godkännanderegler. Om kopplingen saknas eller hämtningen misslyckas, säg det tydligt och hitta inte på något om mitt minne.`;
+
+export function chatLaunch(id: ClientId): ChatLaunch | undefined {
+  const prompt = CHAT_START_PROMPT;
+  const encoded = encodeURIComponent(prompt);
+  switch (id) {
+    case 'codex': return {
+      url: `codex://threads/new?prompt=${encoded}`, prompt, desktop: true,
+      note: 'Öppnar en ny chatt i datorappen med starttexten. Skicka den för att hämta ditt minne.',
+    };
+    case 'cursor': return {
+      url: `cursor://anysphere.cursor-deeplink/prompt?text=${encoded}`, prompt, desktop: true,
+      fallbackUrl: `https://cursor.com/link/prompt?text=${encoded}`,
+      note: 'Öppnar starttexten i Cursor. Skicka den för att hämta ditt minne. Cursor kan använda den chatt som redan är öppen.',
+    };
+    case 'claude': return {
+      url: `claude://claude.ai/new?q=${encoded}`, prompt, desktop: true,
+      fallbackUrl: 'https://claude.ai/new',
+      note: 'Öppnar en ny chatt i datorappen med starttexten. På webben: kopiera starttexten och klistra in den i chatten.',
+    };
+    case 'chatgpt': return {
+      url: 'https://chatgpt.com/', prompt, desktop: false, copyPromptOnOpen: true,
+      note: 'Starttexten kopieras när du öppnar ChatGPT. Klistra in den och välj Photographic i chattens verktygsmeny. ChatGPT tillåter inte att vi gör den kopplingen åt dig.',
+    };
+    default: return undefined;
+  }
 }
 
 export interface ConnectConfig {
@@ -72,6 +113,7 @@ export function buildClients(config: ConnectConfig): ClientDescriptor[] {
     {
       id: 'cursor',
       displayName: 'Cursor',
+      launch: chatLaunch('cursor')!,
       agentClients: ['cursor'],
       capability: 'deterministic',
       expectedDelivery: 'mcp_instructions',
@@ -98,6 +140,7 @@ export function buildClients(config: ConnectConfig): ClientDescriptor[] {
     {
       id: 'claude',
       displayName: 'Claude',
+      launch: chatLaunch('claude')!,
       agentClients: ['claude-desktop', 'claude-mobile'],
       capability: 'deterministic',
       expectedDelivery: 'mcp_instructions',
@@ -171,6 +214,7 @@ export function buildClients(config: ConnectConfig): ClientDescriptor[] {
     {
       id: 'codex',
       displayName: 'Codex',
+      launch: chatLaunch('codex')!,
       agentClients: ['codex'],
       capability: 'best_effort',
       expectedDelivery: 'tool_call',
@@ -179,10 +223,9 @@ export function buildClients(config: ConnectConfig): ClientDescriptor[] {
       secondary: [
         { type: 'copy', label: 'Kopiera konfigurationen', value: manualConfigSnippet(mcpUrl, name) },
       ],
-      steps: ['Kör kommandot i terminalen.', 'Logga in när webbläsaren öppnas.'],
+      steps: ['Kör kommandot i terminalen.', 'Kör `codex mcp login photographic` och godkänn inloggningen.', 'Öppna en ny chatt från Photographic.'],
       caveats: [
-        'Codex läser inte serverns instruktioner automatiskt, så din profil hämtas ' +
-          'först när modellen väljer att göra det.',
+        'Starttexten ber Codex hämta färsk kontext. Vi kan bekräfta leveransen först när Photographic har fått en förfrågan.',
       ],
       verifyPrompt: VERIFY,
       remedy: 'Kontrollera `~/.codex/config.toml` och starta om Codex.',
@@ -190,8 +233,9 @@ export function buildClients(config: ConnectConfig): ClientDescriptor[] {
     {
       id: 'chatgpt',
       displayName: 'ChatGPT',
+      launch: chatLaunch('chatgpt')!,
       agentClients: ['chatgpt-web'],
-      capability: 'manual',
+      capability: 'best_effort',
       expectedDelivery: 'tool_call',
       oneClick: false,
       primary: { type: 'copy', label: 'Kopiera adressen', value: mcpUrl },
@@ -205,16 +249,13 @@ export function buildClients(config: ConnectConfig): ClientDescriptor[] {
         },
       ],
       steps: [
-        'Öppna ChatGPT i webbläsaren och slå på Developer mode under Settings → Connectors.',
-        'Lägg till en connector, klistra in adressen och godkänn inloggningen.',
+        'Öppna ChatGPT → Settings → Security and login och slå på Developer mode, om ditt konto tillåter det.',
+        'Öppna Plugins, tryck på plus och lägg till Photographic med adressen ovan. Godkänn inloggningen.',
+        'Starta en ny chatt och välj Photographic i verktygsmenyn.',
       ],
       caveats: [
-        'Fungerar bara i webbläsaren. Connectors går inte att lägga till från ' +
-          'ChatGPT-appen.',
-        'ChatGPT:s röstläge kan inte anropa connectors, så din profil når inte fram ' +
-          'när du pratar med den.',
-        'Vill du ha kontext i röstläget: kopiera din profil och klistra in den under ' +
-          'Custom Instructions. Det fungerar överallt, men uppdateras inte av sig självt.',
+        'Tillgången till egna kopplingar beror på konto och arbetsplatsens regler.',
+        'Att öppna ChatGPT ansluter inte automatiskt Photographic till chatten.',
       ],
       verifyPrompt: VERIFY,
       remedy:

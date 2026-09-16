@@ -17,7 +17,7 @@ function renderApp(path = '/historik') {
 describe('Historik', () => {
   it('shows sparse when + what demo lines and is reachable from the personal-room footer', async () => {
     const user = userEvent.setup();
-    renderApp('/');
+    renderApp('/personligt');
 
     expect(screen.getByRole('heading', { level: 1, name: 'Ditt rum' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Historik' })).toBeInTheDocument();

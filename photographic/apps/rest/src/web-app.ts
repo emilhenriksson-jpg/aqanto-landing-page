@@ -191,6 +191,8 @@ export const AUTH_APP_ROUTES = ['/login', '/connect', '/invite', '/start'] as co
  */
 export const PRODUCT_APP_ROUTES = [
   '/',
+  '/chatt',
+  '/personligt',
   '/rum',
   '/klienter',
   '/godkann',

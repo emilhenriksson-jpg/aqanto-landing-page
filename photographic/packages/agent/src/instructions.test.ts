@@ -12,6 +12,7 @@ import type {
   ShortId,
 } from '@photographic/core';
 
+import { COMPASS_PRINCIPLES } from '@photographic/core';
 import { occursOnlyInsideRoomContent } from './boundary.js';
 import {
   INSTRUCTIONS_TOKEN_BUDGET,
@@ -423,7 +424,7 @@ describe('the session instructions', () => {
     expect(occursOnlyInsideRoomContent(rendered, 'Peab')).toBe(true);
   });
 
-  it('gives up "recent" before the loose end, at every size where only one fits', () => {
+  it('reserves both calendar context and a loose end even as the profile grows', () => {
     // Between "here are four things that happened" and "this has been waiting three
     // weeks", the second is what a person notices — so `recent` is what gives way.
     //
@@ -441,7 +442,7 @@ describe('the session instructions', () => {
       daysSince: 21,
     };
 
-    let sawOnlyOne = false;
+
 
     for (let facts = 0; facts <= 80; facts += 4) {
       const rendered = renderInstructions(
@@ -458,14 +459,9 @@ describe('the session instructions', () => {
       const hasRecent = rendered.includes('Något helt annat');
 
       expect(estimateTokens(rendered)).toBeLessThanOrEqual(INSTRUCTIONS_TOKEN_BUDGET);
-      // The whole property: `recent` never survives a package the loose end did not.
-      if (hasRecent) expect(hasOpen, `at ${facts} facts`).toBe(true);
-      if (hasOpen && !hasRecent) sawOnlyOne = true;
+      expect(hasRecent, `calendar at ${facts} facts`).toBe(true);
+      expect(hasOpen, `loose end at ${facts} facts`).toBe(true);
     }
-
-    // And the sweep actually passed through the interesting region, rather than being
-    // vacuously true because both always fit or neither ever did.
-    expect(sawOnlyOne).toBe(true);
   });
 
   it('writes "recent" as a thread rather than as a changelog', () => {
@@ -718,7 +714,7 @@ describe('the "recent" block', () => {
     expect(rendered).not.toContain('Mallorca');
   });
 
-  it('is the first thing dropped when the budget is tight, ahead of headlines', () => {
+  it('reserves calendar context alongside room headlines with a long profile', () => {
     const tight = bundle({
       profile: profile({
         hardFacts: Array.from({ length: 400 }, (_, i) => item(`Faktum nummer ${i} `.repeat(4))),
@@ -733,7 +729,7 @@ describe('the "recent" block', () => {
     // 'gives every room a sentence' case); "recent" did not, and that is deliberate —
     // it competes for slack only, never for space something else already claimed.
     expect(rendered).toContain('Ledningsgruppen, beslut och underlag');
-    expect(rendered).not.toMatch(/Var ni var senast/);
+    expect(rendered).toMatch(/Var ni var senast/);
     expect(estimateTokens(rendered)).toBeLessThanOrEqual(INSTRUCTIONS_TOKEN_BUDGET);
   });
 
@@ -871,3 +867,26 @@ describe('trimming', () => {
   });
 });
 
+
+
+describe('the three-part start context', () => {
+  it('keeps compass, room overview and calendar at both startup budgets with a full profile', () => {
+    for (const budgetTokens of [1400, 2000]) {
+      const data = bundle({
+        budgetTokens,
+        profile: profile({ hardFacts: Array.from({length: 100}, (_, i) => item(`Faktum ${i} `.repeat(4))) },
+          COMPASS_PRINCIPLES.map((entry) => ({ key: entry.key, text: entry.defaultText, source: 'default', shortId: null }))),
+        rooms: [personalRoom, room({ title: 'Lansering' }), room({ title: 'Villan' })],
+        recent: [recentEntry({ body: 'Beslutet om november fattades igår' })],
+        open: [{ shortId: 'p-open' as ShortId, roomId: 'room-2' as RoomId, roomTitle: 'Villan', body: 'Vi ska följa upp offerten', kind: 'decision', daysSince: 14, lastTouchedAt: new Date('2026-09-01') }],
+      });
+      const rendered = renderInstructions(data);
+      for (const principle of COMPASS_PRINCIPLES) expect(rendered).toContain(principle.defaultText);
+      expect(rendered).toContain('Faktum');
+      expect(rendered).toContain('Lansering');
+      expect(rendered).toContain('Beslutet om november');
+      expect(rendered).toContain('följa upp offerten');
+      expect(estimateTokens(rendered)).toBeLessThanOrEqual(budgetTokens);
+    }
+  });
+});

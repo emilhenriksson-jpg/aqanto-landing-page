@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Shell } from './components/Shell.js';
 import { SessionGate } from './components/SessionGate.js';
 import { Approvals } from './screens/Approvals.js';
+import { ChatStart } from './screens/ChatStart.js';
 import { ClientHealth } from './screens/ClientHealth.js';
 import { Export } from './screens/Export.js';
 import { FragaMittMinne } from './screens/FragaMittMinne.js';
@@ -18,7 +19,7 @@ import { Trash } from './screens/Trash.js';
 import { Historik } from './screens/Historik.js';
 
 /**
- * Consumer app: open it and you are standing inside your personal room.
+ * Consumer app: open a conversation without choosing a room.
  * Secondary nav is rooms, the calendar, "Fråga mitt minne", client health, approvals and
  * Konto — not a dashboard home. Historik, Papperskorg and Kompass live off quiet
  * personal-room footer links (not rail icons).
@@ -33,7 +34,9 @@ export function AppRoutes() {
     <Routes>
       <Route element={<SessionGate />}>
         <Route element={<Shell />}>
-          <Route index element={<PersonalRoom />} />
+          <Route index element={<Navigate to="/chatt" replace />} />
+          <Route path="chatt" element={<ChatStart />} />
+          <Route path="personligt" element={<PersonalRoom />} />
           <Route path="rum" element={<Rooms />} />
           <Route path="rum/:roomId" element={<SharedRoom />} />
           <Route path="klienter" element={<ClientHealth />} />

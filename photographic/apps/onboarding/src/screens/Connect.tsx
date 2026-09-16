@@ -51,6 +51,7 @@ export function Connect({
   return (
     <>
       <section className="section">
+        <a href="/chatt" className="btn btn--quiet">Till din start</a>
         <h1>Koppla din AI</h1>
         <p className="lede">{payload.headline}</p>
 

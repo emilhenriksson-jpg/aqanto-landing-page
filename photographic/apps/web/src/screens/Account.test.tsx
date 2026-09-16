@@ -27,7 +27,7 @@ describe('Account', () => {
    */
   it('is reachable from the rail', async () => {
     const user = userEvent.setup();
-    renderApp('/');
+    renderApp('/personligt');
 
     const rail = screen.getByRole('navigation', { name: 'Huvudmeny' });
     expect(rail.querySelector('a[href="/konto"]')).not.toBeNull();
@@ -71,7 +71,7 @@ describe('Account', () => {
     renderApp();
     expect(screen.getByRole('link', { name: 'Tillbaka till ditt rum' })).toHaveAttribute(
       'href',
-      '/',
+      '/personligt',
     );
   });
 });

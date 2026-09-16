@@ -116,5 +116,5 @@ export function App({
 function returnPathFromLocation(): string | undefined {
   if (typeof window === 'undefined') return undefined;
   const value = new URLSearchParams(window.location.search).get('fran');
-  return safeReturnTo(value) ?? (window.location.pathname === '/login' ? '/rum' : undefined);
+  return safeReturnTo(value) ?? (window.location.pathname === '/login' ? '/chatt' : undefined);
 }

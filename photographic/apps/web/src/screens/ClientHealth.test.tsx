@@ -7,7 +7,7 @@ import { AppRoutes } from '../App.js';
 import { clientHealthTone } from '../data/demo.js';
 import { mapClientHealth } from '../data/load.js';
 
-function renderApp(path = '/') {
+function renderApp(path = '/personligt') {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <AppRoutes />
@@ -25,7 +25,7 @@ describe('ClientHealth', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Klienter' })).toBeInTheDocument();
     expect(screen.getByText(/Vi kan inte tvinga varje modell/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /Claude/ })).toBeInTheDocument();
-    expect(screen.getByText(/Läste din profil via MCP/)).toBeInTheDocument();
+    expect(screen.getByText(/Fick din profil via MCP/)).toBeInTheDocument();
     expect(screen.getByText(/bara när modellen själv frågade/)).toBeInTheDocument();
     expect(screen.getByText('Har aldrig fått din profil.')).toBeInTheDocument();
   });

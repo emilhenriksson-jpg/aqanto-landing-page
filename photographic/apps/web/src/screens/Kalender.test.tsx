@@ -115,7 +115,7 @@ describe('Kalender — dagsvyn', () => {
 
   it('is a rail destination rather than a footer link', async () => {
     const user = userEvent.setup();
-    renderApp('/');
+    renderApp('/personligt');
 
     const rail = screen.getByRole('navigation', { name: 'Huvudmeny' });
     expect(rail.querySelector('a[href="/kalender"]')).not.toBeNull();

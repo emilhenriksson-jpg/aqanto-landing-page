@@ -142,20 +142,16 @@ const SHORT_ID_PARAM: JsonSchemaProperty = {
 export const TOOLS: ToolDefinition[] = [
   {
     name: 'get_context',
-    description: `Returns everything Photographic knows about this person: their profile
-(identity, hard facts, preferences, standing instructions) and the rooms they can reach.
+    description: `Read the person's whole budgeted profile, compass, room overview, recent calendar
+and open threads. Never search the personal profile.
 
-Call this once at the start of a conversation, before answering anything about the
-person or their preferences. The profile is small and budgeted to be read whole — do
-not search it.
+Call once at the start of EVERY new conversation, without a room, even if connection
+instructions included a snapshot: another AI may have saved newer information.
+Do not ask the person to select a room to begin. Refresh after saves when needed.
 
-You may already have received this content in the server instructions at connection
-time. If so you do not need to call this at all. Call it when you were not given it,
-when the person says you seem to have forgotten something, or when they have just saved
-something and you need the updated version.
-
-Does not return room contents, documents, or shared-room detail beyond a one-line
-summary each. Use search_memory for those.`,
+When the conversation depends on a room, call with its name for the brief and recent
+changes. Use search_memory for document details and list_history for chronology.
+An omitted summary does not mean an empty room.`,
     inputSchema: {
       type: 'object',
       properties: {

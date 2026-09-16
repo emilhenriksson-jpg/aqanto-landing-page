@@ -79,7 +79,7 @@ function statusCopy(client: DemoClient, tone: ClientHealthTone): string {
       : 'Frånkopplad. Kan inte längre komma åt ditt minne.';
   }
   if (tone === 'ok') {
-    return when ? `Läste din profil via MCP ${when}.` : 'Läste din profil via MCP.';
+    return when ? `Fick din profil via MCP ${when}.` : 'Fick din profil via MCP.';
   }
   if (tone === 'warn') {
     return when

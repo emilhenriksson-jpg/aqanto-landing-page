@@ -64,7 +64,7 @@ describe('Approvals', () => {
 
   it('is reachable from the rail without replacing personal home', async () => {
     const user = userEvent.setup();
-    renderApp('/');
+    renderApp('/personligt');
 
     expect(screen.getByRole('heading', { level: 1, name: 'Ditt rum' })).toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: /^Godkänn/ }));
@@ -77,7 +77,7 @@ describe('Approvals', () => {
    * reason the visibility work exists.
    */
   it('counts the waiting decisions on the rail, and reads the count out', async () => {
-    renderApp('/');
+    renderApp('/personligt');
     const link = await screen.findByRole('link', {
       name: `Godkänn, ${DEMO_APPROVALS.length} väntar på dig`,
     });
@@ -86,7 +86,7 @@ describe('Approvals', () => {
 
   it('meets the person on the screen they open, and stops when the queue empties', async () => {
     const user = userEvent.setup();
-    renderApp('/');
+    renderApp('/personligt');
 
     expect(
       await screen.findByRole('heading', { name: `${DEMO_APPROVALS.length} beslut väntar på dig` }),
@@ -98,7 +98,8 @@ describe('Approvals', () => {
       await user.click(screen.getAllByRole('button', { name: 'Godkänn' })[0]!);
     }
 
-    await user.click(screen.getByRole('link', { name: /^Rum$/ }));
+    await user.click(screen.getByRole('link', { name: 'Start' }));
+    await user.click(screen.getByRole('link', { name: /Ditt personliga rum/ }));
     await waitFor(() => {
       expect(screen.queryByText(/beslut väntar på dig/)).not.toBeInTheDocument();
     });

@@ -115,7 +115,7 @@ function KontoReady({ account }: { account: AccountState }) {
       </div>
 
       <footer className="page-foot">
-        <Link to="/" className="page-foot__link">
+        <Link to="/personligt" className="page-foot__link">
           Tillbaka till ditt rum
         </Link>
       </footer>

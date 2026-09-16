@@ -566,7 +566,10 @@ export interface RenderOptions {
  * the person would notice immediately.
  */
 const PREAMBLE = `Du är kopplad till Photographic, personens egna minne. Det här är vad du vet om
-personen redan innan de skrivit något. Använd det utan att påpeka att du har det.`;
+personen redan innan de skrivit något. Använd det utan att påpeka att du har det.
+Vid varje ny konversation: hämta färsk kontext med get_context utan rum, även om
+anslutningen återanvänds. Välj relevanta rum utifrån samtalet; be inte personen välja
+ett rum för att börja. Efter en uppdatering: hämta om kontexten vid behov.`;
 
 /**
  * What to send when the profile could not be built.
@@ -609,11 +612,8 @@ på något om personen, och nämn inte det här för dem.`,
  * Everything drops at an item or block boundary; nothing is cut mid-sentence, because a
  * rule stated halfway is a puzzle rather than a rule.
  *
- * "Recent" is not part of this search at all. It is spent purely out of whatever slack
- * is left once everything above has already fit, and it is the very first thing to give
- * way — ahead of headlines, ahead of the active room's brief — because unlike those it
- * is not the model's only path to something: it is a nicety on top of a package that
- * already works without it.
+ * A small calendar / open-thread sample is reserved alongside room names. Larger
+ * timeline sections use remaining space only, so a long profile cannot erase time.
  *
  * The Compass is the opposite case, and is reserved rather than searched over: see
  * `renderCompass` for why it is never dropped or trimmed. It sits in `compassBlock`,
@@ -624,6 +624,7 @@ function assembleBlocks(
   bundle: ContextBundle,
   budget: number,
   rules: string[],
+  timeline: string[] = [],
 ): { blocks: string[]; fits: boolean } {
   const compass = renderCompass(bundle.profile.compass);
   const compassBlock = compass ? [compass] : [];
@@ -658,7 +659,7 @@ function assembleBlocks(
     for (let keep = active.length; keep >= 0; keep -= 1) {
       // Rooms before the active room: the overview is what tells the model the rest of
       // the memory exists, and it reads in the order it is written.
-      const context = [...(rooms ? [rooms] : []), ...active.slice(0, keep)];
+      const context = [...(rooms ? [rooms] : []), ...active.slice(0, keep), ...timeline];
       const reserved = estimateTokens(
         [PREAMBLE, ...compassBlock, ...context, ...rules].join(SEPARATOR),
       );
@@ -688,34 +689,25 @@ export function renderInstructions(bundle: ContextBundle, options: RenderOptions
   const budget = options.budgetTokens ?? bundle.budgetTokens ?? INSTRUCTIONS_TOKEN_BUDGET;
   const rules = includeRules ? [HOW_TO_CONFIRM, DATA_BOUNDARY, LANGUAGE] : [];
 
-  const { blocks, fits } = assembleBlocks(bundle, budget, rules);
   const now = bundle.builtAt;
-
-  /**
-   * Two blocks spent from whatever slack is left, in order of what a person would miss.
-   *
-   * Loose ends first. Between "here are four things that happened" and "this one thing
-   * has been waiting three weeks", the second is the one that makes a model sound like it
-   * remembers rather than like it has read a file — so `recent` is what gives way when
-   * only one of them fits, and both still give way before anything above them.
-   *
-   * Each is attempted whole and dropped whole: a catch-up missing the line that mattered,
-   * with no way to tell, is worse than no catch-up.
-   */
-  const extras = fits
-    ? [renderOpen(bundle.open, now), renderRecent(bundle.recent, now)].filter(
-        (block): block is string => block !== null,
-      )
-    : [];
-
-  let kept: string[] = [];
-  for (const block of extras) {
-    const candidate = [...kept, block];
-    if (estimateTokens([...blocks, ...candidate, ...rules].join(SEPARATOR)) > budget) break;
-    kept = candidate;
+  const minimal = [renderOpen(bundle.open.slice(0, 1), now), renderRecent(bundle.recent.slice(0, 1), now)]
+    .filter((block): block is string => block !== null);
+  // A long profile must not silently erase the calendar. Reserve one representative
+  // from each timeline section before allocating the profile's variable space.
+  let assembled = assembleBlocks(bundle, budget, rules, minimal);
+  if (!assembled.fits) assembled = assembleBlocks(bundle, budget, rules);
+  const { blocks } = assembled;
+  // Expand a reserved section only from remaining space; replace, never duplicate it.
+  const full = [renderOpen(bundle.open, now), renderRecent(bundle.recent, now)]
+    .filter((block): block is string => block !== null);
+  for (let i = 0; i < minimal.length; i += 1) {
+    const at = blocks.indexOf(minimal[i]!);
+    if (at < 0 || !full[i]) continue;
+    const candidate = [...blocks];
+    candidate[at] = full[i]!;
+    if (estimateTokens([...candidate, ...rules].join(SEPARATOR)) <= budget) blocks[at] = full[i]!;
   }
-
-  return [...blocks, ...kept, ...rules].join(SEPARATOR);
+  return [...blocks, ...rules].join(SEPARATOR);
 }
 
 const SEPARATOR = '\n\n---\n\n';

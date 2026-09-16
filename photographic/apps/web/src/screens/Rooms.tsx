@@ -58,7 +58,7 @@ export function Rooms() {
 }
 
 function RoomTile({ room, featured = false }: { room: RoomCard; featured?: boolean }) {
-  const href = room.kind === 'personal' ? '/' : `/rum/${room.id}`;
+  const href = room.kind === 'personal' ? '/personligt' : `/rum/${room.id}`;
   const label =
     room.kind === 'personal'
       ? 'Öppna ditt rum'

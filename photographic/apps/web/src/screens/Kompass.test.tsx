@@ -17,7 +17,7 @@ function renderApp(path = '/kompass') {
 describe('Kompass', () => {
   it('is reachable from the personal-room footer, off the rail', async () => {
     const user = userEvent.setup();
-    renderApp('/');
+    renderApp('/personligt');
 
     expect(screen.getByRole('link', { name: 'Personlig kompass' })).toBeInTheDocument();
     const rail = screen.getByRole('navigation', { name: 'Huvudmeny' });
@@ -50,7 +50,7 @@ describe('Kompass', () => {
 
   it('links back to the personal room and to Historik', () => {
     renderApp();
-    expect(screen.getByRole('link', { name: 'Tillbaka till ditt rum' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Tillbaka till ditt rum' })).toHaveAttribute('href', '/personligt');
     expect(screen.getByRole('link', { name: 'Historik' })).toHaveAttribute('href', '/historik');
   });
 });

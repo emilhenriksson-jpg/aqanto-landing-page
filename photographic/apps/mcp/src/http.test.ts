@@ -295,6 +295,20 @@ describe('using it', () => {
     expect(cursor.getInstructions()).toContain('Dottern heter Vera');
   });
 
+  it('refreshes an already-open ChatGPT connection after Claude saves a memory', async () => {
+    const token = await register('Emil', 'continuity@example.com');
+    const chatgpt = await connect(token, 'chatgpt');
+    const claude = await connect(token, 'claude-ai');
+    expect(chatgpt.getInstructions()).not.toContain('Lanseringen blir i november');
+    const saved = await callTool(claude, 'remember', { text: 'Lanseringen blir i november', kind: 'fact' });
+    expect(saved.isError).toBeFalsy();
+    await wired.runJobsToCompletion();
+    const fresh = await callTool(chatgpt, 'get_context');
+    expect(fresh.isError).toBeFalsy();
+    expect(fresh.text).toContain('Lanseringen blir i november');
+    expect(fresh.text).toContain('Var ni var senast');
+  });
+
   it('keeps a shared room\u2019s text as data, even arriving through a tool', async () => {
     const token = await register('Emil', 'emil@example.com');
     const actor = tokens.get(token)!.actor;

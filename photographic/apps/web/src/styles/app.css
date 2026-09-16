@@ -1825,3 +1825,32 @@
     transition: none;
   }
 }
+
+/* Conversation first: choose an AI, with personal memory and rooms behind it. */
+.chat-start { max-width: 1080px; margin-inline: auto; }
+.chat-start .page-head { padding-top: var(--space-6); }
+.chat-start__clients { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.chat-start__card { background: var(--surface); padding: 28px; border-radius: 20px; min-width: 0; }
+.chat-start__card h2 { font-size: 22px; font-weight: 500; margin: 0 0 10px; }
+.chat-start__status, .chat-start__note, .chat-start__explanation { color: var(--ink-muted); font-size: 14px; line-height: 1.6; }
+.chat-start__status { min-height: 24px; margin: 0 0 20px; }
+.chat-start__open { display: flex; justify-content: space-between; align-items: center; text-decoration: none; padding: 14px 20px; }
+.chat-start__note { margin: 16px 0 12px; }
+.chat-start__copy { display: grid; gap: 8px; justify-items: start; font-size: 13px; }
+.chat-start__copy textarea { width: 100%; min-height: 160px; font: inherit; }
+.chat-start__fallback { display: inline-block; font-size: 13px; margin-top: 12px; }
+.chat-start__setup { border-top: 1px solid var(--hairline); padding-top: 16px; margin-top: 20px; font-size: 13px; line-height: 1.6; }
+.chat-start__setup summary { cursor: pointer; }
+.chat-start__setup[open] summary { margin-bottom: 16px; }
+.chat-start__setup li { margin-bottom: 10px; }
+.chat-start__code { display: block; overflow-wrap: anywhere; padding: 12px 0; }
+.chat-start__receipt { font-size: 13px; line-height: 1.6; padding: 12px; border-radius: 12px; background: var(--canvas); }
+.chat-start__explanation { max-width: 700px; margin: 28px 0 48px; }
+.chat-start__memory { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.chat-start__memory a { text-decoration: none; }
+.chat-start__memory strong { display: block; font-size: 16px; font-weight: 500; margin-bottom: 10px; }
+.chat-start__memory span { display: block; color: var(--ink-muted); font-size: 14px; line-height: 1.6; }
+@media (max-width: 640px) {
+  .chat-start__clients, .chat-start__memory { grid-template-columns: 1fr; }
+  .chat-start__card { padding: 24px; }
+}

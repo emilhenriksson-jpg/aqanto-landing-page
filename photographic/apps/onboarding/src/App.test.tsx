@@ -376,7 +376,7 @@ describe('the connect screen', () => {
     await screen.findByRole('heading', { name: 'ChatGPT' });
 
     // The things that cost people ten minutes if unsaid.
-    expect(screen.getByText(/röstläge kan inte anropa connectors/)).toBeVisible();
+    expect(screen.getByText(/inte automatiskt Photographic/)).toBeVisible();
     expect(screen.getByText(/måste läggas till från web eller desktop/)).toBeVisible();
   });
 

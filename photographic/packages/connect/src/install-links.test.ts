@@ -109,11 +109,11 @@ describe('client descriptors', () => {
     }
   });
 
-  it('tells the truth about ChatGPT voice mode', () => {
+  it('does not claim ChatGPT automatically connects a new chat', () => {
     const chatgpt = findClient(clients, 'chatgpt');
-    expect(chatgpt.caveats.join(' ')).toMatch(/röstläge/i);
-    expect(chatgpt.caveats.join(' ')).toMatch(/Custom Instructions/);
-    expect(chatgpt.capability).toBe('manual');
+    expect(chatgpt.caveats.join(' ')).toMatch(/inte automatiskt/);
+    expect(chatgpt.steps.join(' ')).toMatch(/verktygsmenyn/);
+    expect(chatgpt.capability).toBe('best_effort');
   });
 
   it('warns that Claude connectors must be added from web or desktop', () => {

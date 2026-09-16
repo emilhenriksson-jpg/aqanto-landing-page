@@ -3,7 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { usePendingApprovals } from '../hooks/usePendingApprovals.js';
 
 const NAV = [
-  { to: '/', end: true, label: 'Rum', icon: HomeIcon },
+  { to: '/chatt', end: true, label: 'Start', icon: HomeIcon },
   { to: '/rum', end: true, label: 'Alla', icon: GridIcon },
   // The calendar earns a rail slot: the scope calls it a central part of the app, the
   // chronological representation of the person's memory, not something internal to the AI.

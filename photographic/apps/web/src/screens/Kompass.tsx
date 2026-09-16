@@ -58,7 +58,7 @@ function KompassReady({ principles }: { principles: CompassLine[] }) {
       </ul>
 
       <footer className="page-foot">
-        <Link to="/" className="page-foot__link">
+        <Link to="/personligt" className="page-foot__link">
           Tillbaka till ditt rum
         </Link>
         <Link to="/historik" className="page-foot__link">

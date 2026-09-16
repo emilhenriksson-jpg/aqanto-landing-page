@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from './App.js';
 
-function renderApp(path = '/') {
+function renderApp(path = '/personligt') {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <AppRoutes />
