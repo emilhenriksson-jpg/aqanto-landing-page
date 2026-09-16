@@ -14,12 +14,14 @@
 
 import type { Context } from 'hono';
 import { Hono } from 'hono';
+import { getCookie } from 'hono/cookie';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
 import type { AppEnv } from '../context.js';
-import { clientAddress } from '../middleware.js';
+import { clientAddress, requestIsSameOrigin } from '../middleware.js';
 import type { OAuthProvider, OAuthRequest, OAuthResponse } from '../oauth-contract.js';
 import { OAUTH_PATHS } from '../oauth-contract.js';
+import { SESSION_COOKIE } from '../session-cookie.js';
 
 /** A body read into memory before anything is known about who sent it. */
 const MAX_BODY_BYTES = 64 * 1024;
@@ -58,7 +60,54 @@ export function oauthRoutes(oauth: OAuthProvider): Hono<AppEnv> {
 
   // The login page's half of the flow. No AI client calls these.
   routes.get(OAUTH_PATHS.authorizeRequest, handle(oauth.describeRequest));
-  routes.post(OAUTH_PATHS.authorizeApprove, handle(oauth.approve));
+  /**
+   * Approve is the exception among OAuth routes: it is called by our own page after
+   * the person is signed in. The session used to live only in an `Authorization`
+   * header the onboarding app kept in memory, so a reload — or a cookie we had just
+   * set — could not finish the consent screen. The cookie is the same token; we lift
+   * it into the header the auth package already reads, under the same CSRF lock the
+   * rest of the cookie surface uses.
+   */
+  routes.post(OAUTH_PATHS.authorizeApprove, async (c) => {
+    if (!oauth.approve) {
+      return send(c, {
+        status: 501,
+        body: {
+          error: 'temporarily_unavailable',
+          error_description: 'Den delen av inloggningen är inte inkopplad.',
+        },
+      });
+    }
+
+    const body = await readBody(c);
+    if (!body.ok) {
+      return send(c, {
+        status: 413,
+        body: { error: 'invalid_request', error_description: 'Förfrågan är för stor.' },
+      });
+    }
+
+    const request = toOAuthRequest(c, body.value);
+    if (!request.headers['authorization']) {
+      const cookie = getCookie(c, SESSION_COOKIE);
+      if (cookie) {
+        if (!requestIsSameOrigin(c)) {
+          return c.json(
+            {
+              error: {
+                code: 'forbidden',
+                message: 'Begäran kom från en annan plats.',
+              },
+            },
+            403,
+          );
+        }
+        request.headers['authorization'] = `Bearer ${cookie}`;
+      }
+    }
+
+    return send(c, await oauth.approve(request));
+  });
 
   return routes;
 }

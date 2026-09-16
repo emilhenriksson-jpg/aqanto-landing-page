@@ -42,6 +42,10 @@ export class FakeApi implements Api {
     this.session = token;
   }
 
+  async probeSession() {
+    return Boolean(this.session);
+  }
+
   async requestCode(input: { phone: string; inviteToken?: string }) {
     this.requested.push(input);
     // The screen sends E.164 or nothing, so anything else here is a caller bug and the

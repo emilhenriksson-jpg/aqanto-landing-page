@@ -76,6 +76,23 @@ export function Approve({
     };
   }, [api, requestId]);
 
+  useEffect(() => {
+    let live = true;
+    // Both of these already swallow their own failures — `probeSession` returns false on
+    // any error, `answer` reports through `setError`. The handlers are here because
+    // `void` does not satisfy `no-floating-promises`, which runs with `ignoreVoid: false`
+    // after a `void promise` without one took the server process down.
+    api
+      .probeSession()
+      .then((ok) => {
+        if (live && ok) setSignedIn(true);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [api]);
+
   async function answer(approved: boolean) {
     if (state.name !== 'ready') return;
     setState({ name: 'answering', request: state.request });
@@ -170,7 +187,9 @@ export function Approve({
           type="button"
           className="btn btn--primary btn--block"
           disabled={busy}
-          onClick={() => void answer(true)}
+          onClick={() => {
+            answer(true).catch(() => {});
+          }}
         >
           {busy ? 'Kopplar' : `Ge ${request.clientName} åtkomst`}
         </button>
@@ -178,7 +197,9 @@ export function Approve({
           type="button"
           className="btn btn--quiet"
           disabled={busy}
-          onClick={() => void answer(false)}
+          onClick={() => {
+            answer(false).catch(() => {});
+          }}
         >
           Neka
         </button>

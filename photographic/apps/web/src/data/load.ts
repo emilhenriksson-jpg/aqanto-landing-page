@@ -191,7 +191,9 @@ function memberDisplayName(member: RoomMemberDto): string {
 export function mapClientHealth(dto: ClientHealthDto): DemoClient {
   const method = dto.deliveryMethod;
   return {
-    id: dto.agentClient,
+    // `clientId` when we have one, because several DCR clients share `agentClient: unknown`
+    // and a list keyed on that name would render one row for all of them.
+    id: dto.clientId ?? dto.agentClient,
     displayName: dto.displayName,
     lastSeenAt: dto.lastSeenAt,
     profileDelivered: dto.profileDelivered,

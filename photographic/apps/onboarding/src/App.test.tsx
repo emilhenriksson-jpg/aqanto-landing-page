@@ -589,6 +589,18 @@ describe('approving an AI', () => {
     expect(went).toEqual([CALLBACK_URL]);
   });
 
+  it('skips the login form when a session already exists', async () => {
+    const api = new FakeApi({ authorization: pending });
+    api.setSession('session-1');
+    arrive(api);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Ge Claude Desktop åtkomst?' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Mobilnummer')).toBeNull();
+    expect(screen.getByRole('button', { name: /Ge Claude Desktop åtkomst/ })).toBeInTheDocument();
+  });
+
   it('explains an expired request instead of showing an empty consent screen', async () => {
     arrive(new FakeApi());
 
