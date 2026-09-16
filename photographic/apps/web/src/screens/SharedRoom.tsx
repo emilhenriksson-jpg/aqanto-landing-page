@@ -8,11 +8,9 @@ import { PendingApprovals } from '../components/PendingApprovals.js';
 import { Wordmark } from '../components/Wordmark.js';
 import {
   DEMO_ACTIVITY,
-  SECTION_LABELS,
   loadRoom,
   type ActivityLine,
   type DocumentLine,
-  type MemoryLine,
   type RoomDetail,
 } from '../data/demo.js';
 import { loadRoomActivityFromApi, loadSharedRoomFromApi } from '../data/load.js';
@@ -69,29 +67,30 @@ function SharedRoomReady({
   room: RoomDetail;
   documents?: DocumentLine[];
 }) {
-  const grouped = groupByKind(room.memories);
   // Names the other members rather than counting them — `room.memberNames` already
   // excludes the viewer (see `loadSharedRoomFromApi`), so an empty list genuinely means
   // nobody else has joined yet.
   const memberLine =
-    room.memberNames.length === 0 ? 'Bara du' : `Delad med ${joinNames(room.memberNames)}`;
+    room.memberNames.length === 0
+      ? 'Bara du kan se det här rummet'
+      : `Delad med ${joinNames(room.memberNames)}`;
 
   return (
     <article className="page page--shared">
       <header className="hero hero--shared">
         <Wordmark />
-        <p className="hero__crumb">
+        <p className="room-intro__crumb">
           <Link to="/rum">Rum</Link>
-          <span aria-hidden="true"> · </span>
-          <span>{room.title}</span>
         </p>
         <h1 className="hero__title">{room.title}</h1>
-        <Avatars names={room.memberNames} variant="hero" />
         <p className="hero__lede">
           {room.brief ??
             'Inget sparat än. Säg till Claude eller ChatGPT att lägga något här.'}
         </p>
-        <p className="meta">{memberLine}</p>
+        <div className="room-intro__meta">
+          <Avatars names={room.memberNames} variant="hero" />
+          <p className="meta">{memberLine}</p>
+        </div>
       </header>
 
       {/*
@@ -100,24 +99,29 @@ function SharedRoomReady({
       */}
       <PendingApprovals roomId={room.id} />
 
-      {grouped.length === 0 ? (
-        <p className="section-block__empty">Inget sparat i det här rummet ännu.</p>
-      ) : (
-        grouped.map(({ kind, items }) => (
-          <section key={kind} className="section-block" aria-labelledby={`mem-${kind}`}>
-            <h2 id={`mem-${kind}`} className="section-block__title">
-              {SECTION_LABELS[kind]}
-            </h2>
-            <ul className="card card--group">
-              {items.map((item) => (
-                // No delete here — only the author may remove a shared memory, and the
-                // row is still owed an answer to "hur vet du det?" either way.
-                <MemoryRow key={item.shortId} item={item} roomId={room.id} roomKind="shared" />
-              ))}
-            </ul>
-          </section>
-        ))
-      )}
+      <section className="section-block room-collection" aria-labelledby="room-memories">
+        <div className="room-collection__head">
+          <h2 id="room-memories" className="section-block__title">
+            I rummet
+          </h2>
+          {room.memories.length > 0 ? (
+            <p className="meta">
+              {room.memories.length === 1 ? '1 minne' : `${room.memories.length} minnen`}
+            </p>
+          ) : null}
+        </div>
+        {room.memories.length === 0 ? (
+          <p className="section-block__empty">Inget sparat i det här rummet ännu.</p>
+        ) : (
+          <ul className="card card--group room-shelf">
+            {room.memories.map((item) => (
+              // No delete here — only the author may remove a shared memory, and the
+              // row is still owed an answer to "hur vet du det?" either way.
+              <MemoryRow key={item.shortId} item={item} roomId={room.id} roomKind="shared" />
+            ))}
+          </ul>
+        )}
+      </section>
 
       <DocumentsSection roomId={room.id} documents={documents} />
 
@@ -173,21 +177,4 @@ function ActivitySection({ roomId }: { roomId: string }) {
 function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? '';
   return `${names.slice(0, -1).join(', ')} och ${names[names.length - 1]}`;
-}
-
-function groupByKind(
-  items: MemoryLine[],
-): Array<{ kind: MemoryLine['kind']; items: MemoryLine[] }> {
-  const order: MemoryLine['kind'][] = [
-    'identity',
-    'fact',
-    'preference',
-    'instruction',
-    'never',
-    'decision',
-    'note',
-  ];
-  return order
-    .map((kind) => ({ kind, items: items.filter((item) => item.kind === kind) }))
-    .filter((group) => group.items.length > 0);
 }

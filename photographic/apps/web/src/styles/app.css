@@ -158,53 +158,34 @@
   max-width: 36rem;
 }
 
-/* ---------------------------------------------------------- personal hero */
+/* ---------------------------------------------------------- room headers */
 
 .hero {
-  margin-bottom: var(--space-16);
+  margin-bottom: var(--space-12);
 }
 
 .hero--personal {
   position: relative;
-  margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-16);
-  padding: var(--space-10) var(--space-6) var(--space-12);
-  /* Standing inside the room: a soft violet wash that fades into the canvas, not a
-     dashboard banner. Brand stays atmospheric — the wordmark disc carries the accent. */
+  margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-12);
+  padding: var(--space-10) var(--space-6) var(--space-10);
+  /* A room is a place to read, not a landing page. The tint gives the private room its
+     own identity without delaying its contents below a viewport-sized hero. */
   background:
-    radial-gradient(90% 70% at 8% -10%, color-mix(in srgb, var(--brand-soft) 90%, white) 0%, transparent 60%),
-    radial-gradient(70% 50% at 92% 10%, color-mix(in srgb, var(--brand-soft) 45%, transparent) 0%, transparent 55%),
-    linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 40%, var(--canvas)) 0%, var(--canvas) 72%);
+    radial-gradient(85% 95% at 0% 0%, color-mix(in srgb, var(--brand-soft) 82%, white) 0%, transparent 72%),
+    linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 36%, var(--canvas)) 0%, var(--canvas) 100%);
   border-bottom: 1px solid color-mix(in srgb, var(--hairline) 55%, transparent);
-  min-height: min(78dvh, 620px);
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: var(--space-12);
+  gap: var(--space-8);
   animation: room-enter var(--dur-slow) var(--ease-spring) both;
 }
 
-/*
- * The hero gives up some of its height when a decision is waiting.
- *
- * At its designed 78dvh the notice below it is entirely off the first viewport, and
- * "impossible to miss" then rests on the rail badge alone. This is the one condition
- * under which the room is not the most important thing on the screen, and it lasts
- * exactly as long as the queue does.
- */
 .hero--personal:has(+ .waiting) {
-  min-height: min(54dvh, 440px);
   margin-bottom: var(--space-10);
   gap: var(--space-8);
 }
 
-/* Further on a phone, where the notice is taller and the tab bar takes the last 60px. */
-@media (max-width: 720px) {
-  .hero--personal:has(+ .waiting) {
-    min-height: min(40dvh, 340px);
-  }
-}
-
-/* Brand sits high; identity rests at the floor — one composition, no secondary chrome. */
+/* Private identity, context and capacity stay together as one quiet introduction. */
 .hero__identity {
   display: flex;
   flex-direction: column;
@@ -234,47 +215,53 @@
   }
 }
 
-/* Shared rooms get a quieter wash — you are still *inside*, just not in your own room.
-   No brand tint: violet stays on the wordmark disc only. */
+/* Shared rooms lead directly into their material. */
 .hero--shared {
   position: relative;
-  margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-12);
-  padding: var(--space-10) var(--space-6) var(--space-10);
+  margin: calc(var(--space-8) * -1) calc(var(--space-6) * -1) var(--space-10);
+  padding: var(--space-8) var(--space-6);
   background:
     radial-gradient(
-      85% 55% at 10% -5%,
-      color-mix(in srgb, var(--surface) 92%, var(--canvas)) 0%,
-      transparent 58%
+      80% 85% at 0% 0%,
+      color-mix(in srgb, var(--surface) 88%, var(--canvas)) 0%,
+      transparent 72%
     ),
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--canvas) 58%, var(--surface)) 0%,
+      color-mix(in srgb, var(--canvas) 72%, var(--surface)) 0%,
       var(--canvas) 100%
     );
   border-bottom: 1px solid var(--hairline);
-  min-height: min(48dvh, 420px);
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
   animation: room-enter var(--dur-slow) var(--ease-spring) both;
 }
 
+.hero--shared .wordmark {
+  margin-bottom: var(--space-5);
+}
+
 .hero--shared .hero__lede {
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
 }
 
-.hero--shared .meta {
-  margin: 0;
-}
-
-.hero__crumb {
+.room-intro__crumb {
   font: var(--type-meta);
   color: var(--ink-muted);
-  margin-bottom: var(--space-4);
+  margin: 0 0 var(--space-3);
 }
 
-.hero__crumb a:hover {
+.room-intro__crumb a:hover {
   color: var(--ink);
+}
+
+.room-intro__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.room-intro__meta .avatars--hero,
+.room-intro__meta .meta {
+  margin: 0;
 }
 
 .hero__title {
@@ -304,6 +291,10 @@
   gap: var(--space-16);
 }
 
+.page--personal .sections {
+  gap: var(--space-10);
+}
+
 .section-block__title {
   font: var(--type-heading);
   letter-spacing: var(--track-heading);
@@ -318,8 +309,9 @@
 }
 
 .page--personal .card--group {
-  border-radius: var(--radius-xxl);
-  box-shadow: 0 1px 2px -1px rgba(0, 0, 0, 0.04), 0 6px 20px -10px rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-xl);
+  box-shadow: none;
+  border: 1px solid color-mix(in srgb, var(--hairline) 80%, transparent);
 }
 
 .page--personal .memory {
@@ -355,7 +347,41 @@
  * section had 64px. `DESIGN.md` asks for 64–80px between major sections.
  */
 .sections + .section-block {
-  margin-top: var(--space-16);
+  margin-top: var(--space-10);
+}
+
+/* A shared room is a single reading surface. Memory kinds remain available through
+   provenance, but no longer turn one topic into a stack of artificial compartments. */
+.room-collection {
+  max-width: 44rem;
+}
+
+.room-collection__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.room-collection__head .section-block__title {
+  margin-bottom: 0;
+}
+
+.room-shelf {
+  border: 1px solid color-mix(in srgb, var(--hairline) 80%, transparent);
+  box-shadow: none;
+}
+
+.page--shared > .section-block {
+  max-width: 44rem;
+}
+
+.page--shared .documents {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--hairline) 80%, transparent);
+  border-radius: var(--radius-xl);
+  padding: 0 var(--space-5);
 }
 
 /* ----------------------------------------------------------------- cards */
@@ -1344,10 +1370,8 @@
 .day__row {
   display: flex;
   gap: var(--space-4);
-  background: var(--surface);
-  border-radius: var(--radius-xl);
-  padding: var(--space-5) var(--space-6);
-  box-shadow: var(--shadow-card);
+  padding: var(--space-5) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 80%, transparent);
 }
 
 /*
@@ -1360,14 +1384,17 @@
 .day__row--other {
   box-shadow:
     inset 3px 0 0 0 var(--brand),
-    var(--shadow-card);
-  background: color-mix(in srgb, var(--brand-soft) 45%, var(--surface));
+    none;
+  background: color-mix(in srgb, var(--brand-soft) 34%, transparent);
+  border-radius: var(--radius-md);
+  padding-right: var(--space-4);
+  padding-left: var(--space-4);
 }
 
 .day--others .day__row {
   box-shadow:
     inset 3px 0 0 0 var(--brand),
-    var(--shadow-card);
+    none;
 }
 
 .day__glyph {
@@ -1618,19 +1645,31 @@
 .ask-results {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  max-width: 44rem;
 }
 
 .ask-card {
+  border-radius: 0;
+  box-shadow: none;
   padding: 0;
-  overflow: hidden;
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 80%, transparent);
+  background: transparent;
+}
+
+.ask-card:first-child {
+  border-top: 1px solid color-mix(in srgb, var(--hairline) 80%, transparent);
 }
 
 .ask-card__link {
   display: block;
-  padding: var(--space-5);
+  padding: var(--space-5) 0;
   color: inherit;
   text-decoration: none;
+  transition: background var(--dur-fast) var(--ease-spring);
+}
+
+.ask-card__link:hover {
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
 }
 
 .ask-card__room {
@@ -1700,14 +1739,12 @@
   .hero--personal {
     margin: calc(var(--space-6) * -1) calc(var(--space-4) * -1) var(--space-12);
     padding: var(--space-8) var(--space-4) var(--space-8);
-    min-height: min(72dvh, 520px);
-    gap: var(--space-10);
+    gap: var(--space-6);
   }
 
   .hero--shared {
     margin: calc(var(--space-6) * -1) calc(var(--space-4) * -1) var(--space-10);
     padding: var(--space-8) var(--space-4) var(--space-8);
-    min-height: min(42dvh, 340px);
   }
 
   .room-card--personal {
@@ -1746,8 +1783,7 @@
   }
 
   .hero--personal {
-    min-height: min(68dvh, 480px);
-    gap: var(--space-8);
+    gap: var(--space-6);
     padding: var(--space-8) var(--space-4) var(--space-6);
   }
 }
