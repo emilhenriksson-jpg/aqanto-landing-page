@@ -246,6 +246,11 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- **web** — Reframed rooms as compact introductions followed by a single calm memory shelf:
+  shared memory types no longer fragment a topic into artificial panels, documents match the
+  same shelf language, and the personal room reaches its contents without a viewport-sized hero.
+  Calendar and search now use quiet reading rows rather than stacks of cards.
+
 - **orchestrator** — **public HTTPS, and Claude can connect.** Verified reachable this
   morning at `https://called-job-paragraph-necessary.trycloudflare.com/mcp` (a quick
   tunnel, so that exact hostname dies with the process — `./scripts/public-mcp.sh`

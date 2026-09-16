@@ -42,6 +42,8 @@ describe('App', () => {
     expect(screen.getByLabelText('2 medlemmar')).toBeInTheDocument();
     // Named, not counted — the property this whole feature exists to add.
     expect(screen.getByText('Delad med Anna och Jacob')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'I rummet' })).toBeInTheDocument();
+    expect(screen.getByText('2 minnen')).toBeInTheDocument();
     expect(screen.getByText('r-8k2m')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Dokument' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Aktivitet' })).toBeInTheDocument();
