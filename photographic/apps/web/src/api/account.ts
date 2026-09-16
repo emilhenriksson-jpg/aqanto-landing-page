@@ -21,6 +21,11 @@ export function getAccount(): Promise<AccountDto> {
   return apiFetch('/v1/account');
 }
 
+/** Ends this browser's session. Connected AI clients keep their separate credentials. */
+export function signOut(): Promise<void> {
+  return apiFetch('/v1/session/logout', { method: 'POST' });
+}
+
 /** Sets it. First-party only server-side — no connected AI can call this. */
 export function setFirstName(firstName: string): Promise<{ firstName: string }> {
   return apiFetch('/v1/account/name', {

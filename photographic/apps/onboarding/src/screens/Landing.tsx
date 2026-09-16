@@ -14,7 +14,14 @@
  * It lives in the auth app because every way in already does, and because it must render
  * for someone with no session at all.
  */
-export function Landing({ onLogin }: { onLogin: () => void }) {
+export function Landing({
+  onLogin,
+  notice,
+}: {
+  onLogin: () => void;
+  /** A sign-out or expired session deserves a human answer before the phone prompt. */
+  notice?: string;
+}) {
   return (
     <div className="landing">
       <section className="landing__hero">
@@ -24,6 +31,7 @@ export function Landing({ onLogin }: { onLogin: () => void }) {
           hur du vill bli bemött, vad ni bestämde — och den modell du väljer att prata med får
           läsa det, med ditt tillstånd. Byter du modell börjar du inte om.
         </p>
+        {notice ? <p className="landing__notice" role="status">{notice}</p> : null}
         <div className="landing__actions">
           <button type="button" className="btn btn--primary" onClick={onLogin}>
             Logga in

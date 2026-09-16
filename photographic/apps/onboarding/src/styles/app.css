@@ -516,6 +516,15 @@ h3 {
   max-width: 34rem;
 }
 
+.landing__notice {
+  width: fit-content;
+  margin: 0 0 24px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--brand-soft);
+  color: var(--ink);
+}
+
 .landing__actions {
   display: flex;
   flex-direction: column;

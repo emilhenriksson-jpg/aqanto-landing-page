@@ -55,6 +55,7 @@ import { oauthRoutes } from './routes/oauth.js';
 import { opsRoutes, type QueueSource } from './routes/ops.js';
 import { personRoutes } from './routes/person.js';
 import { publicInviteRoutes, roomRoutes } from './routes/rooms.js';
+import { sessionRoutes } from './routes/session.js';
 import { trashRoutes } from './routes/trash.js';
 import {
   APEX_ROOT_ROUTES,
@@ -327,6 +328,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     key: (c) => `export-download:${clientAddress(c)}`,
   }));
   app.route('/v1', publicExportRoutes({ exports: deps.exports ?? null }));
+  // Browser sign-out must work even when the cookie is stale. It owns no data and
+  // clears only the cookie, while the route itself still rejects cross-site requests.
+  app.route('/v1', sessionRoutes());
 
   // Derived from config alone, and needed whether or not sign-up is mounted: the client
   // health lights describe the same clients the connect screen offers.

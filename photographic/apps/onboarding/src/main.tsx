@@ -16,7 +16,20 @@ import './styles/app.css';
  * authorization server and waiting on the person to answer it.
  */
 function initialStep(): Step | undefined {
-  if (/^\/start\/?$/.test(window.location.pathname)) return { name: 'landing' };
+  if (/^\/start\/?$/.test(window.location.pathname)) {
+    const params = new URLSearchParams(window.location.search);
+    const returnTo = safeReturnTo(params.get('fran'));
+    const reason = params.get('orsak');
+    return {
+      name: 'landing',
+      ...(returnTo ? { returnTo } : {}),
+      ...(reason === 'utloggad'
+        ? { notice: 'Du är utloggad.' }
+        : reason === 'utgangen'
+          ? { notice: 'Din session har gått ut. Logga in igen för att fortsätta.' }
+          : {}),
+    };
+  }
 
   const invite = /^\/invite\/([^/]+)/.exec(window.location.pathname);
   if (invite?.[1]) return { name: 'invite', token: decodeURIComponent(invite[1]) };
@@ -25,6 +38,12 @@ function initialStep(): Step | undefined {
   if (authRequest) return { name: 'approve', requestId: authRequest };
 
   return undefined;
+}
+
+/** Never turn a query string on a public page into a redirect off this origin. */
+function safeReturnTo(value: string | null): string | undefined {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return undefined;
+  return value;
 }
 
 const root = document.querySelector('#root');

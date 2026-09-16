@@ -10,6 +10,11 @@ export class ApiError extends Error {
   }
 }
 
+function reportExpiredSession(status: number): void {
+  if (status !== 401 || typeof window === 'undefined') return;
+  window.dispatchEvent(new Event('photographic:session-expired'));
+}
+
 /**
  * Thin fetch wrapper: JSON in/out, optional Bearer from `photographic_session`.
  * Paths are absolute under the API origin (`/v1/...`).
@@ -37,6 +42,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     | null;
 
   if (!response.ok) {
+    reportExpiredSession(response.status);
     const message =
       body?.error?.message ?? body?.error_description ?? body?.message ?? 'Något gick fel.';
     throw new ApiError(message, response.status);
@@ -71,6 +77,7 @@ export async function apiUpload<T>(path: string, body: FormData): Promise<T> {
     | null;
 
   if (!response.ok) {
+    reportExpiredSession(response.status);
     // The storage limit and an oversized file both arrive here with a Swedish message
     // written for the person, so it is passed through rather than replaced with a
     // generic one — "det finns inte plats för …, du har 1,2 GB kvar" is the whole point.

@@ -14,7 +14,7 @@ import { Verify } from './screens/Verify.js';
 
 export type Step =
   /** `/start`: what the apex hostname should serve, for someone with no account yet. */
-  | { name: 'landing' }
+  | { name: 'landing'; notice?: string; returnTo?: string }
   | { name: 'invite'; token: string }
   | { name: 'signup'; inviteToken?: string }
   /** First sign-in only — skippable, and never shown again after this session. */
@@ -36,6 +36,9 @@ export function App({
 }) {
   const [step, setStep] = useState<Step>(initial ?? { name: 'signup' });
   const [joined, setJoined] = useState<VerifyCodeResponse['joinedRoom']>(null);
+  // The only route passed across the sign-in boundary comes from `/start`; it is
+  // validated in `main.tsx` so a public landing page cannot become an open redirect.
+  const returnTo = initial?.name === 'landing' ? initial.returnTo : undefined;
 
   /** Leaving the app is a real navigation, so the URL matches the screen afterwards. */
   const go = navigate ?? ((url: string) => window.location.assign(url));
@@ -47,7 +50,12 @@ export function App({
         Photographic
       </div>
 
-      {step.name === 'landing' && <Landing onLogin={() => go('/login')} />}
+      {step.name === 'landing' && (
+        <Landing
+          onLogin={() => go(returnTo ? `/login?fran=${encodeURIComponent(returnTo)}` : '/login')}
+          {...(step.notice ? { notice: step.notice } : {})}
+        />
+      )}
 
       {step.name === 'invite' && (
         <InviteLanding
@@ -67,6 +75,10 @@ export function App({
             // First sign-in only. A returning person already decided — skipped it or set
             // it from the account screen — and asking again would be the wall the name
             // prompt is explicitly not allowed to be.
+            if (!result.created && returnTo) {
+              go(returnTo);
+              return;
+            }
             setStep(result.created ? { name: 'name' } : { name: 'connect' });
           }}
         />
