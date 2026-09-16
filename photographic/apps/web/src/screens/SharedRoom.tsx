@@ -71,7 +71,9 @@ function SharedRoomReady({
   // excludes the viewer (see `loadSharedRoomFromApi`), so an empty list genuinely means
   // nobody else has joined yet.
   const memberLine =
-    room.memberNames.length === 0 ? 'Bara du' : `Delad med ${joinNames(room.memberNames)}`;
+    room.memberNames.length === 0
+      ? 'Bara du kan se det här rummet'
+      : `Delad med ${joinNames(room.memberNames)}`;
 
   return (
     <article className="page page--shared">
