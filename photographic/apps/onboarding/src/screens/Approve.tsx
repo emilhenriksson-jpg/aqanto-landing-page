@@ -76,6 +76,16 @@ export function Approve({
     };
   }, [api, requestId]);
 
+  useEffect(() => {
+    let live = true;
+    void api.probeSession().then((ok) => {
+      if (live && ok) setSignedIn(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, [api]);
+
   async function answer(approved: boolean) {
     if (state.name !== 'ready') return;
     setState({ name: 'answering', request: state.request });

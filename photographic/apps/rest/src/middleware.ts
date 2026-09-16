@@ -119,7 +119,7 @@ export function authenticate(oauth: OAuthProvider, options: { required: boolean 
     // already blocks a cross-site mutating request from carrying the cookie; this is the
     // second lock, because "one origin now" is the reason cookies need the protection
     // and not a reason to skip it.
-    if (cookie && isMutating(c.req.method) && !sameOrigin(c)) {
+    if (cookie && isMutating(c.req.method) && !requestIsSameOrigin(c)) {
       c.get('logger').warn('csrf_rejected', {
         route: c.req.routePath,
         origin: c.req.header('origin') ?? null,
@@ -255,8 +255,13 @@ function isMutating(method: string): boolean {
  * `Sec-Fetch-Site` is checked first where present, because it is the browser's own
  * answer to this exact question and it distinguishes `same-origin` from `none` (a
  * typed URL) without any string comparison of ours.
+ *
+ * Exported so `/oauth/authorize/approve` can apply the same lock: that route sits
+ * outside `authenticate` (it extracts the session itself) and used to ignore the
+ * session cookie entirely, which made a person who was already signed in unable to
+ * finish connecting a client without pasting a bearer token.
  */
-function sameOrigin(c: Parameters<MiddlewareHandler<AppEnv>>[0]): boolean {
+export function requestIsSameOrigin(c: Parameters<MiddlewareHandler<AppEnv>>[0]): boolean {
   const fetchSite = c.req.header('sec-fetch-site');
   if (fetchSite) return fetchSite === 'same-origin';
 

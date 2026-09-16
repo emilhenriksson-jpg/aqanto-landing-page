@@ -689,6 +689,88 @@ describe('with no BREAK_GLASS_SECRET set, which is every deployment by default',
   });
 });
 
+/**
+ * Own process so these do not spend the parent suite's signup budget. The cookie
+ * path is the one a returning person actually uses, and it used to be ignored.
+ */
+describe('approving with the session cookie', () => {
+  let h: Harness;
+
+  beforeAll(async () => {
+    h = await harness();
+  });
+
+  afterAll(async () => {
+    await h.close();
+  });
+
+  it('mints a code when the browser sends photographic_sid and a same-origin Origin', async () => {
+    const { verifier, challenge } = pkce();
+    const { body: client } = await h.registerClient();
+    const clientId = client['client_id'] as string;
+    const started = await h.startAuthorization(clientId, { code_challenge: challenge });
+    const requestId = new URL(started.headers.get('location') as string).searchParams.get(
+      'auth_request',
+    ) as string;
+    const sessionToken = await h.signIn();
+
+    const approved = await h.json('/oauth/authorize/approve', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `photographic_sid=${sessionToken}`,
+        origin: API,
+      },
+      body: JSON.stringify({ requestId, approved: true }),
+    });
+
+    expect(approved.response.status).toBe(200);
+    const code = new URL(approved.body['redirectUrl'] as string).searchParams.get('code');
+    expect(code).toBeTruthy();
+
+    const exchanged = await h.postForm('/oauth/token', {
+      grant_type: 'authorization_code',
+      code: code as string,
+      redirect_uri: REDIRECT_URI,
+      client_id: clientId,
+      code_verifier: verifier,
+    });
+    expect(exchanged.status).toBe(200);
+  });
+
+  it('refuses a cookie approval that did not come from our own page', async () => {
+    const { body: client } = await h.registerClient();
+    const started = await h.startAuthorization(client['client_id'] as string, {
+      code_challenge: pkce().challenge,
+    });
+    const requestId = new URL(started.headers.get('location') as string).searchParams.get(
+      'auth_request',
+    ) as string;
+    const sessionToken = await h.signIn();
+
+    const crossSite = await h.json('/oauth/authorize/approve', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `photographic_sid=${sessionToken}`,
+        origin: 'https://evil.example',
+      },
+      body: JSON.stringify({ requestId, approved: true }),
+    });
+    expect(crossSite.response.status).toBe(403);
+
+    const noOrigin = await h.json('/oauth/authorize/approve', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `photographic_sid=${sessionToken}`,
+      },
+      body: JSON.stringify({ requestId, approved: true }),
+    });
+    expect(noOrigin.response.status).toBe(403);
+  });
+});
+
 /** A person connected all the way to a token, for the tests that start after that. */
 async function connected(h: Harness) {
   const { verifier, challenge } = pkce();

@@ -55,6 +55,32 @@ describe('API → UI mapping', () => {
     });
   });
 
+  it('keys two unknown DCR clients by client id rather than collapsing them', () => {
+    const a = mapClientHealth({
+      agentClient: 'unknown',
+      clientId: 'pgm_client_one',
+      displayName: 'okänd klient',
+      lastSeenAt: '2026-09-16T00:00:00.000Z',
+      profileDelivered: false,
+      deliveryMethod: null,
+      degraded: false,
+      revoked: false,
+    });
+    const b = mapClientHealth({
+      agentClient: 'unknown',
+      clientId: 'pgm_client_two',
+      displayName: 'okänd klient',
+      lastSeenAt: '2026-09-16T00:00:01.000Z',
+      profileDelivered: false,
+      deliveryMethod: null,
+      degraded: false,
+      revoked: true,
+    });
+    expect(a.id).toBe('pgm_client_one');
+    expect(b.id).toBe('pgm_client_two');
+    expect(a.id).not.toBe(b.id);
+  });
+
   it('maps trash DTOs onto quiet shelf lines with days remaining', () => {
     const line = mapTrashEntry({
       type: 'memory',

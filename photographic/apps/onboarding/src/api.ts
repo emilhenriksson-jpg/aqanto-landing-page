@@ -86,6 +86,14 @@ export interface Api {
     approved: boolean;
   }): Promise<{ redirectUrl: string; approved: boolean }>;
 
+  /**
+   * Whether this browser already has a session — an httpOnly cookie, or a token
+   * `setSession` just stored. The consent screen used to assume nobody was signed in
+   * until they typed a code in this page load, which hid the actual permissions
+   * behind a login form even when `photographic_sid` was already valid.
+   */
+  probeSession(): Promise<boolean>;
+
   /** Remembers who is signed in, for the calls that need it. */
   setSession(token: string | null): void;
 }
@@ -97,12 +105,12 @@ export class ApiError extends Error {
 }
 
 /**
- * The session token, in memory only.
+ * The session token, in memory for this page load.
  *
- * Not `localStorage`: it is a bearer credential for someone's entire memory, and anything
- * that can run script on the page can read it there. Keeping it in a closure means a
- * reload signs the person in again, which is a second of friction against a class of
- * theft that survives closing the tab.
+ * The durable copy is the httpOnly `photographic_sid` cookie, which page script cannot
+ * read. `setSession` still stores the token here so the rest of the sign-up flow can
+ * attach `Authorization` before the cookie round-trip, and `probeSession` asks the
+ * server — which *can* read the cookie — whether a returning person is already in.
  */
 let sessionToken: string | null = null;
 
@@ -157,4 +165,12 @@ export const httpApi: Api = {
     send(`/oauth/authorize/request?auth_request=${encodeURIComponent(requestId)}`),
   answerAuthorization: (input) =>
     send('/oauth/authorize/approve', { method: 'POST', body: JSON.stringify(input) }),
+  probeSession: async () => {
+    try {
+      await send('/v1/account');
+      return true;
+    } catch {
+      return false;
+    }
+  },
 };

@@ -138,6 +138,12 @@ export interface AccountDto {
 /** GET /v1/clients — per-AI delivery lights. */
 export interface ClientHealthDto {
   agentClient: string;
+  /**
+   * The OAuth client id, when this row is a registration. Used as the React key so two
+   * dynamically-registered clients that both fall back to `unknown` still render as two
+   * rows rather than collapsing into one.
+   */
+  clientId?: string | null;
   displayName: string;
   lastSeenAt: string;
   profileDelivered: boolean;
