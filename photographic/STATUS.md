@@ -246,10 +246,12 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- 2026-09-19 — Quiet personal start: removed technical launch prompts; ChatGPT/Codex/Claude desktop open blank composers, while supported Cursor and ChatGPT mobile routes carry only a short greeting. Background instructions govern a fresh, name-grounded greeting and concrete context-contribution examples; empty profiles and read failures are distinct. Collapsed start help and explicit clipboard copying replace automatic clipboard writes. Protocol, budget and UI tests cover delivery and launch behavior. Automatic native assistant-first replies and per-chat connector activation remain unverified; see CHAT-START.md.
+
 ### 2026-09-19 — familiar, unhurried conversations
 
 - Warmer default compass, with personalised principles preserved; fresh-context instructions now limit check-ins to one optional question, stop after short answers/topic changes, and put listening and the current request ahead of memory import. No invented moods, completed plans, names, or local times.
-- Empty profile and failed reads are distinguished from an empty account. Recent-event timestamps explicitly describe saving, not the date a real-world plan happened. Proposal pauses, full-batch review, provenance, sensitive-transfer consent and the 1,400-token instruction budget remain in place (minimum floor: 996).
+- Empty profile and failed reads are distinguished from an empty account. Recent-event timestamps explicitly describe saving, not the date a real-world plan happened. Proposal pauses, full-batch review, provenance, sensitive-transfer consent and the 1,400-token instruction budget remain in place (minimum floor computed from the current instructions).
 - A calmer home greets the actual account, remembers only the last chosen AI on the device, prioritises supported mobile apps and keeps setup/receipts under help. Optional account/history failures cannot block launch. Native ChatGPT/Codex links use explicit mode without a project/prompt; no automatic clipboard writes.
 - “Dina AI:er” shows local dates and times instead of UTC time-only receipts. Conversation acceptance cases and external-client limits are in `docs/conversation-experience.md`.
 - Local validation: core 142, agent 82, connect 147, MCP 67 and web 139 tests passed; package typechecks passed. Chrome desktop/narrow-layout review passed, including help, navigation, local receipt dates and no console errors. External native model replies remain a manual acceptance check.

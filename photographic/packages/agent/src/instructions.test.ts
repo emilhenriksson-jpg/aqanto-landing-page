@@ -167,8 +167,13 @@ describe('the session instructions', () => {
     expect(rendered.indexOf('Allergisk')).toBeLessThan(rendered.indexOf('Buyersclub'));
   });
 
-  it('tells the model not to announce that it has context', () => {
-    expect(renderInstructions(full)).toMatch(/Läs tyst/);
+  it('grounds the greeting in a fresh read, without repeating the connection ritual', () => {
+    const rendered = renderInstructions(full);
+    for (const rule of ['Läs tyst', 'Efter lyckad hämtning', 'bekräftat namn, annars utan namn',
+      'utan en sådan signal', 'Ett läsfel är inte ett tomt minne', 'upprepa ingen välkomstritual']) {
+      expect(rendered).toContain(rule);
+    }
+    expect(rendered).not.toContain('Hej Emil');
   });
 
   it('lists rooms with their exact names, because that is how they get addressed', () => {

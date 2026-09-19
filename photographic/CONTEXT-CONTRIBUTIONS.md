@@ -3,7 +3,9 @@
 Photographic first asks a connected AI to read the current context, then compare all
 user context actually available to that AI. This precedes onboarding questions or
 suggesting another data source. It does not imply access to the provider's entire
-account history, files, mail or another app's memory.
+account history, files, mail or another app's memory. The person's current request or
+need to be heard comes first; comparison belongs at a natural pause, not as an
+interruption or a condition for helping.
 
 ## User flow
 
@@ -32,6 +34,12 @@ account history, files, mail or another app's memory.
    conflict never changes a shared item through this flow. No external file/mail/Slack
    connector is installed by these changes. Once comparison is complete, AI instructions
    allow at most one relevant question or source suggestion, never an onboarding checklist.
+
+The first-response guidance now uses a natural, name-grounded greeting after a fresh
+context read. A new-fact offer shows up to three concrete examples with the complete
+review behind its link. An empty personal profile does not imply empty shared rooms;
+read failures are not new-user signals. See CHAT-START.md for the remaining native
+app activation/first-turn limitation: hidden connection guidance is not auto-send.
 
 ## Comparison and failure behavior
 

@@ -31,6 +31,7 @@ describe('conversation home', () => {
     expect(chatgptUrl.searchParams.get('mode')).toBe('chat');
     expect(codexUrl.searchParams.get('mode')).toBe('codex');
     expect([...chatgptUrl.searchParams.keys()].sort()).toEqual(['mode']);
+    expect(codexUrl.searchParams.has('prompt')).toBe(false);
     expect(link).not.toHaveAttribute('target');
     fireEvent.click(screen.getByText('Hjälp med ChatGPT'));
     expect(screen.getAllByRole('link', { name: 'Öppna i webbläsaren' }).some((entry) => entry.getAttribute('href') === 'https://chatgpt.com/?no_universal_links=1')).toBe(true);
@@ -122,6 +123,7 @@ it('still opens an AI if storage is blocked, without touching the clipboard', ()
   fireEvent.click(link);
   expect(link).toHaveAttribute('href', expect.stringContaining('https://chatgpt.com/?q='));
   expect(writeText).not.toHaveBeenCalled();
+  for (const button of screen.getAllByRole('button', {name: 'Kopiera hälsning'})) expect(button).not.toBeVisible();
 });
 
 it('does not make optional account or receipt failures block the start or invent a name', async () => {

@@ -67,7 +67,7 @@ export interface ChatLaunch {
   fallbackUrl?: string;
 }
 
-/** No profile, room identifiers, credentials or personal data belong in a URL. */
+/** Optional greeting only. Behavioral instructions arrive through the MCP connection. */
 export const CHAT_START_PROMPT = 'Hej! Jag kommer från Photographic.';
 
 export function chatLaunch(id: ClientId, platform: Platform = 'unknown'): ChatLaunch | undefined {
@@ -87,7 +87,7 @@ export function chatLaunch(id: ClientId, platform: Platform = 'unknown'): ChatLa
         : `https://chatgpt.com/?q=${encoded}`,
       prompt, desktop: false,
       fallbackUrl: 'https://chatgpt.com/?no_universal_links=1',
-      note: 'Öppnar ChatGPT-appen med en kort hälsning att skicka. Välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald.',
+      note: 'Öppnar ChatGPT-appen med en kort hälsning som du skickar. Välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald.',
     };
     if (id === 'claude') return {
       // /new is an associated mobile route; unlike /code/new this is a regular chat.
@@ -96,30 +96,30 @@ export function chatLaunch(id: ClientId, platform: Platform = 'unknown'): ChatLa
         : 'https://claude.ai/new',
       prompt, desktop: false,
       fallbackUrl: 'https://claude.ai/new',
-      note: 'Öppnar en ny chatt i Claude-appen. Börja med att säga hej när Photographic är anslutet.',
+      note: 'Öppnar en tom chatt i Claude-appen. Börja prata när Photographic är anslutet; instruktionerna följer med genom kopplingen.',
     };
   }
   switch (id) {
     case 'codex': return {
-      url: `codex://threads/new?mode=codex`, prompt, desktop: true,
-      note: 'Öppnar en ny chatt i datorappen. Börja med att säga hej när Photographic är anslutet.',
+      url: 'codex://threads/new?mode=codex', prompt, desktop: true,
+      note: 'Öppnar en tom chatt i Codex. Börja prata när Photographic är anslutet; instruktionerna följer med genom kopplingen.',
     };
     case 'cursor': return {
       url: `cursor://anysphere.cursor-deeplink/prompt?text=${encoded}`, prompt, desktop: true,
       fallbackUrl: `https://cursor.com/link/prompt?text=${encoded}`,
-      note: 'Öppnar en kort hälsning i Cursor. Cursor kan använda den chatt som redan är öppen.',
+      note: 'Öppnar Cursor med en kort hälsning som du skickar. Cursor kan använda den chatt som redan är öppen.',
     };
     case 'claude': return {
-      url: `claude://claude.ai/new`, prompt, desktop: true,
+      url: 'claude://claude.ai/new', prompt, desktop: true,
       fallbackUrl: 'https://claude.ai/new',
-      note: 'Öppnar en ny chatt i Claude-appen. Börja med att säga hej när Photographic är anslutet.',
+      note: 'Öppnar en tom chatt i Claude. Börja prata när Photographic är anslutet; instruktionerna följer med genom kopplingen.',
     };
     case 'chatgpt': return {
       // ChatGPT retains codex://, but the mode must be explicit: otherwise the app
       // can keep its active Codex mode and start a local task in the current project.
-      url: `codex://threads/new?mode=chat`, prompt, desktop: true,
+      url: 'codex://threads/new?mode=chat', prompt, desktop: true,
       fallbackUrl: 'https://chatgpt.com/?no_universal_links=1',
-      note: 'Öppnar en ny chatt i den aktuella ChatGPT-appen. Välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald och säg hej.',
+      note: 'Öppnar en tom ChatGPT-chatt i datorappen. Välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald, och börja prata.',
     };
     default: return undefined;
   }
