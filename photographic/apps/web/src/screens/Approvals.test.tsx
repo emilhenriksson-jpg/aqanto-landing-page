@@ -45,7 +45,7 @@ describe('Approvals', () => {
   it('says out loud that nothing is saved until the person answers', () => {
     renderApp();
     expect(
-      screen.getByText(/Tills du svarar är det inte sparat, och ingen modell kan läsa det/),
+      screen.getByText(/Tills du godkänner det används det inte som ditt sparade minne/),
     ).toBeInTheDocument();
   });
 

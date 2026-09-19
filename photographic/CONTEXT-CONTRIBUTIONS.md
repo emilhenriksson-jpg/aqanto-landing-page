@@ -53,6 +53,8 @@ account history, files, mail or another app's memory.
 - Bulk results distinguish saved, dismissed, already handled, needs review and failed.
   Successful entries leave the queue; failed entries stay. The UI splits batches larger
   than 100 into requests and retries safely after an interrupted response.
+- A report that confirms an earlier inference requires fresh review before replacing it;
+  semantic similarity does not keep an unconfirmed interpretation forever.
 - Context from Photographic is not fresh independent evidence. Accepted/rejected past
   proposals also prevent an AI from reintroducing a deliberately forgotten contribution.
   Correcting a previously rejected claim can still be requested explicitly through the

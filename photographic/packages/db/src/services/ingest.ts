@@ -183,7 +183,7 @@ export class PgIngest implements IngestPort {
       if (candidate.origin === 'photographic') { result.skipped.push({ index, reason: 'photographic' }); continue; }
       if (containsSecret(candidate.text + ' ' + candidate.sourceLabel)) { result.skipped.push({ index, reason: 'secret' }); continue; }
       const body = candidateBody(candidate);
-      const comparison = await compareContribution(candidate.text, items, previous, this.llm, embeddings);
+      const comparison = await compareContribution(candidate.text, items, previous, this.llm, embeddings, candidate.evidence);
       if (comparison.known) { result.skipped.push({ index, reason: 'known' }); continue; }
       if (comparison.previous) {
         if (comparison.previous.status === 'pending') result.proposals.push(comparison.previous);
@@ -700,7 +700,7 @@ export class PgIngest implements IngestPort {
         if (consent && (consent.reason !== proposal.reason || (meta.reviewRequired && !consent.reviewed))) {
           return { raced: false as const, review: true, item: null };
         }
-        const current = await compareContribution(meta.text, await scoped.contributionItems(actor), [], this.llm);
+        const current = await compareContribution(meta.text, await scoped.contributionItems(actor), [], this.llm, undefined, meta.evidence);
         duplicate = current.knownItem;
         if (!duplicate && (current.conflict?.body ?? null) !== meta.conflictBody) {
           meta.conflictBody = current.conflict?.body ?? null;

@@ -180,7 +180,7 @@ export class MemoryIngest implements IngestPort {
       if (candidate.origin === 'photographic') { result.skipped.push({ index, reason: 'photographic' }); continue; }
       if (containsSecret(candidate.text + ' ' + candidate.sourceLabel)) { result.skipped.push({ index, reason: 'secret' }); continue; }
       const body = candidateBody(candidate);
-      const comparison = await compareContribution(candidate.text, items, previous, this.llm, embeddings);
+      const comparison = await compareContribution(candidate.text, items, previous, this.llm, embeddings, candidate.evidence);
       if (comparison.known) { result.skipped.push({ index, reason: 'known' }); continue; }
       if (comparison.previous) {
         if (comparison.previous.status === 'pending') result.proposals.push(comparison.previous);
@@ -759,7 +759,7 @@ export class MemoryIngest implements IngestPort {
         throw new ValidationError('Underlaget har ändrats. Granska det igen.');
       }
       this.contributionRoom(actor);
-      const current = await compareContribution(meta.text, await this.contributionItems(actor), [], this.llm);
+      const current = await compareContribution(meta.text, await this.contributionItems(actor), [], this.llm, undefined, meta.evidence);
       duplicate = current.knownItem;
       if (!duplicate && (current.conflict?.body ?? null) !== meta.conflictBody) {
         meta.conflictBody = current.conflict?.body ?? null;

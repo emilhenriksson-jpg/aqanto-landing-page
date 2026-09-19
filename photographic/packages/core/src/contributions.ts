@@ -45,14 +45,23 @@ export function containsSecret(text: string): boolean {
 /** Full stored items, not the budgeted profile. Semantic shortlist across languages. */
 export async function compareContribution(
   body: string, items: Item[], previous: Proposal[], llm: LlmPort, cache = new Map<string, number[]>(),
+  evidence: ContextCandidate['evidence'] = 'reported',
 ): Promise<{ known: boolean; knownItem?: Item; previous: Proposal | null; conflict: Item | null }> {
+  // A later report can correct an earlier inference. Similar wording alone must not
+  // turn an unconfirmed interpretation into the permanent version of the person's life.
+  const upgradesInference = (entry: Pick<Proposal, 'structured'>) => evidence === 'reported' && contributionMeta(entry)?.evidence === 'inferred';
   const key = dedupeHash(body);
   const known = items.find(item => dedupeHash(item.body) === key);
-  if (known) return { known: true, knownItem: known, previous: null, conflict: null };
-  const offered = previous.find(item => dedupeHash(item.body) === key || dedupeHash(contributionMeta(item)?.text ?? '') === key);
+  if (known) return upgradesInference(known)
+    ? { known: false, previous: null, conflict: known }
+    : { known: true, knownItem: known, previous: null, conflict: null };
+  const comparablePrevious = previous.filter(proposal => !(upgradesInference(proposal)
+    && proposal.status === 'accepted'
+    && items.some(item => upgradesInference(item) && dedupeHash(item.body) === dedupeHash(proposal.body))));
+  const offered = comparablePrevious.find(item => dedupeHash(item.body) === key || dedupeHash(contributionMeta(item)?.text ?? '') === key);
   if (offered) return { known: false, previous: offered, conflict: null };
   const choices = [...items.map(item => ({ body: item.body, item, proposal: null as Proposal | null })),
-    ...previous.map(proposal => ({ body: contributionMeta(proposal)?.text ?? proposal.body, item: null as Item | null, proposal }))];
+    ...comparablePrevious.map(proposal => ({ body: contributionMeta(proposal)?.text ?? proposal.body, item: null as Item | null, proposal }))];
   if (!choices.length) return { known: false, previous: null, conflict: null };
   const texts = [body, ...choices.map(item => item.body)];
   const missing = [...new Set(texts)].filter(text => !cache.has(text));
@@ -75,7 +84,10 @@ export async function compareContribution(
   const verdicts = await Promise.all(neighbours.map(entry => llm.compare(body, entry.body)));
   for (const [index, entry] of neighbours.entries()) {
     const verdict = verdicts[index];
-    if (verdict === 'same') return { known: entry.item !== null, ...(entry.item ? { knownItem: entry.item } : {}), previous: entry.proposal, conflict: null };
+    if (verdict === 'same') {
+      if (entry.item && upgradesInference(entry.item)) { conflict ??= entry.item; continue; }
+      return { known: entry.item !== null, ...(entry.item ? { knownItem: entry.item } : {}), previous: entry.proposal, conflict: null };
+    }
     if (verdict === 'contradicts' && entry.item && !conflict) conflict = entry.item;
   }
   return { known: false, previous: null, conflict };

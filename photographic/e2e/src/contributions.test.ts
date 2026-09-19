@@ -115,3 +115,32 @@ it('requires the displayed review again when another tab already refreshed a con
   const accepted = await h.services.ingest.resolveContributions(human, { ids: [proposal.id], reviewedIds: [proposal.id], expectedReasons: { [proposal.id]: fresh.reason }, accept: true });
   expect(accepted[0]?.status).toBe('saved');
 });
+
+it('lets a confirmed report replace an earlier inference only after fresh review', async () => {
+  const { ai, human } = await person();
+  const text = 'Jag föredrar mindre grupper på möten';
+  const inferred = await h.services.ingest.prepareContributions(ai, { batchId: randomUUID(), candidates: [candidate(text, { evidence: 'inferred' })] });
+  await h.services.ingest.resolveContributions(human, { ids: inferred.proposals.map(p => p.id), reviewedIds: inferred.proposals.map(p => p.id), accept: true });
+  const reported = await h.services.ingest.prepareContributions(ai, { batchId: randomUUID(), candidates: [candidate(text)] });
+  expect(reported.proposals).toHaveLength(1);
+  expect(reported.proposals[0]?.reason).toContain('Obekräftad tolkning');
+  const beforeReview = await h.services.ingest.resolveContributions(human, { ids: reported.proposals.map(p => p.id), reviewedIds: [], accept: true });
+  expect(beforeReview[0]?.status).toBe('needs_review');
+  const afterReview = await h.services.ingest.resolveContributions(human, { ids: reported.proposals.map(p => p.id), reviewedIds: reported.proposals.map(p => p.id), accept: true });
+  expect(afterReview[0]?.status).toBe('saved');
+  await h.runJobsToCompletion();
+  const context = await dispatchTool({ services: h.services }, ai, 'get_context', {});
+  expect(context.text).toContain(text);
+  expect(context.text).not.toContain(`Obekräftad tolkning: ${text}`);
+});
+
+it('does not use greater claimed certainty to reintroduce an inference the person deleted', async () => {
+  const { ai, human, personalRoom } = await person();
+  const text = 'Jag föredrar att arbeta på natten';
+  const p = await h.services.ingest.prepareContributions(ai, { batchId: randomUUID(), candidates: [candidate(text, { evidence: 'inferred' })] });
+  const accepted = await h.services.ingest.resolveContributions(human, { ids: p.proposals.map(p => p.id), reviewedIds: p.proposals.map(p => p.id), accept: true });
+  await h.services.ingest.forget(human, accepted[0]!.shortId! as never, personalRoom.id);
+  const again = await h.services.ingest.prepareContributions(ai, { batchId: randomUUID(), candidates: [candidate(text)] });
+  expect(again.proposals).toHaveLength(0);
+  expect(again.skipped[0]?.reason).toBe('already_offered');
+});
