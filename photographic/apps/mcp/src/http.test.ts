@@ -124,6 +124,8 @@ describe('connecting', () => {
     const client = await connect(token);
 
     expect(client.getInstructions()).toContain('Allergisk mot ketchup');
+    // Startup guidance travels over initialize without a user-authored launch prompt.
+    expect(client.getInstructions()).toContain('bekräftat namn, annars utan namn');
   });
 
   it('sends the rooms too, so the model knows what it has not been told', async () => {
@@ -441,7 +443,7 @@ describe('a person with nothing saved', () => {
     // first attempt that this does not work.
     const client = await connect(await register('Ny', 'ny@example.com'));
 
-    expect(client.getInstructions()).toMatch(/ännu inget sparat/);
+    expect(client.getInstructions()).toMatch(/profilöversikten är tom/);
     expect((await client.listTools()).tools).toHaveLength(TOOLS.length);
   });
 
@@ -474,7 +476,9 @@ describe('a person with nothing saved', () => {
       }),
     );
 
-    expect(client.getInstructions()).toMatch(/Anropa get_context/);
+    expect(client.getInstructions()).toContain('Försök get_context');
+    expect(client.getInstructions()).toContain('föreslå inte import utifrån felet');
+    expect(client.getInstructions()).not.toContain('profilöversikten är tom');
     expect((await client.listTools()).tools).toHaveLength(TOOLS.length);
 
     // And the session exists with nothing delivered, which is the honest state: amber.

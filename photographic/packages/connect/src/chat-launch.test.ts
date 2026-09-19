@@ -8,28 +8,26 @@ describe('room-independent chat launch', () => {
       .toEqual(['chatgpt', 'claude', 'codex', 'cursor']);
     for (const client of clients.filter((entry) => entry.launch)) {
       expect(client.launch?.prompt).toBe(CHAT_START_PROMPT);
+      expect(client.launch!.prompt.length).toBeLessThan(80);
+      expect(client.launch!.prompt).not.toMatch(/get_context|prepare_context|remember/);
       expect(client.launch?.url).not.toContain('memory.example');
       expect(client.launch?.url).not.toMatch(/token=|room=|person=/);
     }
   });
-  it('uses documented prompt parameters with a lossless Unicode round trip', () => {
-    for (const [id, scheme, parameter] of [['codex', 'codex:', 'prompt'], ['cursor', 'cursor:', 'text'], ['claude', 'claude:', 'q']]) {
-      const launch = clients.find((client) => client.id === id)!.launch!;
-      const url = new URL(launch.url!);
-      expect(url.protocol).toBe(scheme);
-      expect(url.searchParams.get(parameter!)).toBe(CHAT_START_PROMPT);
-      expect(launch.url!.length).toBeLessThan(8000);
-      expect(url.searchParams.has('submit')).toBe(false);
-    }
+  it('uses a short reviewable greeting for Cursor with a lossless Unicode round trip', () => {
+    const url = new URL(chatLaunch('cursor', 'macos')!.url!);
+    expect(url.protocol).toBe('cursor:');
+    expect(url.searchParams.get('text')).toBe(CHAT_START_PROMPT);
+    expect(url.searchParams.has('submit')).toBe(false);
+    expect(chatLaunch('claude', 'macos')!.url).toBe('claude://claude.ai/new');
   });
   it.each(['macos', 'windows', 'linux', 'unknown'] as const)('selects ChatGPT or Codex explicitly without a project on %s', (platform) => {
     for (const [id, mode] of [['chatgpt', 'chat'], ['codex', 'codex']] as const) {
       const url = new URL(chatLaunch(id, platform)!.url!);
       expect(url.protocol + '//' + url.host + url.pathname).toBe('codex://threads/new');
       expect(url.searchParams.getAll('mode')).toEqual([mode]);
-      expect(url.searchParams.get('prompt')).toBe(CHAT_START_PROMPT);
-      // No current project, workspace or automatic submission travels with the link.
-      expect([...url.searchParams.keys()].sort()).toEqual(['mode', 'prompt']);
+      // No current project, visible prompt or automatic submission travels with the link.
+      expect([...url.searchParams.keys()]).toEqual(['mode']);
     }
   });
   it.each(['ios', 'android'] as const)('does not offer desktop-only launches on %s', (platform) => {
@@ -40,7 +38,6 @@ describe('room-independent chat launch', () => {
       expect(launch.url).not.toMatch(/^(codex|cursor|claude):/);
       expect(launch.url).not.toContain('browser_fallback_url');
       expect(launch.desktop).toBe(false);
-      expect(launch.copyPromptOnOpen).toBe(true);
     }
   });
   it('uses associated iOS chat routes, not a desktop site or Claude Code', () => {

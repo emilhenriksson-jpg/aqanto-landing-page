@@ -14,24 +14,27 @@ Saving, provenance, isolation and shared-write approval use the existing ports.
 ## Launch capabilities and limits
 
 Launch descriptors are separate from installation actions in `@photographic/connect`.
-Prompts contain generic instructions only, never profiles, room ids, tokens or personal
-endpoints. Identity stays in OAuth. First-time authorization is still necessary.
+Behavioral instructions travel through the MCP connection, not a user-authored launch
+message. The optional greeting is just “Hej! Jag kommer från Photographic.” It never
+contains profiles, room ids, tokens or personal endpoints. Identity stays in OAuth.
+First-time authorization is still necessary.
 
-- Codex: `codex://threads/new?mode=codex&prompt=...`; new Codex composer,
+- Codex: `codex://threads/new?mode=codex`; empty Codex composer,
   no auto-send.
-- Cursor: `cursor://anysphere.cursor-deeplink/prompt?text=...`; may reuse the current
-  chat; web handoff available; no auto-send.
-- Claude Desktop: `claude://claude.ai/new?q=...`; new composer, no auto-send.
-  Web fallback opens a blank chat, with copyable start text on Photographic.
-- ChatGPT Desktop: `codex://threads/new?mode=chat&prompt=...`, the URL scheme retained by
+- Cursor: `cursor://anysphere.cursor-deeplink/prompt?text=...`; short greeting, may
+  reuse the current chat; web handoff available; no auto-send.
+- Claude Desktop: `claude://claude.ai/new`; empty composer, no auto-send.
+  Web fallback also opens a blank chat.
+- ChatGPT Desktop: `codex://threads/new?mode=chat`, the URL scheme retained by
   the current ChatGPT desktop app. Its installed macOS Info.plist also registers
   `codex`, not `chatgpt`. Explicitly selects Chat mode for a new ordinary ChatGPT
-  conversation; does not select a project or connector, or send the prompt.
-- ChatGPT iOS: associated `https://chatgpt.com/?q=...` Universal Link. Android:
+  conversation; does not select a project or connector, or send a prompt.
+- ChatGPT iOS: associated `https://chatgpt.com/?q=...` Universal Link with the short
+  greeting, preserving the verified mobile association rather than guessing an empty route. Android:
   explicit HTTPS intent for verified package `com.openai.chatgpt`.
 - Claude iOS: associated `https://claude.ai/new` Universal Link. Android: explicit
-  HTTPS intent for verified package `com.anthropic.claude`. Mobile start text is
-  copied for pasting; we do not substitute the separately documented Code routes.
+  HTTPS intent for verified package `com.anthropic.claude`. Empty composer; no automatic
+  clipboard writes. We do not substitute the separately documented Code routes.
 - Codex and Cursor: no supported mobile launch for this flow; cards explain this
   and do not expose desktop chat links on phones. Setup instructions remain available.
 
@@ -43,7 +46,8 @@ is separate; ChatGPT uses its documented association exclusion `no_universal_lin
 OS preferences, app installation and browser restrictions can still prevent opening
 an app. iOS Universal Links can stay on the web when disabled by the user; the UI
 explains the long-press/app option. We cannot override those OS preferences.
-Clipboard denial exposes selectable text. No published plugin id is invented.
+The optional greeting sits under collapsed “Hjälp med starten”. Copying requires a
+button click; clipboard denial exposes selectable text. No published plugin id is invented.
 
 Desktop links require the corresponding app. Directory publication and provider
 approval could reduce setup, but are not completed or claimed by this change.
@@ -65,6 +69,35 @@ correlated. Opening an app, copying text and installing configuration never coun
 - https://claude.ai/.well-known/apple-app-site-association
 - https://claude.ai/.well-known/assetlinks.json
 - https://developer.chrome.com/docs/android/intents
+
+## Quiet personal greeting (2026-09-19)
+
+MCP initialization and `get_context` carry the first-response guidance. The AI reads
+fresh context before a personal greeting, uses only a confirmed name, and does not
+repeat the introduction when the person already has a request. It may briefly say
+that it is fetching Photographic memory; it must not claim a click/arrival source
+without a signal, or claim to know the person before a successful read.
+
+An empty profile overview is not proof that every room is empty or the account is
+new. Empty profiles invite relevant available-context suggestions; comparison results
+with new facts show up to three examples and link to the complete private review.
+No additions, pause or an existing pending review means no repeated offer. A fetch
+failure gets a short connection explanation, never a fabricated empty-memory onboarding.
+
+**Unresolved provider boundary:** initialization supplies guidance; it does not start
+a model turn. No supported auto-send or per-chat connector-activation mechanism has
+been verified for these launch links. The person still starts speaking/typing (or
+sends the short greeting in Cursor/ChatGPT mobile) and ChatGPT may require selecting
+the connection. An API-backed conversation owned by Photographic would give control
+of a first assistant turn but would not inherit a native client's private memories.
+Neither that architecture change nor a fully automatic native greeting is claimed.
+
+Protocol/UI tests cover background instruction delivery, empty/failure distinction,
+instruction budgets, blank desktop links, mobile routes and explicit-only clipboard use.
+Native client model responses remain unverified. To evaluate them, use separate test
+accounts covering: known name; empty profile with/without client memories; full profile
+with novel facts; shared-room data with an empty profile; paused/pending offers; failed
+context reads; and a direct user request that should skip the greeting ritual.
 
 ## Native launch verification (2026-09-16)
 

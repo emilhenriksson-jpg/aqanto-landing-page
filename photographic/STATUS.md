@@ -246,6 +246,8 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- 2026-09-19 — Quiet personal start: removed technical launch prompts; ChatGPT/Codex/Claude desktop open blank composers, while supported Cursor and ChatGPT mobile routes carry only a short greeting. Background instructions govern a fresh, name-grounded greeting and concrete context-contribution examples; empty profiles and read failures are distinct. Collapsed start help and explicit clipboard copying replace automatic clipboard writes. Protocol, budget and UI tests cover delivery and launch behavior. Automatic native assistant-first replies and per-chat connector activation remain unverified; see CHAT-START.md.
+
 - 2026-09-19 — ChatGPT desktop launch now explicitly selects Chat mode instead of inheriting Codex and its current project. Codex also selects its own mode. Links carry only mode and generic start instructions. Regression coverage checks desktop button separation, absent project parameters and unchanged mobile handoff; installed ChatGPT route parsing confirms mode support. Native UI handoff remains unverified (see CHAT-START.md).
 
 - 2026-09-19 — Context contributions: connected AIs compare available user context before onboarding questions; one private review groups new facts, with separate consent for sensitive/inferred/conflicting entries. Cross-client pause/resume, historical offer suppression, source provenance, retry-safe preparation and approvals, and stale-consent checks are implemented for memory and PostgreSQL. New `prepare_context` MCP tool and first-party bulk review UI. See CONTEXT-CONTRIBUTIONS.md for data flow, limits and validation.

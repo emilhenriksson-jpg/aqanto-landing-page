@@ -62,7 +62,6 @@ function LaunchCard({ client, health }: { client: ClientDescriptor; health: Clie
   const [handle, setHandle] = useState<VerificationHandle | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
-  const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const previous = health.filter((entry) => client.agentClients.some((name) => name === entry.agentClient)
     && !entry.revoked && entry.profileDelivered)
     .sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt))[0];
@@ -83,7 +82,7 @@ function LaunchCard({ client, health }: { client: ClientDescriptor; health: Clie
           setChecking(false);
           setStatus(result.status === 'connected'
             ? `Ny kontext skickad till ${client.displayName}.`
-            : 'Ingen ny kontext har hämtats ännu. Skicka starttexten i chatten och kontrollera kopplingen nedan.');
+            : 'Ingen ny kontext har hämtats ännu. Kontrollera att Photographic är valt i chatten och börja prata.');
         }
       } catch {
         if (!cancelled) {
@@ -120,22 +119,16 @@ function LaunchCard({ client, health }: { client: ClientDescriptor; health: Clie
       : 'Ingen bekräftad leverans ännu.'}</p>
     {launch.url ? <a className="btn btn--brand chat-start__open" href={launch.url}
       rel="noopener noreferrer"
-      onClick={() => {
-        if (launch.copyPromptOnOpen) {
-          if (!navigator.clipboard) setCopyStatus('Kopiera starttexten med knappen nedan.');
-          else navigator.clipboard.writeText(launch.prompt).then(
-            () => setCopyStatus('Starttexten är kopierad. Klistra in den i chatten.'),
-            () => setCopyStatus('Kunde inte kopiera automatiskt. Använd Kopiera starttext nedan.'),
-          );
-        }
-        verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'));
-      }}>
+      onClick={() => { verify().catch(() => setStatus('Kunde inte kontrollera leveransen.')); }}>
       Öppna {client.displayName}<span aria-hidden="true"> ↗</span>
     </a> : <button className="btn chat-start__open" disabled>Öppna på datorn</button>}
     <p className="chat-start__note">{launch.note}</p>
     {launch.url && <p className="chat-start__note">Öppnades inte appen? Kontrollera att den är installerad och tillåt webbläsaren att öppna den. På iPhone kan du hålla inne länken och välja att öppna i appen.</p>}
-    {copyStatus && <p role="status" className="chat-start__note">{copyStatus}</p>}
-    <CopyText value={launch.prompt} label="Kopiera starttext" />
+    {launch.url && <details className="chat-start__setup">
+      <summary>Hjälp med starten</summary>
+      <p>Kontrollera att Photographic är anslutet i din AI. Instruktionerna följer med genom kopplingen. Du kan börja med en vanlig hälsning eller kopiera den här.</p>
+      <CopyText value={launch.prompt} label="Kopiera hälsning" />
+    </details>}
     {launch.fallbackUrl && <a href={launch.fallbackUrl} target="_blank" rel="noopener noreferrer" className="chat-start__fallback">Öppna i webbläsaren</a>}
     {status && <p className="chat-start__receipt" role="status">{status}</p>}
     {status && !checking && <button className="btn btn--quiet" onClick={() => void verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'))}>Kontrollera nästa hämtning</button>}

@@ -119,11 +119,12 @@ describe('the rendered profile', () => {
     expect(rendered).not.toMatch(/Gör aldrig detta/);
   });
 
-  it('says something useful when there is nothing saved yet', () => {
+  it('describes an empty profile without declaring every room or the connection empty', () => {
     const rendered = renderProfile(profile());
-    expect(rendered).toMatch(/ännu inget sparat/);
-    // A new account is not an error state, and the model should not treat it as one.
-    expect(rendered).toMatch(/normalt för/);
+    expect(rendered).toContain('profilöversikten är tom');
+    expect(rendered).toContain('inget anslutningsfel');
+    expect(rendered).toContain('inte att alla rum eller hela Photographic är tomma');
+    expect(rendered).not.toContain('nytt konto');
   });
 });
 
@@ -166,8 +167,14 @@ describe('the session instructions', () => {
     expect(rendered.indexOf('Allergisk')).toBeLessThan(rendered.indexOf('Buyersclub'));
   });
 
-  it('tells the model not to announce that it has context', () => {
-    expect(renderInstructions(full)).toMatch(/utan att påpeka att du har det/);
+  it('grounds the first greeting in a fresh read without hardcoding a person or an arrival source', () => {
+    const rendered = renderInstructions(full);
+    expect(rendered).toContain('Efter\nlyckad hämtning');
+    expect(rendered).toContain('bekräftat namn, annars utan namn');
+    expect(rendered).toContain('utan en sådan signal');
+    expect(rendered).toContain('Ett fel är inte ett tomt minne');
+    expect(rendered).not.toContain('Hej Emil');
+    expect(rendered).toContain('upprepa inte välkomstritualen');
   });
 
   it('lists rooms with their exact names, because that is how they get addressed', () => {
@@ -784,7 +791,7 @@ describe('the Personal Compass block', () => {
 
     const compassAt = rendered.indexOf('Var direkt');
     const lastCompassAt = rendered.indexOf('Skilj fakta');
-    const profileAt = rendered.indexOf('ännu inget sparat');
+    const profileAt = rendered.indexOf('profilöversikten är tom');
     expect(compassAt).toBeGreaterThan(-1);
     expect(lastCompassAt).toBeGreaterThan(compassAt);
     expect(profileAt).toBeGreaterThan(lastCompassAt);

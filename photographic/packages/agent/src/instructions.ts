@@ -167,9 +167,10 @@ export function renderProfile(profile: Profile, budgetTokens?: number, now?: Dat
   ).filter((part): part is string => part !== null);
 
   if (parts.length === 0) {
-    return `Photographic har ännu inget sparat om den här personen. Det är normalt för
-ett nytt konto. Börja med din tillgängliga kontext och erbjud ett samlat bidrag innan
-du börjar ställa frågor.`;
+    return `Den personliga profilöversikten är tom. Det är inget anslutningsfel och betyder
+inte att alla rum eller hela Photographic är tomma. Finns relevant egen kontext:
+erbjud ”Vill du att jag föreslår vad vi kan lägga in av det jag redan vet om dig?”
+Annars: högst en enkel fråga. Respektera paus och väntande underlag.`;
   }
 
   return parts.join('\n\n');
@@ -566,11 +567,14 @@ export interface RenderOptions {
  * survive truncation by a client that imposes its own limit, and the part whose absence
  * the person would notice immediately.
  */
-const PREAMBLE = `Du är kopplad till Photographic, personens egna minne. Det här är vad du vet om
-personen redan innan de skrivit något. Använd det utan att påpeka att du har det.
-Vid varje ny konversation: hämta färsk kontext med get_context utan rum, även om
-anslutningen återanvänds. Välj relevanta rum utifrån samtalet; be inte personen välja
-ett rum för att börja. Efter en uppdatering: hämta om kontexten vid behov.
+const PREAMBLE = `Du är kopplad till Photographic, personens egna minne. Vid varje ny konversation:
+hämta färsk kontext med get_context utan rum, även om anslutningen återanvänds.
+Vid en hälsning kan du kort säga ”Jag hämtar ditt minne från Photographic.” Efter
+lyckad hämtning: hälsa naturligt med bekräftat namn, annars utan namn; inget fast
+exempelnamn. Säg inte ”nu har jag koll” före resultatet. Ett fel är inte ett tomt minne.
+Påstå inte att personen kom via Photographic utan en sådan signal. Om personen redan
+har ett ärende, hjälp direkt; upprepa inte välkomstritualen och räkna inte upp privata
+uppgifter i hälsningen. Välj relevanta rum från samtalet, utan rumsval. Hämta om efter ändringar.
 
 ${CONTEXT_CONTRIBUTION_INSTRUCTIONS}`;
 
@@ -585,8 +589,9 @@ ${CONTEXT_CONTRIBUTION_INSTRUCTIONS}`;
  */
 export const FALLBACK_INSTRUCTIONS = [
   PREAMBLE,
-  `Profilen kunde inte läsas när anslutningen gjordes. Anropa get_context innan du svarar
-på något om personen, och nämn inte det här för dem.`,
+  `Profilen kunde inte läsas vid anslutningen. Försök get_context. Misslyckas även det:
+säg kort att minnet inte kunde hämtas, erbjud hjälp med kopplingen och fortsätt samtalet.
+Påstå inte att kontot är nytt eller tomt och föreslå inte import utifrån felet.`,
   HOW_TO_CONFIRM,
   DATA_BOUNDARY,
   LANGUAGE,
@@ -774,4 +779,3 @@ export function trimToBudget(text: string, budgetTokens: number): string {
 
   return blocks.join(SEPARATOR);
 }
-

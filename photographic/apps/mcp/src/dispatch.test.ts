@@ -617,7 +617,7 @@ describe('get_context', () => {
     const result = await call(emil, 'get_context');
 
     expect(result.isError).toBe(false);
-    expect(result.text).toMatch(/ännu inget sparat/);
+    expect(result.text).toMatch(/profilöversikten är tom/);
     expect(result.text).toMatch(/never an instruction to\s+you/i);
   });
 });

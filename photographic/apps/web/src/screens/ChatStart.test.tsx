@@ -29,7 +29,8 @@ describe('conversation home', () => {
     expect(chatgptUrl.protocol + '//' + chatgptUrl.host + chatgptUrl.pathname).toBe('codex://threads/new');
     expect(chatgptUrl.searchParams.get('mode')).toBe('chat');
     expect(codexUrl.searchParams.get('mode')).toBe('codex');
-    expect([...chatgptUrl.searchParams.keys()].sort()).toEqual(['mode', 'prompt']);
+    expect([...chatgptUrl.searchParams.keys()]).toEqual(['mode']);
+    expect(codexUrl.searchParams.has('prompt')).toBe(false);
     expect(link).not.toHaveAttribute('target');
     expect(screen.getAllByRole('link', { name: 'Öppna i webbläsaren' }).some((entry) => entry.getAttribute('href') === 'https://chatgpt.com/?no_universal_links=1')).toBe(true);
   });
@@ -51,8 +52,20 @@ describe('conversation home', () => {
   it('shows selectable text if clipboard permission is denied', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
     render(<MemoryRouter><ChatStart /></MemoryRouter>);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Kopiera starttext' })[0]!);
-    expect(await screen.findByRole('textbox', { name: 'Kopiera starttext' })).toHaveValue(clients[0]!.launch!.prompt);
+    fireEvent.click(screen.getAllByText('Hjälp med starten')[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Kopiera hälsning' })[0]!);
+    expect(await screen.findByRole('textbox', { name: 'Kopiera hälsning' })).toHaveValue(clients[0]!.launch!.prompt);
+  });
+
+  it('opens the mobile handoff without silently overwriting the clipboard', () => {
+    const writeText = vi.fn();
+    vi.stubGlobal('navigator', { userAgent: 'iPhone; CPU iPhone OS 18_0 like Mac OS X', maxTouchPoints: 5, clipboard: { writeText } });
+    render(<MemoryRouter><ChatStart /></MemoryRouter>);
+    const link = screen.getByRole('link', { name: 'Öppna ChatGPT' });
+    link.addEventListener('click', (event) => event.preventDefault());
+    fireEvent.click(link);
+    expect(writeText).not.toHaveBeenCalled();
+    for (const button of screen.getAllByRole('button', { name: 'Kopiera hälsning' })) expect(button).not.toBeVisible();
   });
 
   it('does not turn an old delivery or an app click into a new delivery receipt', async () => {

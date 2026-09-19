@@ -33,6 +33,12 @@ account history, files, mail or another app's memory.
    connector is installed by these changes. Once comparison is complete, AI instructions
    allow at most one relevant question or source suggestion, never an onboarding checklist.
 
+The first-response guidance now uses a natural, name-grounded greeting after a fresh
+context read. A new-fact offer shows up to three concrete examples with the complete
+review behind its link. An empty personal profile does not imply empty shared rooms;
+read failures are not new-user signals. See CHAT-START.md for the remaining native
+app activation/first-turn limitation: hidden connection guidance is not auto-send.
+
 ## Comparison and failure behavior
 
 - Comparison uses full accessible active item bodies and prior contribution proposals,
