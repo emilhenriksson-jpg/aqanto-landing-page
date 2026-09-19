@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App.js';
-import { clientHealthTone } from '../data/demo.js';
+import { clientHealthTone, DEMO_CLIENTS } from '../data/demo.js';
 import { mapClientHealth } from '../data/load.js';
 
 function renderApp(path = '/personligt') {
@@ -20,14 +20,18 @@ describe('ClientHealth', () => {
     const user = userEvent.setup();
     renderApp();
 
-    await user.click(screen.getByRole('link', { name: 'Klienter' }));
+    await user.click(screen.getByRole('link', { name: 'Dina AI:er' }));
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Klienter' })).toBeInTheDocument();
-    expect(screen.getByText(/Vi kan inte tvinga varje modell/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Dina AI:er' })).toBeInTheDocument();
+    expect(screen.getByText(/En leverans visar att minnet/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /Claude/ })).toBeInTheDocument();
-    expect(screen.getByText(/Fick din profil via MCP/)).toBeInTheDocument();
-    expect(screen.getByText(/bara när modellen själv frågade/)).toBeInTheDocument();
-    expect(screen.getByText('Har aldrig fått din profil.')).toBeInTheDocument();
+    const receipt = screen.getByText(/Fick ditt minne via kopplingen/);
+    expect(receipt).toBeInTheDocument();
+    // A historical receipt must carry its calendar date, not masquerade as today.
+    const delivered = new Date(DEMO_CLIENTS[0]!.lastSeenAt!);
+    expect(receipt).toHaveTextContent(delivered.toLocaleDateString('sv-SE', { dateStyle: 'short' }));
+    expect(screen.getByText(/under ett samtal/)).toBeInTheDocument();
+    expect(screen.getByText('Ingen bekräftad leverans ännu.')).toBeInTheDocument();
   });
 });
 

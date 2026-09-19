@@ -318,7 +318,7 @@ describe('using it', () => {
     const fresh = await callTool(chatgpt, 'get_context');
     expect(fresh.isError).toBeFalsy();
     expect(fresh.text).toContain('Lanseringen blir i november');
-    expect(fresh.text).toContain('Var ni var senast');
+    expect(fresh.text).toContain('Senast sparat');
   });
 
   it('keeps a shared room\u2019s text as data, even arriving through a tool', async () => {
@@ -441,7 +441,7 @@ describe('a person with nothing saved', () => {
     // first attempt that this does not work.
     const client = await connect(await register('Ny', 'ny@example.com'));
 
-    expect(client.getInstructions()).toMatch(/ännu inget sparat/);
+    expect(client.getInstructions()).toMatch(/profilöversikten är tom/);
     expect((await client.listTools()).tools).toHaveLength(TOOLS.length);
   });
 
@@ -474,7 +474,7 @@ describe('a person with nothing saved', () => {
       }),
     );
 
-    expect(client.getInstructions()).toMatch(/Anropa get_context/);
+    expect(client.getInstructions()).toMatch(/Försök get_context/);
     expect((await client.listTools()).tools).toHaveLength(TOOLS.length);
 
     // And the session exists with nothing delivered, which is the honest state: amber.

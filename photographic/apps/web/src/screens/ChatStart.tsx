@@ -6,25 +6,32 @@ import { buildClients, chatLaunch } from '@photographic/connect/clients';
 import type { ClientDescriptor, ConnectAction, ConnectPayload, VerificationHandle, VerificationState } from '@photographic/connect';
 import { apiFetch } from '../api/client.js';
 import { isDemoMode } from '../api/config.js';
+import { getAccount } from '../api/account.js';
+import { loadAccountDemo } from '../data/demo.js';
+import { CHAT_CLIENTS, lastChatChoice, rememberChatChoice } from '../data/chat-choice.js';
 import { listClients } from '../api/clients.js';
 import type { ClientHealthDto } from '../api/types.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
 import { Wordmark } from '../components/Wordmark.js';
-import { useRoomData } from '../hooks/useRoomData.js';
-
-const ORDER = ['chatgpt', 'codex', 'cursor', 'claude'];
+import { useRoomData, type LoadState } from '../hooks/useRoomData.js';
 
 export function ChatStart() {
   const [retry, setRetry] = useState(0);
-  const state = useRoomData(`chat-start-${retry}`, () => ({
-    clients: buildClients({ mcpUrl: 'https://mcp.photographic.space/mcp', connectPageUrl: '/connect' }),
-    health: [] as ClientHealthDto[],
-  }), async () => {
-    const [payload, health] = await Promise.all([
-      apiFetch<ConnectPayload>('/v1/connect'), listClients(),
-    ]);
-    return { clients: payload.clients, health: health.clients };
+  // Keep the layout stable during a click. The next visit picks up the device choice.
+  const [lastChoice] = useState(lastChatChoice);
+  const platform = detect(navigator.userAgent, navigator.maxTouchPoints).platform;
+  const account = useRoomData(`chat-account-${retry}`, loadAccountDemo, getAccount);
+  const health = useRoomData(`chat-health-${retry}`, () => [] as ClientHealthDto[],
+    async () => (await listClients()).clients);
+  const state = useRoomData(`chat-start-${retry}`, () =>
+    buildClients({ mcpUrl: 'https://mcp.photographic.space/mcp', connectPageUrl: '/connect' }),
+    async () => (await apiFetch<ConnectPayload>('/v1/connect')).clients);
+  const preferred = lastChoice && chatLaunch(lastChoice, platform)?.url ? lastChoice : null;
+  const ordered = [...CHAT_CLIENTS].sort((a, b) => {
+    const rank = (id: typeof a) => !chatLaunch(id, platform)?.url ? 2 : id === preferred ? 0 : 1;
+    return rank(a) - rank(b);
   });
+  const firstName = account.status === 'ready' ? account.data.firstName?.trim() : null;
 
   if (state.status === 'loading') return <LoadingState label="Förbereder din start…" />;
   if (state.status === 'error') return <>
@@ -35,17 +42,18 @@ export function ChatStart() {
   return <article className="page chat-start">
     <header className="page-head">
       <Wordmark large />
-      <h1 className="page-head__title">Vad vill du prata om?</h1>
-      <p className="page-head__lede">Välj din AI och börja där du är. Ditt personliga minne, en överblick över dina rum och det senaste i kalendern följer med när AI:n hämtar din kontext.</p>
+      <h1 className="page-head__title">{firstName ? `Hej, ${firstName}.` : 'Hej.'}</h1>
+      <p className="page-head__lede">Vad har du på hjärtat? En tanke, dagen som gått eller något du vill få gjort. Börja där du är.</p>
     </header>
-    <ContributionPreference />
     <section aria-label="Öppna en chatt" className="chat-start__clients">
-      {ORDER.map((id) => {
-        const client = state.data.clients.find((entry) => entry.id === id);
-        return client?.launch ? <LaunchCard key={id} client={client} health={state.data.health} /> : null;
+      {ordered.map((id) => {
+        const client = state.data.find((entry) => entry.id === id);
+        return client?.launch ? <LaunchCard key={id} client={client} preferred={id === preferred}
+          health={health} /> : null;
       })}
     </section>
-    <p className="chat-start__explanation">Första gången behöver du godkänna att din AI får använda Photographic. Därefter kan du komma tillbaka hit och öppna nästa samtal. Du behöver inte välja rum.</p>
+    <p className="chat-start__explanation">Säg hej eller börja prata när chatten öppnas. Med Photographic anslutet kan din AI hämta ditt minne och följa med mellan ämnen och rum. Första gången behöver du koppla din AI via hjälpen vid knappen.</p>
+    <ContributionPreference />
     <section className="chat-start__memory" aria-label="Ditt minne">
       <Link to="/personligt"><strong>Ditt personliga rum</strong><span>Vem du är, vad som är viktigt och hur din AI ska hjälpa dig.</span></Link>
       <Link to="/rum"><strong>Dina rum</strong><span>En kort överblick från början. Mer sammanhang hämtas när ni pratar om ett rum.</span></Link>
@@ -55,15 +63,14 @@ export function ChatStart() {
   </article>;
 }
 
-function LaunchCard({ client, health }: { client: ClientDescriptor; health: ClientHealthDto[] }) {
+function LaunchCard({ client, health, preferred }: { client: ClientDescriptor; health: LoadState<ClientHealthDto[]>; preferred: boolean }) {
   // Browser touch information distinguishes iPad desktop mode from a Mac.
   const platform = detect(navigator.userAgent, navigator.maxTouchPoints).platform;
   const launch = chatLaunch(client.id, platform)!;
   const [handle, setHandle] = useState<VerificationHandle | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
-  const [copyStatus, setCopyStatus] = useState<string | null>(null);
-  const previous = health.filter((entry) => client.agentClients.some((name) => name === entry.agentClient)
+  const previous = (health.status === 'ready' ? health.data : []).filter((entry) => client.agentClients.some((name) => name === entry.agentClient)
     && !entry.revoked && entry.profileDelivered)
     .sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt))[0];
 
@@ -82,8 +89,8 @@ function LaunchCard({ client, health }: { client: ClientDescriptor; health: Clie
         } else {
           setChecking(false);
           setStatus(result.status === 'connected'
-            ? `Ny kontext skickad till ${client.displayName}.`
-            : 'Ingen ny kontext har hämtats ännu. Skicka starttexten i chatten och kontrollera kopplingen nedan.');
+            ? `Ditt minne har skickats till ${client.displayName}.`
+            : 'Ditt minne har inte hämtats ännu. Kontrollera att Photographic är valt i chatten och börja prata.');
         }
       } catch {
         if (!cancelled) {
@@ -101,7 +108,7 @@ function LaunchCard({ client, health }: { client: ClientDescriptor; health: Clie
     if (isDemoMode()) { setStatus('Förhandsvisning — ingen leverans kontrolleras.'); return; }
     setHandle(null);
     setChecking(true);
-    setStatus('Väntar på att din AI hämtar kontext. Att appen öppnas betyder inte att minnet har skickats.');
+    setStatus(`Väntar på att ${client.displayName} hämtar ditt minne.`);
     try {
       const result = await apiFetch<{ handle: VerificationHandle }>('/v1/connect/verify', {
         method: 'POST', body: JSON.stringify({ clientId: client.id }),
@@ -113,37 +120,37 @@ function LaunchCard({ client, health }: { client: ClientDescriptor; health: Clie
     }
   }
 
-  return <article className="chat-start__card">
-    <h2>{client.displayName}</h2>
-    <p className="chat-start__status">{previous
-      ? `Kontext skickades senast ${new Date(previous.lastSeenAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })}.`
-      : 'Ingen bekräftad leverans ännu.'}</p>
+  return <article className={`chat-start__card${preferred ? ' chat-start__card--preferred' : ''}`}>
+    <div className="chat-start__card-head">
+      <h2>{client.displayName}</h2>
+      {preferred && <span className="chat-start__last">Senast vald här</span>}
+    </div>
     {launch.url ? <a className="btn btn--brand chat-start__open" href={launch.url}
       rel="noopener noreferrer"
       onClick={() => {
-        if (launch.copyPromptOnOpen) {
-          if (!navigator.clipboard) setCopyStatus('Kopiera starttexten med knappen nedan.');
-          else navigator.clipboard.writeText(launch.prompt).then(
-            () => setCopyStatus('Starttexten är kopierad. Klistra in den i chatten.'),
-            () => setCopyStatus('Kunde inte kopiera automatiskt. Använd Kopiera starttext nedan.'),
-          );
-        }
+        rememberChatChoice(client.id);
         verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'));
       }}>
       Öppna {client.displayName}<span aria-hidden="true"> ↗</span>
     </a> : <button className="btn chat-start__open" disabled>Öppna på datorn</button>}
-    <p className="chat-start__note">{launch.note}</p>
-    {launch.url && <p className="chat-start__note">Öppnades inte appen? Kontrollera att den är installerad och tillåt webbläsaren att öppna den. På iPhone kan du hålla inne länken och välja att öppna i appen.</p>}
-    {copyStatus && <p role="status" className="chat-start__note">{copyStatus}</p>}
-    <CopyText value={launch.prompt} label="Kopiera starttext" />
-    {launch.fallbackUrl && <a href={launch.fallbackUrl} target="_blank" rel="noopener noreferrer" className="chat-start__fallback">Öppna i webbläsaren</a>}
+    {!launch.url && <p className="chat-start__note">Finns här när du använder Photographic på datorn.</p>}
     {status && <p className="chat-start__receipt" role="status">{status}</p>}
-    {status && !checking && <button className="btn btn--quiet" onClick={() => void verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'))}>Kontrollera nästa hämtning</button>}
     <details className="chat-start__setup">
-      <summary>Koppla {client.displayName} första gången</summary>
-      <SetupAction action={client.primary} />
-      <ol>{client.steps.map((step) => <li key={step}>{step}</li>)}</ol>
-      {client.caveats.map((note) => <p key={note}>{note}</p>)}
+      <summary>Hjälp med {client.displayName}</summary>
+      <p>{launch.note}</p>
+      {launch.url && <p>Öppnades inte appen? Kontrollera att den är installerad och tillåt webbläsaren att öppna den. På iPhone kan du hålla inne länken och välja att öppna i appen.</p>}
+      <p>Med Photographic anslutet följer instruktionerna med i bakgrunden. Om din AI inte känner igen starten kan du skicka den här hälsningen.</p>
+      <CopyText value={launch.prompt} label="Kopiera hälsning" />
+      {launch.fallbackUrl && <a href={launch.fallbackUrl} target="_blank" rel="noopener noreferrer" className="chat-start__fallback">Öppna i webbläsaren</a>}
+      <p className="chat-start__status">{previous
+        ? `Kontext skickades senast ${new Date(previous.lastSeenAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })}.`
+        : health.status === 'error' ? 'Leveranshistoriken kunde inte visas just nu.' : health.status === 'loading' ? 'Hämtar leveranshistoriken…' : 'Ingen bekräftad leverans ännu.'} Att appen öppnas betyder inte att minnet har skickats.</p>
+      <details className="chat-start__setup">
+        <summary>Koppla {client.displayName} första gången</summary>
+        <SetupAction action={client.primary} />
+        <ol>{client.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+        {client.caveats.map((note) => <p key={note}>{note}</p>)}
+      </details>
       <button className="btn" disabled={checking} onClick={() => void verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'))}>Kontrollera kopplingen</button>
     </details>
   </article>;

@@ -45,34 +45,32 @@ export interface CompassPrincipleDef {
 export const COMPASS_PRINCIPLES: readonly CompassPrincipleDef[] = [
   {
     key: 'directness',
-    label: 'Var direkt',
-    defaultText: 'Var direkt. Säg det du menar utan att mjuka upp det i onödan.',
+    label: 'Var varm och tydlig',
+    defaultText: 'Var varm och tydlig. Prata vardagligt, som en bekant som lyssnar.',
   },
   {
     key: 'no_performative_encouragement',
-    label: 'Var inte uppmuntrande på förhand',
+    label: 'Visa omtanke utan tomt beröm',
     defaultText:
-      'Var inte uppmuntrande på förhand. Bekräftelse ska vara förtjänad, inte automatisk.',
+      'Visa omtanke utan tomt beröm. Bekräfta känslan utan att automatiskt hålla med.',
   },
   {
     key: 'independent_conclusions',
     label: 'Bilda din egen uppfattning',
     defaultText:
-      'Bilda din egen uppfattning istället för att bara hålla med. Att hålla med ska betyda ' +
-      'att argumentet faktiskt håller.',
+      'Ha en egen uppfattning och säg ärligt vad du tror.',
   },
   {
     key: 'challenge_weak_arguments',
-    label: 'Säg ifrån när ett resonemang inte håller',
+    label: 'Utmana när det hjälper',
     defaultText:
-      'Säg ifrån när ett resonemang inte håller, även om det innebär att du är oense.',
+      'Utmana varsamt när det hjälper. Ett vardagligt samtal behöver ingen granskning.',
   },
   {
     key: 'lead_with_problems',
-    label: 'Lyft problemet före berömmet',
+    label: 'Ta viktiga problem på allvar',
     defaultText:
-      'Om något har en verklig brist eller risk, säg det först — inte efter beröm eller ' +
-      'längst ner.',
+      'Var tydlig med viktiga problem. Lyssna först när personen behöver stöd, inte råd.',
   },
   {
     key: 'label_certainty',

@@ -15,6 +15,7 @@ import type {
 import { COMPASS_PRINCIPLES } from '@photographic/core';
 import { occursOnlyInsideRoomContent } from './boundary.js';
 import {
+  FALLBACK_INSTRUCTIONS,
   INSTRUCTIONS_TOKEN_BUDGET,
   MIN_HONOURABLE_BUDGET_TOKENS,
   estimateTokens,
@@ -121,9 +122,9 @@ describe('the rendered profile', () => {
 
   it('says something useful when there is nothing saved yet', () => {
     const rendered = renderProfile(profile());
-    expect(rendered).toMatch(/ännu inget sparat/);
+    expect(rendered).toMatch(/profilöversikten är tom/);
     // A new account is not an error state, and the model should not treat it as one.
-    expect(rendered).toMatch(/normalt för/);
+    expect(rendered).toMatch(/inget läsfel/);
   });
 });
 
@@ -167,7 +168,7 @@ describe('the session instructions', () => {
   });
 
   it('tells the model not to announce that it has context', () => {
-    expect(renderInstructions(full)).toMatch(/utan att påpeka att du har det/);
+    expect(renderInstructions(full)).toMatch(/Läs tyst/);
   });
 
   it('lists rooms with their exact names, because that is how they get addressed', () => {
@@ -641,7 +642,7 @@ describe('the session instructions', () => {
 describe('the "recent" block', () => {
   it('is absent when nothing has happened yet', () => {
     const rendered = renderInstructions(bundle({ recent: [] }));
-    expect(rendered).not.toMatch(/Var ni var senast/);
+    expect(rendered).not.toMatch(/Senast sparat/);
   });
 
   it('names the room and a short preview of what happened, newest first', () => {
@@ -654,7 +655,7 @@ describe('the "recent" block', () => {
       }),
     );
 
-    expect(rendered).toMatch(/Var ni var senast/);
+    expect(rendered).toMatch(/Senast sparat/);
     expect(rendered).toContain('Personligt');
     expect(rendered).toContain('Buyersclub Ledning');
     expect(rendered.indexOf('Personligt')).toBeLessThan(rendered.indexOf('Buyersclub Ledning'));
@@ -729,7 +730,7 @@ describe('the "recent" block', () => {
     // 'gives every room a sentence' case); "recent" did not, and that is deliberate —
     // it competes for slack only, never for space something else already claimed.
     expect(rendered).toContain('Ledningsgruppen, beslut och underlag');
-    expect(rendered).toMatch(/Var ni var senast/);
+    expect(rendered).toMatch(/Senast sparat/);
     expect(estimateTokens(rendered)).toBeLessThanOrEqual(INSTRUCTIONS_TOKEN_BUDGET);
   });
 
@@ -741,7 +742,7 @@ describe('the "recent" block', () => {
       budgetTokens: 40,
     });
 
-    expect(rendered).not.toMatch(/Var ni var senast/);
+    expect(rendered).not.toMatch(/Senast sparat/);
   });
 
   it('stays inside the budget even with several recent entries', () => {
@@ -784,7 +785,7 @@ describe('the Personal Compass block', () => {
 
     const compassAt = rendered.indexOf('Var direkt');
     const lastCompassAt = rendered.indexOf('Skilj fakta');
-    const profileAt = rendered.indexOf('ännu inget sparat');
+    const profileAt = rendered.indexOf('Den personliga profilöversikten är tom');
     expect(compassAt).toBeGreaterThan(-1);
     expect(lastCompassAt).toBeGreaterThan(compassAt);
     expect(profileAt).toBeGreaterThan(lastCompassAt);
@@ -888,5 +889,34 @@ describe('the three-part start context', () => {
       expect(rendered).toContain('följa upp offerten');
       expect(estimateTokens(rendered)).toBeLessThanOrEqual(budgetTokens);
     }
+  });
+});
+
+// These assertions protect the shared instruction contract, not a promise about any
+// particular external model's replies. Native conversation quality needs human review.
+describe('a familiar, unhurried conversation', () => {
+  it('keeps grounded, optional curiosity and a quiet import policy in a full startup budget', () => {
+    const rendered = renderInstructions(bundle({
+      profile: profile({ identity: [item('Heter Nora')] }, COMPASS_PRINCIPLES.map(p => ({
+        key: p.key, text: p.defaultText, source: 'default' as const, shortId: null,
+      }))),
+      rooms: [personalRoom, room()], recent: [recentEntry()],
+    }));
+    for (const rule of ['Heter Nora', 'Läs tyst', 'Högst en fråga åt gången', 'inte i varje svar',
+      'ämnesbyte eller avböjande: släpp frågan', 'Gissa inte känslor, lokal tid',
+      'inte bestående profilfakta', 'avbryt inte med minnesimport', 'vid paus eller väntande underlag',
+      'Tiden avser sparandet', 'Be om lov före nya externa källor']) {
+      expect(rendered).toContain(rule);
+    }
+    expect(rendered).not.toContain('Hej, Emil');
+    expect(estimateTokens(rendered)).toBeLessThanOrEqual(INSTRUCTIONS_TOKEN_BUDGET);
+  });
+
+  it('does not treat an empty profile or an unreadable one as an empty account', () => {
+    expect(renderProfile(profile())).toContain('andra rum kan ha innehåll');
+    expect(renderProfile(profile())).toContain('Respektera paus');
+    expect(FALLBACK_INSTRUCTIONS).toContain('Försök get_context');
+    expect(FALLBACK_INSTRUCTIONS).toContain('föreslå inte import utifrån felet');
+    expect(FALLBACK_INSTRUCTIONS).not.toContain('nämn inte det här för dem');
   });
 });

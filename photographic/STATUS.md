@@ -246,6 +246,14 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+### 2026-09-19 — familiar, unhurried conversations
+
+- Warmer default compass, with personalised principles preserved; fresh-context instructions now limit check-ins to one optional question, stop after short answers/topic changes, and put listening and the current request ahead of memory import. No invented moods, completed plans, names, or local times.
+- Empty profile and failed reads are distinguished from an empty account. Recent-event timestamps explicitly describe saving, not the date a real-world plan happened. Proposal pauses, full-batch review, provenance, sensitive-transfer consent and the 1,400-token instruction budget remain in place (minimum floor: 996).
+- A calmer home greets the actual account, remembers only the last chosen AI on the device, prioritises supported mobile apps and keeps setup/receipts under help. Optional account/history failures cannot block launch. Native ChatGPT/Codex links use explicit mode without a project/prompt; no automatic clipboard writes.
+- “Dina AI:er” shows local dates and times instead of UTC time-only receipts. Conversation acceptance cases and external-client limits are in `docs/conversation-experience.md`.
+- Local validation: core 142, agent 82, connect 147, MCP 67 and web 139 tests passed; package typechecks passed. Chrome desktop/narrow-layout review passed, including help, navigation, local receipt dates and no console errors. External native model replies remain a manual acceptance check.
+
 - 2026-09-19 — ChatGPT desktop launch now explicitly selects Chat mode instead of inheriting Codex and its current project. Codex also selects its own mode. Links carry only mode and generic start instructions. Regression coverage checks desktop button separation, absent project parameters and unchanged mobile handoff; installed ChatGPT route parsing confirms mode support. Native UI handoff remains unverified (see CHAT-START.md).
 
 - 2026-09-19 — Context contributions: connected AIs compare available user context before onboarding questions; one private review groups new facts, with separate consent for sensitive/inferred/conflicting entries. Cross-client pause/resume, historical offer suppression, source provenance, retry-safe preparation and approvals, and stale-consent checks are implemented for memory and PostgreSQL. New `prepare_context` MCP tool and first-party bulk review UI. See CONTEXT-CONTRIBUTIONS.md for data flow, limits and validation.

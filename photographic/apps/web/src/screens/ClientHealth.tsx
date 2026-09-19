@@ -21,19 +21,19 @@ export function ClientHealth() {
     () => loadClientsFromApi(),
   );
 
-  if (state.status === 'loading') return <LoadingState label="Hämtar klienter…" />;
+  if (state.status === 'loading') return <LoadingState label="Hämtar dina AI:er…" />;
   if (state.status === 'error') {
-    return <CalmState title="Klienter" message={state.message} />;
+    return <CalmState title="Dina AI:er" message={state.message} />;
   }
 
   return (
     <article className="page page--health">
       <header className="page-head page-head--health">
         <Wordmark large />
-        <h1 className="page-head__title">Klienter</h1>
+        <h1 className="page-head__title">Dina AI:er</h1>
         <p className="page-head__lede">
-          Vi kan inte tvinga varje modell att läsa ditt rum. Här syns vilka som fick din
-          profil, och hur.
+          Här ser du vilka AI:er som har fått ditt minne. En leverans visar att minnet
+          skickades, inte att varje svar använder det.
         </p>
       </header>
 
@@ -79,20 +79,18 @@ function statusCopy(client: DemoClient, tone: ClientHealthTone): string {
       : 'Frånkopplad. Kan inte längre komma åt ditt minne.';
   }
   if (tone === 'ok') {
-    return when ? `Fick din profil via MCP ${when}.` : 'Fick din profil via MCP.';
+    return when ? `Fick ditt minne via kopplingen ${when}.` : 'Fick ditt minne via kopplingen.';
   }
   if (tone === 'warn') {
     return when
-      ? `Fick din profil ${when}, men bara när modellen själv frågade.`
-      : 'Fick din profil, men bara när modellen själv frågade.';
+      ? `Hämtade ditt minne ${when} under ett samtal.`
+      : 'Hämtade ditt minne under ett samtal.';
   }
-  return 'Har aldrig fått din profil.';
+  return 'Ingen bekräftad leverans ännu.';
 }
 
 function formatTime(value: string): string {
-  return new Date(value).toLocaleTimeString('sv-SE', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'UTC',
-  });
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 'vid okänd tid';
+  return date.toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' });
 }

@@ -263,7 +263,7 @@ describe('API → UI mapping', () => {
     });
     expect(line).toEqual({
       key: 'directness',
-      label: 'Var direkt',
+      label: 'Var varm och tydlig',
       text: 'Var direkt. Säg det du menar utan att mjuka upp det i onödan.',
       source: 'default',
       shortId: null,

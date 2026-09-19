@@ -9,7 +9,7 @@ const NAV = [
   // chronological representation of the person's memory, not something internal to the AI.
   { to: '/kalender', end: false, label: 'Kalender', icon: CalendarIcon },
   { to: '/fraga', end: true, label: 'Fråga', icon: AskIcon },
-  { to: '/klienter', end: true, label: 'Klienter', icon: ClientsIcon },
+  { to: '/klienter', end: true, label: 'Dina AI:er', icon: ClientsIcon },
   { to: '/godkann', end: true, label: 'Godkänn', icon: CheckIcon },
   // Export and permanent deletion, which had no caller anywhere in the app. One slot
   // rather than two: the rail is the phone's entire navigation, and seven labels is what

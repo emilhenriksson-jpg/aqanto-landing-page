@@ -28,9 +28,9 @@ export function ContributionPreference() {
     finally { setBusy(false); }
   }
   return <details className="contribution-preference">
-    <summary>{paused ? 'Kontextförslag är pausade' : 'Börja med det din AI redan vet'}</summary>
-    <p>Din AI jämför den kontext den har tillgång till med Photographic och erbjuder att dela det som saknas. Du granskar och godkänner innan det blir ett minne. Frågor och förslag om fler källor kommer först när de behövs.</p>
-    <button className="btn btn--quiet" disabled={busy || paused === null} onClick={() => void change().catch(() => setMessage('Kunde inte spara ändringen.'))}>{paused ? 'Återuppta kontextförslag' : 'Pausa kontextförslag'}</button>
+    <summary>{paused ? 'Minnesförslag är pausade' : 'Låt minnet växa i din takt'}</summary>
+    <p>När det passar i samtalet kan din AI jämföra det den redan vet om dig med Photographic. Det som saknas kan bli ett privat förslag som du granskar innan något blir ett minne. Du kan säga ”inte nu” och fortsätta prata. Pausen gäller alla dina AI:er tills du återupptar förslagen.</p>
+    <button className="btn btn--quiet" disabled={busy || paused === null} onClick={() => void change().catch(() => setMessage('Kunde inte spara ändringen.'))}>{paused ? 'Återuppta minnesförslag' : 'Pausa minnesförslag'}</button>
     {message && <p role="status">{message}</p>}
   </details>;
 }

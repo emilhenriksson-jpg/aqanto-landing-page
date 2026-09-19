@@ -1831,10 +1831,14 @@
 .chat-start .page-head { padding-top: var(--space-6); }
 .chat-start__clients { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .chat-start__card { background: var(--surface); padding: 28px; border-radius: 20px; min-width: 0; }
-.chat-start__card h2 { font-size: 22px; font-weight: 500; margin: 0 0 10px; }
+.chat-start__card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 20px; }
+.chat-start__card h2 { font-size: 22px; font-weight: 500; margin: 0; }
+.chat-start__card--preferred { box-shadow: inset 0 0 0 1px var(--brand); }
+.chat-start__last { font-size: 13px; color: var(--ink-muted); }
+.chat-start__setup > .btn { margin-top: 16px; }
 .chat-start__status, .chat-start__note, .chat-start__explanation { color: var(--ink-muted); font-size: 14px; line-height: 1.6; }
 .chat-start__status { min-height: 24px; margin: 0 0 20px; }
-.chat-start__open { display: flex; justify-content: space-between; align-items: center; text-decoration: none; padding: 14px 20px; }
+.chat-start__open { box-shadow: none; display: flex; justify-content: space-between; align-items: center; text-decoration: none; padding: 14px 20px; }
 .chat-start__note { margin: 16px 0 12px; }
 .chat-start__copy { display: grid; gap: 8px; justify-items: start; font-size: 13px; }
 .chat-start__copy textarea { width: 100%; min-height: 160px; font: inherit; }
@@ -1845,7 +1849,7 @@
 .chat-start__setup li { margin-bottom: 10px; }
 .chat-start__code { display: block; overflow-wrap: anywhere; padding: 12px 0; }
 .chat-start__receipt { font-size: 13px; line-height: 1.6; padding: 12px; border-radius: 12px; background: var(--canvas); }
-.chat-start__explanation { max-width: 700px; margin: 28px 0 48px; }
+.chat-start__explanation { max-width: 700px; margin: 24px 0 12px; }
 .chat-start__memory { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 .chat-start__memory a { text-decoration: none; }
 .chat-start__memory strong { display: block; font-size: 16px; font-weight: 500; margin-bottom: 10px; }
@@ -1855,7 +1859,7 @@
   .chat-start__card { padding: 24px; }
 }
 
-.contribution-preference { margin: 0 0 24px; color: var(--text-secondary, #61616b); max-width: 780px; }
+.contribution-preference { margin: 0 0 40px; font-size: 14px; line-height: 1.6; color: var(--text-secondary, #61616b); max-width: 780px; }
 .contribution-preference summary, .contribution-review summary { cursor: pointer; padding: 12px 0; }
 .contribution-review h2 { margin-top: 0; }
 .contribution-review__items { list-style: none; padding: 0; }

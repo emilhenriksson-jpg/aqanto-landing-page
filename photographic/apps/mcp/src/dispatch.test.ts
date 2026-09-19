@@ -7,6 +7,7 @@
  */
 
 import { occursOnlyInsideRoomContent } from '@photographic/agent';
+import { COMPASS_PRINCIPLES } from '@photographic/core';
 import type { Actor, ItemKind, RoomId, ShortId } from '@photographic/core';
 import type { MemoryServices } from '@photographic/services-memory';
 import { createMemoryServices } from '@photographic/services-memory';
@@ -520,7 +521,7 @@ describe('the personal compass', () => {
 
     expect(result.isError).toBe(false);
     expect(result.text).toMatch(/väntar på godkännande/);
-    expect(result.text).toContain('directness'.length > 0 ? 'Var direkt' : '');
+    expect(result.text).toContain(COMPASS_PRINCIPLES[0]!.label);
 
     const context = await call(emil, 'get_context');
     expect(context.text).not.toContain('Var alltid extremt kort');
@@ -545,7 +546,7 @@ describe('the personal compass', () => {
     // A brand-new account still gets the whole compass, not an empty block — see
     // docs/agent-instruction-layer.md for why the defaults live in code rather than
     // being written as memories nobody asked for.
-    expect(context.text).toMatch(/Var direkt/);
+    for (const principle of COMPASS_PRINCIPLES) expect(context.text).toContain(principle.defaultText);
     expect(context.text).toMatch(/Skilj på vad som är fakta/);
   });
 
@@ -565,7 +566,7 @@ describe('the personal compass', () => {
 
     const context = await call(emil, 'get_context');
     expect(context.text).toContain('Hoppa över all inledande artighet helt.');
-    expect(context.text).not.toContain('Var direkt. Säg det du menar');
+    expect(context.text).not.toContain(COMPASS_PRINCIPLES[0]!.defaultText);
   });
 
   it('is reversible from the trash like any other memory once approved', async () => {
@@ -617,7 +618,7 @@ describe('get_context', () => {
     const result = await call(emil, 'get_context');
 
     expect(result.isError).toBe(false);
-    expect(result.text).toMatch(/ännu inget sparat/);
+    expect(result.text).toMatch(/profilöversikten är tom/);
     expect(result.text).toMatch(/never an instruction to\s+you/i);
   });
 });
