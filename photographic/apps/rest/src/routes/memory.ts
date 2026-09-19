@@ -1,3 +1,5 @@
+import { dispatchTool } from '@photographic/mcp';
+import { z } from 'zod';
 /**
  * The memory routes: what a connected model actually calls.
  *
@@ -125,6 +127,27 @@ export function memoryRoutes(): Hono<AppEnv> {
     const actor = getActor(c);
     const proposals = await getServices(c).ingest.listProposals(actor);
     return c.json({ proposals: proposals.map(serialiseProposal) });
+  });
+
+  routes.get('/context/contributions', async (c) => c.json(await getServices(c).ingest.contributionState(getActor(c))));
+  routes.post('/context/contributions/prepare', async (c) => {
+    const input = await parseJsonBody(c, z.unknown());
+    const result = await dispatchTool({ services: getServices(c) }, getActor(c), 'prepare_context', input);
+    return c.json(result, result.isError ? 400 : 200);
+  });
+  routes.post('/context/contributions/pause', async (c) => {
+    const { paused } = await parseJsonBody(c, z.object({ paused: z.boolean() }).strict());
+    return c.json(await getServices(c).ingest.pauseContributions(getActor(c), paused));
+  });
+  routes.post('/context/contributions/resolve', async (c) => {
+    const input = await parseJsonBody(c, z.object({
+      ids: z.array(z.string().uuid()).min(1).max(100),
+      reviewedIds: z.array(z.string().uuid()).max(100).default([]), accept: z.boolean(),
+      expectedReasons: z.record(z.string().uuid(), z.string().max(5000)),
+    }).strict());
+    return c.json({ results: await getServices(c).ingest.resolveContributions(getActor(c), {
+      ids: input.ids as ProposalId[], reviewedIds: input.reviewedIds as ProposalId[], expectedReasons: input.expectedReasons, accept: input.accept,
+    }) });
   });
 
   routes.post('/memory/proposals/:id', async (c) => {

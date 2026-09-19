@@ -13,7 +13,7 @@
  * explain to a person.
  */
 
-import { TOOL_NAMES } from '@photographic/agent';
+import { TOOL_NAMES, wrapRoomContent } from '@photographic/agent';
 import type { Actor, RoomId, Services, ShortId } from '@photographic/core';
 import {
   askMemory,
@@ -73,6 +73,18 @@ const shortId = z
  */
 const ARGS = {
   get_context: z.object({ room }).strict(),
+  prepare_context: z.object({
+    action: z.enum(['prepare', 'pause']),
+    batch_id: z.string().uuid().optional(),
+    candidates: z.array(z.object({
+      text: z.string().trim().min(1).max(1900),
+      kind: z.enum(['fact', 'preference', 'instruction', 'decision', 'note', 'never']),
+      origin: z.enum(['conversation', 'client_memory', 'file', 'mail', 'slack', 'photographic']),
+      sourceLabel: z.string().trim().min(1).max(200),
+      evidence: z.enum(['reported', 'inferred']), sensitive: z.boolean(), concernsOthers: z.boolean(),
+      observedAt: z.string().datetime({ offset: true }).optional(),
+    }).strict()).min(1).max(20).optional(),
+  }).strict().refine(input => input.action === 'pause' || (input.batch_id && input.candidates), 'prepare kräver batch_id och candidates.'),
 
   remember: z
     .object({
@@ -210,7 +222,21 @@ async function run<N extends ToolName>(
       }
       await services.audit.record({ actor, action: 'bundle' });
 
-      return services.bundle.render(bundle);
+      const contribution = await services.ingest.contributionState(actor);
+      return services.bundle.render(bundle) + `\n\nKontextbidrag: ${contribution.paused ? 'pausade — erbjud inte igen' : contribution.pending ? `${contribution.pending} väntar — påminn inte igen` : 'inget väntande underlag; jämför tillgänglig kontext före frågor'}.`;
+
+    }
+
+    case 'prepare_context': {
+      const input = args as ArgsOf<'prepare_context'>;
+      if (input.action === 'pause') {
+        await services.ingest.pauseContributions(actor, true);
+        return 'Erbjudanden pausade. Fortsätt samtalet; personen kan återuppta dem i Photographic.';
+      }
+      const result = await services.ingest.prepareContributions(actor, { batchId: input.batch_id!, candidates: input.candidates! });
+      if (result.paused) return 'Erbjudanden är pausade. För inte över kontext och fråga inte igen.';
+      return `Privat granskningsunderlag, inte sparade minnen. Granska och dela: https://photographic.space/godkann. Om alla uppgifter var kända eller redan erbjudna, avbryt utan ny fråga.\n` +
+        wrapRoomContent(JSON.stringify({ batchId: result.batchId, proposed: result.proposals.map(p => ({ id: p.id, text: p.body, reason: p.reason })), skipped: result.skipped }), { label: 'granskningsunderlag', notice: true });
     }
 
     case 'remember': {

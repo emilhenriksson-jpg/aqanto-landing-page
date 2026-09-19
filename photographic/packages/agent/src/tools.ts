@@ -41,7 +41,8 @@ export interface JsonSchemaProperty {
   description: string;
   enum?: string[];
   default?: string | number | boolean;
-  items?: { type: 'string' };
+  items?: { type: 'string' } | JsonSchema;
+  maxItems?: number;
   maxLength?: number;
   minimum?: number;
   maximum?: number;
@@ -172,6 +173,38 @@ An omitted summary does not mean an empty room.`,
       idempotentHint: true,
       openWorldHint: false,
     },
+  },
+
+  {
+    name: 'prepare_context',
+    description: `Compare available user context against stored memory and earlier offers; prepare
+private proposals, never saved facts. Read get_context first. Respect paused/pending
+state. Submit ALL new available context in batches with one batch_id, not just a few
+facts. Then offer one grouped review link from the result. Never claim access to unseen
+history or import Photographic's own output as independent evidence. Do not submit
+secrets. New external sources and sensitive transfers need the person's permission.
+Mark inferences and third-party information honestly. On "not now", use action pause;
+only the person can resume in Photographic. No approval or auto-save action exists.`,
+    inputSchema: {
+      type: 'object', properties: {
+        action: { type: 'string', enum: ['prepare', 'pause'], description: 'Prepare a private review, or pause all future proactive contribution offers.' },
+        batch_id: { type: 'string', description: 'A UUID for this complete offer. Reuse it for every chunk and any retry.' },
+        candidates: { type: 'array', maxItems: 20, description: 'Up to twenty separate facts per chunk. Send further chunks with the same batch_id.',
+          items: { type: 'object', properties: {
+            text: { type: 'string', maxLength: 1900, description: 'One self-contained statement from context you can actually access.' },
+            kind: { type: 'string', enum: ['fact', 'preference', 'instruction', 'decision', 'note', 'never'], description: 'Whether this describes a fact, preference, decision, note or standing instruction.' },
+            origin: { type: 'string', enum: ['conversation', 'client_memory', 'file', 'mail', 'slack', 'photographic'], description: 'Where the information came from; Photographic-origin content is excluded.' },
+            sourceLabel: { type: 'string', maxLength: 200, description: 'Human-readable source, e.g. a named chat or document; never claim unseen history.' },
+            evidence: { type: 'string', enum: ['reported', 'inferred'], description: 'Reported by the person/source, or your own unconfirmed interpretation.' },
+            sensitive: { type: 'boolean', description: 'True for sensitive personal information that needs a separate review.' },
+            concernsOthers: { type: 'boolean', description: 'True when the statement contains personal information about other people.' },
+            observedAt: { type: 'string', description: 'Optional ISO date/time the statement refers to; do not invent a date.' },
+          }, required: ['text', 'kind', 'origin', 'sourceLabel', 'evidence', 'sensitive', 'concernsOthers'], additionalProperties: false },
+        },
+      }, required: ['action'], additionalProperties: false,
+    },
+    scopes: [TOOL_SCOPE.memoryWrite, TOOL_SCOPE.memoryRead, TOOL_SCOPE.profileRead],
+    annotations: { title: 'Prepare context to share', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
 
   {

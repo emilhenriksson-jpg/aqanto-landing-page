@@ -1854,3 +1854,11 @@
   .chat-start__clients, .chat-start__memory { grid-template-columns: 1fr; }
   .chat-start__card { padding: 24px; }
 }
+
+.contribution-preference { margin: 0 0 24px; color: var(--text-secondary, #61616b); max-width: 780px; }
+.contribution-preference summary, .contribution-review summary { cursor: pointer; padding: 12px 0; }
+.contribution-review h2 { margin-top: 0; }
+.contribution-review__items { list-style: none; padding: 0; }
+.contribution-review__items li { padding: 16px 0; border-bottom: 1px solid var(--border, #ececf0); }
+.contribution-review__items label { display: flex; align-items: flex-start; gap: 12px; }
+.contribution-review__items input { margin-top: 4px; min-width: 20px; min-height: 20px; accent-color: #5434e8; }

@@ -15,3 +15,5 @@ export * from './changes.js';
 export * from './open.js';
 export * from './swedish.js';
 export * from './compass.js';
+
+export * from './contributions.js';

@@ -249,6 +249,7 @@ export function clientHealthTone(client: DemoClient): ClientHealthTone {
 export type ApprovalIntent = 'remember' | 'share' | 'update';
 
 export interface ApprovalItem {
+  contribution?: { batchId: string; reviewRequired: boolean } | null;
   id: string;
   /** Display name of the client that proposed it, e.g. "Claude". */
   clientLabel: string;

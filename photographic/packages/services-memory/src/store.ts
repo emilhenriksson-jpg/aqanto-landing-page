@@ -123,6 +123,8 @@ export class MemoryStore {
   readonly chunks = new Map<ChunkId, ChunkRow>();
 
   /** Cached projections. Rebuilt by jobs, never synchronously on the write path. */
+  readonly contributionPaused = new Map<PersonId, boolean>();
+
   readonly profiles = new Map<PersonId, Profile>();
   readonly briefs = new Map<RoomId, Brief>();
   readonly headlines = new Map<RoomId, RoomHeadline>();

@@ -1,3 +1,4 @@
+import { CONTEXT_CONTRIBUTION_INSTRUCTIONS } from './contribution-instructions.js';
 /**
  * The session instructions: the text that arrives in system-prompt position before the
  * person types anything.
@@ -167,8 +168,8 @@ export function renderProfile(profile: Profile, budgetTokens?: number, now?: Dat
 
   if (parts.length === 0) {
     return `Photographic har ännu inget sparat om den här personen. Det är normalt för
-ett nytt konto. Spara det första du får veta som håller över tid — det är så minnet
-kommer igång.`;
+ett nytt konto. Börja med din tillgängliga kontext och erbjud ett samlat bidrag innan
+du börjar ställa frågor.`;
   }
 
   return parts.join('\n\n');
@@ -569,7 +570,9 @@ const PREAMBLE = `Du är kopplad till Photographic, personens egna minne. Det h�
 personen redan innan de skrivit något. Använd det utan att påpeka att du har det.
 Vid varje ny konversation: hämta färsk kontext med get_context utan rum, även om
 anslutningen återanvänds. Välj relevanta rum utifrån samtalet; be inte personen välja
-ett rum för att börja. Efter en uppdatering: hämta om kontexten vid behov.`;
+ett rum för att börja. Efter en uppdatering: hämta om kontexten vid behov.
+
+${CONTEXT_CONTRIBUTION_INSTRUCTIONS}`;
 
 /**
  * What to send when the profile could not be built.

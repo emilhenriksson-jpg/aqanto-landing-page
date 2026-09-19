@@ -35,6 +35,8 @@ export const SCOPED_ROUTES: readonly ScopedRoute[] = [
   // always-injected personal context, which is the one read a client cannot avoid
   // making, and a client may legitimately be trusted with it and nothing else.
   ['GET', '/context', SCOPE_PROFILE_READ],
+  ['GET', '/context/contributions', SCOPE_PROFILE_READ],
+  ['POST', '/context/contributions/prepare', SCOPE_MEMORY_WRITE, SCOPE_MEMORY_READ, SCOPE_PROFILE_READ],
   ['GET', '/profile', SCOPE_PROFILE_READ],
 
   // The person's own first name, or that there isn't one — about the account rather
@@ -257,6 +259,8 @@ export const HUMAN_DECISION_ROUTES: readonly ScopedRoute[] = [
    * no MCP tool exposes approval at all.
    */
   ['POST', '/memory/proposals/:id'],
+  ['POST', '/context/contributions/resolve'],
+  ['POST', '/context/contributions/pause'],
 
   /**
    * Settling a dispute, which is the same decision wearing different clothes.

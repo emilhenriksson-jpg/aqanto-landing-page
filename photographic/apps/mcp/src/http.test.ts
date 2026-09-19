@@ -12,7 +12,7 @@
  * under test while making the suite fast enough to run on every change.
  */
 
-import { occursOnlyInsideRoomContent } from '@photographic/agent';
+import { occursOnlyInsideRoomContent, TOOLS } from '@photographic/agent';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Actor } from '@photographic/core';
@@ -165,12 +165,24 @@ describe('connecting', () => {
     });
   });
 
+  it('accepts nested context candidates through the actual MCP transport', async () => {
+    const client = await connect(await register('Emil', 'context@example.com'));
+    const result = await client.callTool({ name: 'prepare_context', arguments: {
+      action: 'prepare', batch_id: '910553cc-3ec5-44fa-aa37-f4e0ac55cb10', candidates: [{
+        text: 'Jag bygger en bokhylla i ek', kind: 'fact', origin: 'conversation', sourceLabel: 'Denna chatt',
+        evidence: 'reported', sensitive: false, concernsOthers: false,
+      }],
+    } });
+    expect(result.isError).not.toBe(true);
+    expect(JSON.stringify(result.content)).toContain('granskningsunderlag');
+  });
+
   it('offers every tool at once, with the annotations clients read', async () => {
     const client = await connect(await register('Emil', 'emil@example.com'));
     const { tools } = await client.listTools();
 
     expect(tools.map((tool) => tool.name)).toContain('remember');
-    expect(tools).toHaveLength(9);
+    expect(tools).toHaveLength(TOOLS.length);
 
     // A soft delete marked destructive makes clients confirm every "glöm det", which is
     // the friction the thirty-day trash exists to remove.
@@ -430,7 +442,7 @@ describe('a person with nothing saved', () => {
     const client = await connect(await register('Ny', 'ny@example.com'));
 
     expect(client.getInstructions()).toMatch(/ännu inget sparat/);
-    expect((await client.listTools()).tools).toHaveLength(9);
+    expect((await client.listTools()).tools).toHaveLength(TOOLS.length);
   });
 
   it('starts the session even when the profile cannot be built', async () => {
@@ -463,7 +475,7 @@ describe('a person with nothing saved', () => {
     );
 
     expect(client.getInstructions()).toMatch(/Anropa get_context/);
-    expect((await client.listTools()).tools).toHaveLength(9);
+    expect((await client.listTools()).tools).toHaveLength(TOOLS.length);
 
     // And the session exists with nothing delivered, which is the honest state: amber.
     const health = await wired.services.sessions.health(tokens.get(token)!.actor);

@@ -1,3 +1,4 @@
+import { ContributionPreference } from '../components/ContributionPreference.js';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { detect } from '@photographic/connect/detect';
@@ -37,6 +38,7 @@ export function ChatStart() {
       <h1 className="page-head__title">Vad vill du prata om?</h1>
       <p className="page-head__lede">Välj din AI och börja där du är. Ditt personliga minne, en överblick över dina rum och det senaste i kalendern följer med när AI:n hämtar din kontext.</p>
     </header>
+    <ContributionPreference />
     <section aria-label="Öppna en chatt" className="chat-start__clients">
       {ORDER.map((id) => {
         const client = state.data.clients.find((entry) => entry.id === id);

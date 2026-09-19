@@ -1,3 +1,4 @@
+import { contributionMeta } from '@photographic/core';
 /**
  * Domain objects to JSON.
  *
@@ -93,6 +94,7 @@ export function serialiseProposal(proposal: Proposal) {
     // person deciding yes or no needs to know why it could not simply be saved.
     reason: proposal.reason,
     proposedByClient: proposal.proposedByClient,
+    contribution: contributionMeta(proposal) ? { batchId: contributionMeta(proposal)!.batchId, reviewRequired: contributionMeta(proposal)!.reviewRequired } : null,
     createdAt: proposal.createdAt.toISOString(),
   };
 }

@@ -1,3 +1,4 @@
+import type { ContextCandidate, ContributionPreview, ContributionState, ContributionResolution } from './contributions.js';
 /**
  * Ports: every interface an implementation package must satisfy.
  *
@@ -263,6 +264,11 @@ export interface WriteProvenance {
 }
 
 export interface IngestPort {
+  contributionState(actor: Actor): Promise<ContributionState>;
+  pauseContributions(actor: Actor, paused: boolean): Promise<ContributionState>;
+  prepareContributions(actor: Actor, input: { candidates: ContextCandidate[]; batchId: string }): Promise<ContributionPreview>;
+  resolveContributions(actor: Actor, input: { ids: ProposalId[]; reviewedIds: ProposalId[]; expectedReasons?: Record<string, string>; accept: boolean }): Promise<ContributionResolution[]>;
+
   /**
    * The write path.
    *

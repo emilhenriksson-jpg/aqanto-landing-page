@@ -1,3 +1,5 @@
+import type { ContextCandidate, ContributionMeta, ContributionPreview, ContributionState, ContributionResolution } from '@photographic/core';
+import { candidateBody, contributionItemMetadata, compareContribution, containsSecret, contributionMeta, contributionReason, needsSeparateReview } from '@photographic/core';
 /**
  * The write path, backed by Postgres. See `MemoryIngest` for the policy reasoning this
  * mirrors: three tiers of write, because "never let a model write garbage" and "let
@@ -54,7 +56,6 @@ import {
   routeMemory,
 } from '@photographic/core';
 import type { RoutingDeps } from '@photographic/core';
-import type { Pool } from 'pg';
 
 import { queryOne, queryRows, withTransaction, type Db, type Tx } from '../pool.js';
 import {
@@ -115,12 +116,119 @@ export function classifyKind(body: string): ItemKind {
 
 export class PgIngest implements IngestPort {
   constructor(
-    private readonly pool: Pool,
+    private readonly pool: Db,
     private readonly llm: LlmPort,
     private readonly projection: ProjectionPort & { markHeadlineStale(roomId: RoomId): void },
     private readonly jobs: JobPort,
     private readonly clock: () => Date = () => new Date(),
   ) {}
+
+
+  private async contributionRoom(actor: Actor): Promise<RoomId> {
+    const roomId = await personalRoomIdOf(this.pool, actor.personId);
+    if (!roomId) throw new NotPermittedError();
+    if (actor.roomScope.length && !actor.roomScope.includes(roomId)) throw new NotPermittedError();
+    await assertCanWrite(this.pool, actor.personId, roomId);
+    return roomId;
+  }
+  private async contributionProposals(actor: Actor): Promise<Proposal[]> {
+    const roomId = await this.contributionRoom(actor);
+    return (await queryRows<ProposalRow>(this.pool,
+      `SELECT ${PROPOSAL_COLUMNS} FROM app.proposal WHERE person_id = $1 AND room_id = $2
+       AND room_id IN (SELECT room_id FROM app.accessible_room_ids($1)) AND structured ? 'contribution'`,
+      [actor.personId, roomId])).map(mapProposal);
+  }
+  async contributionState(actor: Actor): Promise<ContributionState> {
+    const roomId = await personalRoomIdOf(this.pool, actor.personId);
+    if (!roomId) throw new NotPermittedError();
+    if (actor.roomScope.length && !actor.roomScope.includes(roomId)) return { paused: true, pending: 0 };
+    const row = await queryOne<{ paused: boolean }>(this.pool,
+      `SELECT paused FROM app.context_contribution_preference WHERE person_id = $1`, [actor.personId]);
+    const count = await queryOne<{ count: string }>(this.pool,
+      `SELECT count(*) FROM app.proposal WHERE person_id = $1 AND room_id = $2 AND status = 'pending'
+       AND room_id IN (SELECT room_id FROM app.accessible_room_ids($1)) AND structured ? 'contribution'`, [actor.personId, roomId]);
+    return { paused: row?.paused ?? false, pending: Number(count?.count ?? 0) };
+  }
+  async pauseContributions(actor: Actor, paused: boolean): Promise<ContributionState> {
+    await this.contributionRoom(actor);
+    await this.pool.query(`INSERT INTO app.context_contribution_preference(person_id, paused) VALUES ($1, $2)
+      ON CONFLICT (person_id) DO UPDATE SET paused = EXCLUDED.paused, updated_at = now()`, [actor.personId, paused]);
+    return this.contributionState(actor);
+  }
+  async prepareContributions(actor: Actor, input: { candidates: ContextCandidate[]; batchId: string }): Promise<ContributionPreview> {
+    const roomId = await this.contributionRoom(actor);
+    return withTransaction(this.pool, async tx => {
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [roomId]);
+      const scoped = new PgIngest(tx, this.llm, this.projection, this.jobs, this.clock);
+      return scoped.prepareContributionBatch(actor, input, roomId);
+    });
+  }
+  private async contributionItems(actor: Actor): Promise<Item[]> {
+    return (await queryRows<ItemRow>(this.pool,
+      `SELECT ${ITEM_COLUMNS} FROM app.item WHERE status = 'active'
+       AND room_id IN (SELECT room_id FROM app.accessible_room_ids($1))
+       AND (cardinality($2::uuid[]) = 0 OR room_id = ANY($2::uuid[]))`, [actor.personId, actor.roomScope])).map(mapItem);
+  }
+
+  private async prepareContributionBatch(actor: Actor, input: { candidates: ContextCandidate[]; batchId: string }, roomId: RoomId): Promise<ContributionPreview> {
+    const state = await this.contributionState(actor);
+    const result: ContributionPreview = { batchId: input.batchId, paused: state.paused, proposals: [], skipped: [] };
+    if (state.paused) return result;
+    const items = await this.contributionItems(actor);
+    const previous = await this.contributionProposals(actor);
+    const embeddings = new Map<string, number[]>();
+    // Finish comparison before any proposal is created. A provider outage creates no partial offer.
+    const planned: Array<{ body: string; kind: ItemKind; meta: ContributionMeta; conflict: Item | null }> = [];
+    for (const [index, candidate] of input.candidates.entries()) {
+      if (candidate.origin === 'photographic') { result.skipped.push({ index, reason: 'photographic' }); continue; }
+      if (containsSecret(candidate.text + ' ' + candidate.sourceLabel)) { result.skipped.push({ index, reason: 'secret' }); continue; }
+      const body = candidateBody(candidate);
+      const comparison = await compareContribution(candidate.text, items, previous, this.llm, embeddings);
+      if (comparison.known) { result.skipped.push({ index, reason: 'known' }); continue; }
+      if (comparison.previous) {
+        if (comparison.previous.status === 'pending') result.proposals.push(comparison.previous);
+        result.skipped.push({ index, reason: 'already_offered' }); continue;
+      }
+      if (planned.some(entry => dedupeHash(entry.meta.text) === dedupeHash(candidate.text))) {
+        result.skipped.push({ index, reason: 'known' }); continue;
+      }
+      // A shared-room contradiction is retained privately for review, never used to replace a shared item.
+      const meta: ContributionMeta = { ...candidate, batchId: input.batchId,
+        agentClient: actor.agentClient, clientId: actor.clientId ?? null, sessionId: actor.sessionId,
+        preparedAt: this.clock().toISOString(),
+        reviewRequired: needsSeparateReview(candidate) || comparison.conflict !== null,
+        conflictBody: comparison.conflict?.body ?? null };
+      planned.push({ body, kind: candidate.evidence === 'inferred' ? 'note' : candidate.kind,
+        meta, conflict: comparison.conflict?.roomId === roomId ? comparison.conflict : null });
+    }
+    for (const entry of planned) {
+      result.proposals.push(await this.queueProposal(actor, { roomId, intent: 'remember', kind: entry.kind,
+        body: entry.body, reason: contributionReason(entry.meta), conflictsWith: entry.conflict?.id ?? null,
+        structured: { contribution: entry.meta }, importedFrom: entry.meta.sourceLabel }));
+    }
+    return result;
+  }
+
+  async resolveContributions(actor: Actor, input: { ids: ProposalId[]; reviewedIds: ProposalId[]; expectedReasons?: Record<string, string>; accept: boolean }): Promise<ContributionResolution[]> {
+    const results: ContributionResolution[] = [];
+    for (const id of [...new Set(input.ids)]) {
+      const proposals = await this.contributionProposals(actor);
+      const proposal = proposals.find(entry => entry.id === id);
+      if (!proposal) throw new NotFoundError('Förslaget finns inte.');
+      if (proposal.status !== 'pending') { results.push({ id, status: 'already_handled' }); continue; }
+      if (input.accept && contributionMeta(proposal)?.reviewRequired && !input.reviewedIds.includes(id)) {
+        results.push({ id, status: 'needs_review' }); continue;
+      }
+      try {
+        const item = await this.resolveProposal(actor, id, input.accept, input.expectedReasons ? { reason: input.expectedReasons[id], reviewed: input.reviewedIds.includes(id) } : undefined);
+        results.push({ id, status: input.accept ? 'saved' : 'dismissed', ...(item ? { shortId: item.shortId } : {}) });
+      } catch (error) {
+        results.push({ id, status: error instanceof ValidationError ? 'needs_review' : 'failed' });
+      }
+    }
+    if (!input.accept) await this.pauseContributions(actor, true);
+    return results;
+  }
 
   async remember(
     actor: Actor,
@@ -568,7 +676,7 @@ export class PgIngest implements IngestPort {
    * only way a placement into a shared room can happen: `share` and `move` can ask, and
    * nothing they can send makes them the thing that answers.
    */
-  async resolveProposal(actor: Actor, id: ProposalId, accept: boolean): Promise<Item | null> {
+  async resolveProposal(actor: Actor, id: ProposalId, accept: boolean, consent?: { reason: string | undefined; reviewed: boolean }): Promise<Item | null> {
     const row = await queryOne<ProposalRow>(
       this.pool,
       `SELECT ${PROPOSAL_COLUMNS} FROM app.proposal WHERE id = $1`,
@@ -580,6 +688,29 @@ export class PgIngest implements IngestPort {
     }
 
     const outcome = await withTransaction(this.pool, async (tx) => {
+      let duplicate: Item | undefined;
+      if (accept && contributionMeta(mapProposal(row))) {
+        await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [row.room_id]);
+        const scoped = new PgIngest(tx, this.llm, this.projection, this.jobs, this.clock);
+        await scoped.contributionRoom(actor);
+        const fresh = await queryOne<ProposalRow>(tx, `SELECT ${PROPOSAL_COLUMNS} FROM app.proposal WHERE id = $1 AND person_id = $2`, [id, actor.personId]);
+        if (!fresh || fresh.status !== 'pending') return { raced: true as const };
+        const proposal = mapProposal(fresh);
+        const meta = contributionMeta(proposal)!;
+        if (consent && (consent.reason !== proposal.reason || (meta.reviewRequired && !consent.reviewed))) {
+          return { raced: false as const, review: true, item: null };
+        }
+        const current = await compareContribution(meta.text, await scoped.contributionItems(actor), [], this.llm);
+        duplicate = current.knownItem;
+        if (!duplicate && (current.conflict?.body ?? null) !== meta.conflictBody) {
+          meta.conflictBody = current.conflict?.body ?? null;
+          meta.reviewRequired = needsSeparateReview(meta) || current.conflict !== null;
+          await tx.query(`UPDATE app.proposal SET structured = $1, reason = $2, conflicts_with = $3 WHERE id = $4 AND person_id = $5`,
+            [JSON.stringify({ contribution: meta }), contributionReason(meta), current.conflict?.roomId === proposal.roomId ? current.conflict.id : null, id, actor.personId]);
+          return { raced: false as const, review: true, item: null };
+        }
+      }
+
       // Re-read and claim in one statement. The check above is for the error message; this
       // is the one that decides, and it is why two clicks cannot both apply.
       const claimed = await queryOne<ProposalRow>(
@@ -606,7 +737,7 @@ export class PgIngest implements IngestPort {
         return { raced: false as const, item: null };
       }
 
-      const resulting = await this.applyProposal(actor, proposal, tx);
+      const resulting = duplicate ?? await this.applyProposal(actor, proposal, tx);
 
       await tx.query(`UPDATE app.proposal SET resulting_item = $1 WHERE id = $2`, [
         resulting.id,
@@ -628,6 +759,7 @@ export class PgIngest implements IngestPort {
     });
 
     if (outcome.raced) throw new ValidationError('Förslaget är redan hanterat.');
+    if ('review' in outcome) throw new ValidationError('Minnet har ändrats sedan förslaget skapades. Granska det uppdaterade förslaget.');
 
     if (outcome.item) this.pokeHeadlineCache(outcome.item.roomId);
     return outcome.item;
@@ -870,20 +1002,23 @@ export class PgIngest implements IngestPort {
       room.kind === 'shared' &&
       conflicting.authorPersonId !== actor.personId;
 
+    const meta = contributionMeta(proposal);
+    const author: Actor = meta ? { ...actor, agentClient: meta.agentClient, clientId: meta.clientId, sessionId: meta.sessionId as Actor['sessionId'] } : actor;
     const item = await this.write(
-      actor,
+      author,
       {
         roomId: proposal.roomId,
         kind: proposal.kind,
         body: proposal.body,
-        sensitivity: 'normal',
+        sensitivity: meta?.sensitive ? 'sensitive' : 'normal',
         approvedBy: actor.personId,
         explicit: true,
         // The sentence the router wrote when it chose this room, not a fresh one.
         ...(proposal.motivation ? { motivation: proposal.motivation } : {}),
         supersedes: acrossAuthors ? null : conflicting?.id ?? null,
         previousBody: acrossAuthors ? null : conflicting?.body ?? null,
-        structured: proposal.structured,
+        structured: meta ? contributionItemMetadata(meta) : proposal.structured,
+      ...(meta ? { source: { kind: 'import' as const, label: meta.sourceLabel, ref: meta.sessionId, uri: null } } : {}),
       },
       tx,
     );

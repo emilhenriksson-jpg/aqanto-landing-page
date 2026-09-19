@@ -168,6 +168,7 @@ export type ProposalIntentDto = 'remember' | 'share' | 'update';
 
 /** GET /v1/memory/proposals — pending approval cards. */
 export interface ProposalDto {
+  contribution?: { batchId: string; reviewRequired: boolean } | null;
   id: string;
   roomId: string;
   intent: ProposalIntentDto;

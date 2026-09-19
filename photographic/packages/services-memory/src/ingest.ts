@@ -1,3 +1,5 @@
+import type { ContextCandidate, ContributionMeta, ContributionPreview, ContributionState, ContributionResolution } from '@photographic/core';
+import { candidateBody, contributionItemMetadata, compareContribution, containsSecret, contributionMeta, contributionReason, needsSeparateReview } from '@photographic/core';
 /**
  * The write path.
  *
@@ -120,6 +122,110 @@ export class MemoryIngest implements IngestPort {
     private readonly projection: ProjectionPort,
     private readonly jobs: JobPort,
   ) {}
+
+
+  private contributionLocks = new Map<PersonId, Promise<void>>();
+  private async withContributionLock<T>(actor: Actor, fn: () => Promise<T>): Promise<T> {
+    const previous = this.contributionLocks.get(actor.personId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>(resolve => { release = resolve; });
+    this.contributionLocks.set(actor.personId, current);
+    await previous;
+    try { return await fn(); } finally {
+      release();
+      if (this.contributionLocks.get(actor.personId) === current) this.contributionLocks.delete(actor.personId);
+    }
+  }
+  private contributionRoom(actor: Actor): RoomId {
+    const roomId = this.store.personalRoomIdOf(actor.personId);
+    if (!roomId) throw new NotPermittedError();
+    if ((actor.roomScope.length && !actor.roomScope.includes(roomId)) || !this.store.canWrite(actor.personId, roomId)) throw new NotPermittedError();
+    return roomId;
+  }
+  private async contributionProposals(actor: Actor): Promise<Proposal[]> {
+    const roomId = this.contributionRoom(actor);
+    return [...this.store.proposals.values()].filter(p => p.personId === actor.personId && p.roomId === roomId && contributionMeta(p));
+  }
+  async contributionState(actor: Actor): Promise<ContributionState> {
+    const roomId = this.store.personalRoomIdOf(actor.personId);
+    if (!roomId) throw new NotPermittedError();
+    if (actor.roomScope.length && !actor.roomScope.includes(roomId)) return { paused: true, pending: 0 };
+    return { paused: this.store.contributionPaused.get(actor.personId) ?? false,
+      pending: (await this.contributionProposals(actor)).filter(p => p.status === 'pending').length };
+  }
+  async pauseContributions(actor: Actor, paused: boolean): Promise<ContributionState> {
+    this.contributionRoom(actor);
+    this.store.contributionPaused.set(actor.personId, paused);
+    return this.contributionState(actor);
+  }
+  async prepareContributions(actor: Actor, input: { candidates: ContextCandidate[]; batchId: string }): Promise<ContributionPreview> {
+    const roomId = this.contributionRoom(actor);
+    return this.withContributionLock(actor, () => this.prepareContributionBatch(actor, input, roomId));
+  }
+  private async contributionItems(actor: Actor): Promise<Item[]> {
+    return [...this.store.items.values()].filter(item => item.status === 'active'
+      && this.store.canRead(actor.personId, item.roomId) && (!actor.roomScope.length || actor.roomScope.includes(item.roomId)));
+  }
+
+  private async prepareContributionBatch(actor: Actor, input: { candidates: ContextCandidate[]; batchId: string }, roomId: RoomId): Promise<ContributionPreview> {
+    const state = await this.contributionState(actor);
+    const result: ContributionPreview = { batchId: input.batchId, paused: state.paused, proposals: [], skipped: [] };
+    if (state.paused) return result;
+    const items = await this.contributionItems(actor);
+    const previous = await this.contributionProposals(actor);
+    const embeddings = new Map<string, number[]>();
+    // Finish comparison before any proposal is created. A provider outage creates no partial offer.
+    const planned: Array<{ body: string; kind: ItemKind; meta: ContributionMeta; conflict: Item | null }> = [];
+    for (const [index, candidate] of input.candidates.entries()) {
+      if (candidate.origin === 'photographic') { result.skipped.push({ index, reason: 'photographic' }); continue; }
+      if (containsSecret(candidate.text + ' ' + candidate.sourceLabel)) { result.skipped.push({ index, reason: 'secret' }); continue; }
+      const body = candidateBody(candidate);
+      const comparison = await compareContribution(candidate.text, items, previous, this.llm, embeddings);
+      if (comparison.known) { result.skipped.push({ index, reason: 'known' }); continue; }
+      if (comparison.previous) {
+        if (comparison.previous.status === 'pending') result.proposals.push(comparison.previous);
+        result.skipped.push({ index, reason: 'already_offered' }); continue;
+      }
+      if (planned.some(entry => dedupeHash(entry.meta.text) === dedupeHash(candidate.text))) {
+        result.skipped.push({ index, reason: 'known' }); continue;
+      }
+      // A shared-room contradiction is retained privately for review, never used to replace a shared item.
+      const meta: ContributionMeta = { ...candidate, batchId: input.batchId,
+        agentClient: actor.agentClient, clientId: actor.clientId ?? null, sessionId: actor.sessionId,
+        preparedAt: this.store.now().toISOString(),
+        reviewRequired: needsSeparateReview(candidate) || comparison.conflict !== null,
+        conflictBody: comparison.conflict?.body ?? null };
+      planned.push({ body, kind: candidate.evidence === 'inferred' ? 'note' : candidate.kind,
+        meta, conflict: comparison.conflict?.roomId === roomId ? comparison.conflict : null });
+    }
+    for (const entry of planned) {
+      result.proposals.push(this.queueProposal(actor, { roomId, intent: 'remember', kind: entry.kind,
+        body: entry.body, reason: contributionReason(entry.meta), conflictsWith: entry.conflict?.id ?? null,
+        structured: { contribution: entry.meta }, importedFrom: entry.meta.sourceLabel }));
+    }
+    return result;
+  }
+
+  async resolveContributions(actor: Actor, input: { ids: ProposalId[]; reviewedIds: ProposalId[]; expectedReasons?: Record<string, string>; accept: boolean }): Promise<ContributionResolution[]> {
+    const results: ContributionResolution[] = [];
+    for (const id of [...new Set(input.ids)]) {
+      const proposals = await this.contributionProposals(actor);
+      const proposal = proposals.find(entry => entry.id === id);
+      if (!proposal) throw new NotFoundError('Förslaget finns inte.');
+      if (proposal.status !== 'pending') { results.push({ id, status: 'already_handled' }); continue; }
+      if (input.accept && contributionMeta(proposal)?.reviewRequired && !input.reviewedIds.includes(id)) {
+        results.push({ id, status: 'needs_review' }); continue;
+      }
+      try {
+        const item = await this.resolveProposal(actor, id, input.accept, input.expectedReasons ? { reason: input.expectedReasons[id], reviewed: input.reviewedIds.includes(id) } : undefined);
+        results.push({ id, status: input.accept ? 'saved' : 'dismissed', ...(item ? { shortId: item.shortId } : {}) });
+      } catch (error) {
+        results.push({ id, status: error instanceof ValidationError ? 'needs_review' : 'failed' });
+      }
+    }
+    if (!input.accept) await this.pauseContributions(actor, true);
+    return results;
+  }
 
   async remember(
     actor: Actor,
@@ -620,7 +726,13 @@ export class MemoryIngest implements IngestPort {
     return winner;
   }
 
-  async resolveProposal(actor: Actor, id: ProposalId, accept: boolean): Promise<Item | null> {
+  async resolveProposal(actor: Actor, id: ProposalId, accept: boolean, consent?: { reason: string | undefined; reviewed: boolean }): Promise<Item | null> {
+    if (contributionMeta(this.store.proposals.get(id) ?? { structured: {} })) {
+      return this.withContributionLock(actor, () => this.resolveProposalWithin(actor, id, accept, consent));
+    }
+    return this.resolveProposalWithin(actor, id, accept, consent);
+  }
+  private async resolveProposalWithin(actor: Actor, id: ProposalId, accept: boolean, consent?: { reason: string | undefined; reviewed: boolean }): Promise<Item | null> {
     const proposal = this.store.proposals.get(id);
     if (!proposal || proposal.personId !== actor.personId) {
       throw new NotFoundError('Förslaget finns inte.');
@@ -640,6 +752,24 @@ export class MemoryIngest implements IngestPort {
       return null;
     }
 
+    const meta = contributionMeta(proposal);
+    let duplicate: Item | undefined;
+    if (meta) {
+      if (consent && (consent.reason !== proposal.reason || (meta.reviewRequired && !consent.reviewed))) {
+        throw new ValidationError('Underlaget har ändrats. Granska det igen.');
+      }
+      this.contributionRoom(actor);
+      const current = await compareContribution(meta.text, await this.contributionItems(actor), [], this.llm);
+      duplicate = current.knownItem;
+      if (!duplicate && (current.conflict?.body ?? null) !== meta.conflictBody) {
+        meta.conflictBody = current.conflict?.body ?? null;
+        meta.reviewRequired = needsSeparateReview(meta) || current.conflict !== null;
+        proposal.conflictsWith = current.conflict?.roomId === proposal.roomId ? current.conflict.id : null;
+        proposal.reason = contributionReason(meta);
+        throw new ValidationError('Minnet har ändrats sedan förslaget skapades. Granska det uppdaterade förslaget.');
+      }
+    }
+
     // Claimed before applying, so two overlapping approvals cannot both get past the
     // pending check above — `applyProposal` awaits, and an await is an interleaving point
     // here exactly as it is a commit boundary in `PgIngest`. Put back on failure, because an
@@ -648,7 +778,7 @@ export class MemoryIngest implements IngestPort {
 
     let resulting: Item;
     try {
-      resulting = await this.applyProposal(actor, proposal);
+      resulting = duplicate ?? await this.applyProposal(actor, proposal);
     } catch (error) {
       proposal.status = 'pending';
       throw error;
@@ -724,11 +854,13 @@ export class MemoryIngest implements IngestPort {
       room.kind === 'shared' &&
       conflicting.authorPersonId !== actor.personId;
 
-    const item = await this.write(actor, {
+    const meta = contributionMeta(proposal);
+    const author: Actor = meta ? { ...actor, agentClient: meta.agentClient, clientId: meta.clientId, sessionId: meta.sessionId as Actor['sessionId'] } : actor;
+    const item = await this.write(author, {
       roomId: proposal.roomId,
       kind: proposal.kind,
       body: proposal.body,
-      sensitivity: 'normal',
+      sensitivity: meta?.sensitive ? 'sensitive' : 'normal',
       approvedBy: actor.personId,
       explicit: true,
       // The sentence the router wrote when it chose this room, not a fresh one. Deciding
@@ -739,7 +871,8 @@ export class MemoryIngest implements IngestPort {
       // must not be recorded as one.
       supersedes: acrossAuthors ? null : conflicting?.id ?? null,
       previousBody: acrossAuthors ? null : conflicting?.body ?? null,
-      structured: proposal.structured,
+      structured: meta ? contributionItemMetadata(meta) : proposal.structured,
+      ...(meta ? { source: { kind: 'import' as const, label: meta.sourceLabel, ref: meta.sessionId, uri: null } } : {}),
     });
 
     if (conflicting && conflicting.status === 'active') {

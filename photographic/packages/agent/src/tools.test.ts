@@ -10,14 +10,14 @@ describe('the tool set', () => {
     // Staying well under that is why folding undo into restore_memory was worth it.
     expect(TOOLS.length).toBeLessThanOrEqual(10);
 
-    // Around 2% of a 200k window, inside the range where loading every tool is fine.
+    // Under 3% of a 200k window, including the structured context contribution tool, inside the range where loading every tool is fine.
     // The ceiling is generous on purpose: descriptions are decision prompts, and a
     // vague `remember` costs far more than the tokens a precise one occupies.
     //
     // Measured on the wire format rather than on the definitions, because that is what
     // occupies the window. Fields the server does not forward — `scopes` — cost nothing
     // and should not eat the budget.
-    expect(estimateTokens(JSON.stringify(TOOLS.map(toolWireFormat)))).toBeLessThan(4500);
+    expect(estimateTokens(JSON.stringify(TOOLS.map(toolWireFormat)))).toBeLessThan(5500);
   });
 
   it('uses distinct verbs rather than vague ones', () => {

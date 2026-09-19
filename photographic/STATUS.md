@@ -246,6 +246,8 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- 2026-09-19 — Context contributions: connected AIs compare available user context before onboarding questions; one private review groups new facts, with separate consent for sensitive/inferred/conflicting entries. Cross-client pause/resume, historical offer suppression, source provenance, retry-safe preparation and approvals, and stale-consent checks are implemented for memory and PostgreSQL. New `prepare_context` MCP tool and first-party bulk review UI. See CONTEXT-CONTRIBUTIONS.md for data flow, limits and validation.
+
 - 2026-09-16 — Native app launch: ChatGPT desktop now uses the installed app's documented scheme; ChatGPT/Claude mobile use associated app routes, Android explicitly targets official packages. Device-aware resolver handles iPad desktop mode. Desktop-only chat actions are unavailable on phones, web is a separate choice, and no app click counts as context delivery. See CHAT-START.md for verification and device limitations.
 
 

@@ -231,6 +231,7 @@ export function mapProposal(
   return {
     id: dto.id,
     clientLabel: clientLabel(dto.proposedByClient),
+    contribution: dto.contribution ?? null,
     intent: dto.intent ?? 'remember',
     kind: mapItemKind(dto.kind),
     body: dto.body,

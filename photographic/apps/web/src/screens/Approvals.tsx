@@ -1,3 +1,5 @@
+import { ContributionPreference } from '../components/ContributionPreference.js';
+import { ContributionReview } from '../components/ContributionReview.js';
 import { useEffect, useState } from 'react';
 
 import { isDemoMode, resolveProposal } from '../api/index.js';
@@ -36,6 +38,8 @@ export function Approvals() {
 
 function ApprovalsReady({ initial }: { initial: ApprovalItem[] }) {
   const [items, setItems] = useState<ApprovalItem[]>(initial);
+  const [receipt, setReceipt] = useState('');
+  const [preferenceVersion, setPreferenceVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [failed, setFailed] = useState<{ id: string; message: string } | null>(null);
 
@@ -44,6 +48,15 @@ function ApprovalsReady({ initial }: { initial: ApprovalItem[] }) {
   useEffect(() => {
     setPendingApprovals(items);
   }, [items]);
+
+  const groups = new Map<string, ApprovalItem[]>();
+  for (const item of items) {
+    if (item.contribution) {
+      const key = item.contribution.batchId;
+      groups.set(key, [...(groups.get(key) ?? []), item]);
+    }
+  }
+  async function refresh() { if (!isDemoMode()) setItems(await loadApprovalsFromApi()); }
 
   async function resolve(id: string, accept: boolean) {
     if (busy) return;
@@ -73,16 +86,22 @@ function ApprovalsReady({ initial }: { initial: ApprovalItem[] }) {
         <Wordmark />
         <h1 className="page-head__title">Godkänn</h1>
         <p className="page-head__lede">
-          Det här är sådant Photographic inte avgjorde åt dig. Tills du svarar är det inte
-          sparat, och ingen modell kan läsa det.
+          Det här är sådant Photographic inte avgjorde åt dig. Tills du godkänner det
+          används det inte som ditt sparade minne.
         </p>
       </header>
+
+      <ContributionPreference key={preferenceVersion} />
+      {receipt && <p role="status">{receipt}</p>}
 
       {items.length === 0 ? (
         <p className="section-block__empty">Inget väntar på dig just nu.</p>
       ) : (
         <ul className="approval-feed">
-          {items.map((item) => {
+          {[...groups].map(([id, entries]) => <ContributionReview key={id} items={entries}
+            onResolved={(ids, text) => { setItems(current => current.filter(item => !ids.includes(item.id))); setReceipt(text); }}
+            onPaused={() => setPreferenceVersion(value => value + 1)} onRefresh={refresh} />)}
+          {items.filter(item => !item.contribution).map((item) => {
             const audience = approvalAudience(item);
             return (
               <li key={item.id} className="approval-card card">
