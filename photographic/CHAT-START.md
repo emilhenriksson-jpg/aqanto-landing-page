@@ -17,14 +17,16 @@ Launch descriptors are separate from installation actions in `@photographic/conn
 Prompts contain generic instructions only, never profiles, room ids, tokens or personal
 endpoints. Identity stays in OAuth. First-time authorization is still necessary.
 
-- Codex: `codex://threads/new?prompt=...`; new composer, no auto-send.
+- Codex: `codex://threads/new?mode=codex&prompt=...`; new Codex composer,
+  no auto-send.
 - Cursor: `cursor://anysphere.cursor-deeplink/prompt?text=...`; may reuse the current
   chat; web handoff available; no auto-send.
 - Claude Desktop: `claude://claude.ai/new?q=...`; new composer, no auto-send.
   Web fallback opens a blank chat, with copyable start text on Photographic.
-- ChatGPT Desktop: `codex://threads/new?prompt=...`, the URL scheme retained by
+- ChatGPT Desktop: `codex://threads/new?mode=chat&prompt=...`, the URL scheme retained by
   the current ChatGPT desktop app. Its installed macOS Info.plist also registers
-  `codex`, not `chatgpt`. Opens a local composer; does not select a connector or send.
+  `codex`, not `chatgpt`. Explicitly selects Chat mode for a new ordinary ChatGPT
+  conversation; does not select a project or connector, or send the prompt.
 - ChatGPT iOS: associated `https://chatgpt.com/?q=...` Universal Link. Android:
   explicit HTTPS intent for verified package `com.openai.chatgpt`.
 - Claude iOS: associated `https://claude.ai/new` Universal Link. Android: explicit
@@ -71,6 +73,20 @@ explicit web alternatives, unavailable mobile clients, and clipboard/receipt beh
 Physical mobile app handoff has not been tested here. Native ChatGPT UI verification
 is unavailable: the computer-use tool denies control of `com.openai.codex` (the
 installed ChatGPT desktop app). Its registration and official route docs were checked.
+
+### Chat mode correction (2026-09-19)
+
+The earlier desktop ChatGPT link omitted `mode`, so it could retain Codex mode and
+offer a task in the current local project. Both desktop buttons now specify their
+mode (`chat` or `codex`); neither includes `projectId`, `path` or `originUrl`.
+The official commands page documents the retained scheme and local new-thread
+route, but not the mode parameter. Read-only inspection of the installed macOS
+ChatGPT 26.908.70816 confirms that the parser accepts `chat | work | codex`, passes
+the chosen mode to the new-thread route, and the renderer selects that mode.
+Without a project id, path or origin, the native route supplies no project.
+Regression tests distinguish both buttons on desktop and preserve mobile routes.
+This is route/code verification, not a completed native UI handoff test; the
+computer-use restriction above still applies.
 
 ## Verification
 

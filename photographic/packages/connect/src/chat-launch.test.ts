@@ -22,6 +22,16 @@ describe('room-independent chat launch', () => {
       expect(url.searchParams.has('submit')).toBe(false);
     }
   });
+  it.each(['macos', 'windows', 'linux', 'unknown'] as const)('selects ChatGPT or Codex explicitly without a project on %s', (platform) => {
+    for (const [id, mode] of [['chatgpt', 'chat'], ['codex', 'codex']] as const) {
+      const url = new URL(chatLaunch(id, platform)!.url!);
+      expect(url.protocol + '//' + url.host + url.pathname).toBe('codex://threads/new');
+      expect(url.searchParams.getAll('mode')).toEqual([mode]);
+      expect(url.searchParams.get('prompt')).toBe(CHAT_START_PROMPT);
+      // No current project, workspace or automatic submission travels with the link.
+      expect([...url.searchParams.keys()].sort()).toEqual(['mode', 'prompt']);
+    }
+  });
   it.each(['ios', 'android'] as const)('does not offer desktop-only launches on %s', (platform) => {
     expect(chatLaunch('codex', platform)?.url).toBeNull();
     expect(chatLaunch('cursor', platform)?.url).toBeNull();
@@ -45,7 +55,7 @@ describe('room-independent chat launch', () => {
   });
   it('does not promise to attach an unpublished ChatGPT connector from a URL', () => {
     const chatgpt = clients.find((client) => client.id === 'chatgpt')!;
-    expect(chatgpt.launch?.url).toMatch(/^codex:\/\/threads\/new\?prompt=/);
+    expect(new URL(chatgpt.launch!.url!).searchParams.get('mode')).toBe('chat');
     expect(chatgpt.launch?.fallbackUrl).toBe('https://chatgpt.com/?no_universal_links=1');
     expect(chatgpt.launch?.note).toContain('verktygsmeny');
   });

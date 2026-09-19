@@ -24,7 +24,12 @@ describe('conversation home', () => {
     vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)', maxTouchPoints: 0 });
     render(<MemoryRouter><ChatStart /></MemoryRouter>);
     const link = screen.getByRole('link', { name: 'Öppna ChatGPT' });
-    expect(link.getAttribute('href')).toMatch(/^codex:\/\/threads\/new\?prompt=/);
+    const chatgptUrl = new URL(link.getAttribute('href')!);
+    const codexUrl = new URL(screen.getByRole('link', { name: 'Öppna Codex' }).getAttribute('href')!);
+    expect(chatgptUrl.protocol + '//' + chatgptUrl.host + chatgptUrl.pathname).toBe('codex://threads/new');
+    expect(chatgptUrl.searchParams.get('mode')).toBe('chat');
+    expect(codexUrl.searchParams.get('mode')).toBe('codex');
+    expect([...chatgptUrl.searchParams.keys()].sort()).toEqual(['mode', 'prompt']);
     expect(link).not.toHaveAttribute('target');
     expect(screen.getAllByRole('link', { name: 'Öppna i webbläsaren' }).some((entry) => entry.getAttribute('href') === 'https://chatgpt.com/?no_universal_links=1')).toBe(true);
   });

@@ -102,7 +102,7 @@ export function chatLaunch(id: ClientId, platform: Platform = 'unknown'): ChatLa
   }
   switch (id) {
     case 'codex': return {
-      url: `codex://threads/new?prompt=${encoded}`, prompt, desktop: true,
+      url: `codex://threads/new?mode=codex&prompt=${encoded}`, prompt, desktop: true,
       note: 'Öppnar en ny chatt i datorappen med starttexten. Skicka den för att hämta ditt minne.',
     };
     case 'cursor': return {
@@ -116,8 +116,9 @@ export function chatLaunch(id: ClientId, platform: Platform = 'unknown'): ChatLa
       note: 'Öppnar en ny chatt i datorappen med starttexten. På webben: kopiera starttexten och klistra in den i chatten.',
     };
     case 'chatgpt': return {
-      // The current ChatGPT desktop app retains the codex:// scheme.
-      url: `codex://threads/new?prompt=${encoded}`, prompt, desktop: true,
+      // ChatGPT retains codex://, but the mode must be explicit: otherwise the app
+      // can keep its active Codex mode and start a local task in the current project.
+      url: `codex://threads/new?mode=chat&prompt=${encoded}`, prompt, desktop: true,
       fallbackUrl: 'https://chatgpt.com/?no_universal_links=1',
       note: 'Öppnar en ny chatt i den aktuella ChatGPT-appen på datorn med starttexten. Skicka den och välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald.',
     };
