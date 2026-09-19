@@ -781,4 +781,3 @@ export function trimToBudget(text: string, budgetTokens: number): string {
 
   return blocks.join(SEPARATOR);
 }
-
