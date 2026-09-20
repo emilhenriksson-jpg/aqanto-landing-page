@@ -165,7 +165,7 @@ describe('verification routes', () => {
     });
     expect(started.status).toBe(200);
     const { handle, prompt } = started.body as { handle: VerificationHandle; prompt: string };
-    expect(prompt).toBe('Vad vet du om mig?');
+    expect(prompt).toBe('Hämta mitt minne från Photographic nu. Om du inte har tillgång till Photographics verktyg, säg det.');
 
     // The handle goes to the browser and comes back, so it has to survive JSON.
     const roundTripped = JSON.parse(JSON.stringify(handle)) as VerificationHandle;

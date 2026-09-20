@@ -1846,6 +1846,9 @@
 .chat-start__setup { border-top: 1px solid var(--hairline); padding-top: 16px; margin-top: 20px; font-size: 13px; line-height: 1.6; }
 .chat-start__setup summary { cursor: pointer; }
 .chat-start__setup[open] summary { margin-bottom: 16px; }
+.chat-start__setup p, .chat-start__setup ol, .chat-start__setup blockquote { margin: 12px 0; }
+.chat-start__setup ol { list-style: decimal; padding-left: 20px; }
+.chat-start__setup blockquote { border-left: 2px solid var(--hairline); padding-left: 12px; }
 .chat-start__setup li { margin-bottom: 10px; }
 .chat-start__code { display: block; overflow-wrap: anywhere; padding: 12px 0; }
 .chat-start__receipt { font-size: 13px; line-height: 1.6; padding: 12px; border-radius: 12px; background: var(--canvas); }

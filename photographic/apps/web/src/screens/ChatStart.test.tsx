@@ -18,7 +18,9 @@ describe('conversation home', () => {
     }
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Ditt personliga rum/ })).toHaveAttribute('href', '/personligt');
-    for (const status of screen.getAllByText(/Ingen bekräftad leverans ännu/)) expect(status).not.toBeVisible();
+    for (const status of screen.getAllByText(/Ingen bekräftad koppling ännu/)) expect(status).toBeVisible();
+    expect(screen.getByText('Koppla ChatGPT till Photographic')).toBeVisible();
+    expect(screen.getByText('Välj Photographic i den nya chattens verktygsmeny innan du börjar prata.')).toBeVisible();
   });
 
   it('keeps the Mac app handoff on the user click and offers the web separately', () => {
@@ -54,9 +56,10 @@ describe('conversation home', () => {
   it('shows selectable text if clipboard permission is denied', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
     render(<MemoryRouter><ChatStart /></MemoryRouter>);
-    fireEvent.click(screen.getByText('Hjälp med ChatGPT'));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Kopiera hälsning' })[0]!);
-    expect(await screen.findByRole('textbox', { name: 'Kopiera hälsning' })).toHaveValue(clients[0]!.launch!.prompt);
+    const setup = screen.getByText('Koppla ChatGPT till Photographic');
+    fireEvent.click(setup);
+    fireEvent.click(within(setup.closest('details')!).getByRole('button', { name: 'Kopiera kontrollfrågan' }));
+    expect(await screen.findByRole('textbox', { name: 'Kopiera kontrollfrågan' })).toHaveValue(clients.find(client => client.id === 'chatgpt')!.verifyPrompt);
   });
 
   it('does not turn an old delivery or an app click into a new delivery receipt', async () => {
@@ -77,6 +80,7 @@ describe('conversation home', () => {
     await waitFor(() => expect(request.mock.calls.some(([url]) => url.endsWith('/status'))).toBe(true));
     expect(screen.queryByText('Ditt minne har skickats till Codex.')).not.toBeInTheDocument();
     expect(screen.getByText('Väntar på att Codex hämtar ditt minne.')).toBeInTheDocument();
+    expect(screen.getByText(/Det bekräftar inte kopplingen i en ny chatt/)).toBeVisible();
   });
 
   it('offers retry when the start data cannot be fetched', async () => {
@@ -85,6 +89,25 @@ describe('conversation home', () => {
     render(<MemoryRouter><ChatStart /></MemoryRouter>);
     expect(await screen.findByRole('button', { name: 'Försök igen' })).toBeInTheDocument();
     expect(screen.queryByText('Ingen bekräftad leverans ännu.')).not.toBeInTheDocument();
+  });
+
+  it.each(['connected', 'timed_out'])('reports the result of a real verification check: %s', async (status) => {
+    vi.stubEnv('VITE_USE_DEMO', '0');
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/connect')) return Response.json({ clients });
+      if (url.endsWith('/v1/clients')) return Response.json({ clients: [] });
+      if (url.endsWith('/verify')) return Response.json({ handle: { clientId: 'chatgpt' } });
+      if (url.endsWith('/status')) return Response.json({ status });
+      throw new Error(url);
+    }));
+    render(<MemoryRouter><ChatStart /></MemoryRouter>);
+    const setup = await screen.findByText('Koppla ChatGPT till Photographic');
+    fireEvent.click(setup);
+    expect(within(setup.closest('details')!).getByRole('link', { name: 'Öppna ChatGPTs pluginsida' })).toHaveAttribute('href', 'https://chatgpt.com/plugins');
+    fireEvent.click(within(setup.closest('details')!).getByRole('button', { name: 'Kontrollera kopplingen' }));
+    expect(await screen.findByText(status === 'connected'
+      ? 'ChatGPT har hämtat ditt minne. Kvittot gäller appen; vi kan inte avgöra vilken chatt som hämtade det.'
+      : 'Ingen ny hämtning bekräftad. Välj Photographic i chatten och be din AI hämta ditt minne med kontrollfrågan nedan.')).toBeVisible();
   });
 });
 
@@ -123,7 +146,7 @@ it('still opens an AI if storage is blocked, without touching the clipboard', ()
   fireEvent.click(link);
   expect(link).toHaveAttribute('href', expect.stringContaining('https://chatgpt.com/?q='));
   expect(writeText).not.toHaveBeenCalled();
-  for (const button of screen.getAllByRole('button', {name: 'Kopiera hälsning'})) expect(button).not.toBeVisible();
+  expect(screen.queryByRole('button', {name: 'Kopiera hälsning'})).not.toBeInTheDocument();
 });
 
 it('does not make optional account or receipt failures block the start or invent a name', async () => {
@@ -135,8 +158,7 @@ it('does not make optional account or receipt failures block the start or invent
   home();
   expect(await screen.findByRole('link', { name: 'Öppna ChatGPT' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Hej.');
-  fireEvent.click(screen.getByText('Hjälp med ChatGPT'));
-  expect(screen.getAllByText(/Leveranshistoriken kunde inte visas/)[0]).toBeVisible();
+  expect(screen.getAllByText(/Kopplingen kunde inte kontrolleras/)[0]).toBeVisible();
   expect(screen.queryByText(/Ingen bekräftad leverans ännu/)).not.toBeInTheDocument();
 });
 

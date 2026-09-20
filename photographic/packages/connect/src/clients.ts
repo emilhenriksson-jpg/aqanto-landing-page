@@ -62,6 +62,8 @@ export interface ChatLaunch {
   url: string | null;
   prompt: string;
   note: string;
+  /** An action required in each new chat, shown beside the launch button. */
+  activationNote?: string;
   /** This launch requires a desktop app, rather than a mobile app. */
   desktop: boolean;
   fallbackUrl?: string;
@@ -86,6 +88,7 @@ export function chatLaunch(id: ClientId, platform: Platform = 'unknown'): ChatLa
         ? `intent://chatgpt.com/?q=${encoded}#Intent;scheme=https;package=com.openai.chatgpt;end`
         : `https://chatgpt.com/?q=${encoded}`,
       prompt, desktop: false,
+      activationNote: 'Välj Photographic i den nya chattens verktygsmeny innan du börjar prata.',
       fallbackUrl: 'https://chatgpt.com/?no_universal_links=1',
       note: 'Öppnar ChatGPT-appen med en kort hälsning som du skickar. Välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald.',
     };
@@ -118,6 +121,7 @@ export function chatLaunch(id: ClientId, platform: Platform = 'unknown'): ChatLa
       // ChatGPT retains codex://, but the mode must be explicit: otherwise the app
       // can keep its active Codex mode and start a local task in the current project.
       url: 'codex://threads/new?mode=chat', prompt, desktop: true,
+      activationNote: 'Välj Photographic i den nya chattens verktygsmeny innan du börjar prata.',
       fallbackUrl: 'https://chatgpt.com/?no_universal_links=1',
       note: 'Öppnar en tom ChatGPT-chatt i datorappen. Välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald, och börja prata.',
     };
@@ -133,7 +137,7 @@ export interface ConnectConfig {
   serverName?: string;
 }
 
-const VERIFY = 'Vad vet du om mig?';
+const VERIFY = 'Hämta mitt minne från Photographic nu. Om du inte har tillgång till Photographics verktyg, säg det.';
 
 export function buildClients(config: ConnectConfig, platform: Platform = 'unknown'): ClientDescriptor[] {
   const name = config.serverName ?? DEFAULT_SERVER_NAME;
@@ -255,7 +259,7 @@ export function buildClients(config: ConnectConfig, platform: Platform = 'unknow
       ],
       steps: ['Kör kommandot i terminalen.', 'Kör `codex mcp login photographic` och godkänn inloggningen.', 'Öppna en ny chatt från Photographic.'],
       caveats: [
-        'Starttexten ber Codex hämta färsk kontext. Vi kan bekräfta leveransen först när Photographic har fått en förfrågan.',
+        'En ny chatt är tom. Photographic måste vara anslutet och tillgängligt som verktyg för att din AI ska kunna hämta ditt minne.',
       ],
       verifyPrompt: VERIFY,
       remedy: 'Kontrollera `~/.codex/config.toml` och starta om Codex.',
@@ -270,6 +274,7 @@ export function buildClients(config: ConnectConfig, platform: Platform = 'unknow
       oneClick: false,
       primary: { type: 'copy', label: 'Kopiera adressen', value: mcpUrl },
       secondary: [
+        { type: 'deeplink', label: 'Öppna ChatGPTs pluginsida', url: 'https://chatgpt.com/plugins' },
         {
           type: 'copy',
           label: 'Kopiera din profil istället',
@@ -290,7 +295,7 @@ export function buildClients(config: ConnectConfig, platform: Platform = 'unknow
       verifyPrompt: VERIFY,
       remedy:
         'Developer mode måste vara påslaget, och det går bara från webbläsaren. ' +
-        'Går det inte: kopiera din profil till Custom Instructions istället.',
+        'Kontrollera sedan att Photographic är valt i den nya chattens verktygsmeny. En inklistrad profil ger ingen levande koppling till Photographic.',
     },
   ];
 }

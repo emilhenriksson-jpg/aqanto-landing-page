@@ -39,7 +39,7 @@ describe('verification', () => {
     const state = await pollVerification(deps, actor, handle, claude);
     expect(state.status).toBe('waiting');
     if (state.status === 'waiting') {
-      expect(state.prompt).toBe('Vad vet du om mig?');
+      expect(state.prompt).toBe('Hämta mitt minne från Photographic nu. Om du inte har tillgång till Photographics verktyg, säg det.');
       expect(state.elapsedMs).toBe(2000);
       expect(state.remainingMs).toBeGreaterThan(0);
     }

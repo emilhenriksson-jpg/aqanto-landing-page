@@ -52,7 +52,7 @@ export function ChatStart() {
           health={health} /> : null;
       })}
     </section>
-    <p className="chat-start__explanation">Säg hej eller börja prata när chatten öppnas. Med Photographic anslutet kan din AI hämta ditt minne och följa med mellan ämnen och rum. Första gången behöver du koppla din AI via hjälpen vid knappen.</p>
+    <p className="chat-start__explanation">Koppla din AI första gången. I ChatGPT väljer du också Photographic i den nya chatten. Då kan din AI hämta ditt minne och följa med mellan ämnen och rum. Öppningsknappen startar appen; den aktiverar inte kopplingen.</p>
     <ContributionPreference />
     <section className="chat-start__memory" aria-label="Ditt minne">
       <Link to="/personligt"><strong>Ditt personliga rum</strong><span>Vem du är, vad som är viktigt och hur din AI ska hjälpa dig.</span></Link>
@@ -89,8 +89,8 @@ function LaunchCard({ client, health, preferred }: { client: ClientDescriptor; h
         } else {
           setChecking(false);
           setStatus(result.status === 'connected'
-            ? `Ditt minne har skickats till ${client.displayName}.`
-            : 'Ditt minne har inte hämtats ännu. Kontrollera att Photographic är valt i chatten och börja prata.');
+            ? `${client.displayName} har hämtat ditt minne. Kvittot gäller appen; vi kan inte avgöra vilken chatt som hämtade det.`
+            : 'Ingen ny hämtning bekräftad. Välj Photographic i chatten och be din AI hämta ditt minne med kontrollfrågan nedan.');
         }
       } catch {
         if (!cancelled) {
@@ -125,6 +125,9 @@ function LaunchCard({ client, health, preferred }: { client: ClientDescriptor; h
       <h2>{client.displayName}</h2>
       {preferred && <span className="chat-start__last">Senast vald här</span>}
     </div>
+    <p className="chat-start__status">{previous
+      ? `Senast hämtat ${new Date(previous.lastSeenAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })}. Det bekräftar inte kopplingen i en ny chatt.`
+      : health.status === 'error' ? 'Kopplingen kunde inte kontrolleras just nu.' : health.status === 'loading' ? 'Kontrollerar tidigare hämtningar…' : 'Ingen bekräftad koppling ännu. Koppla din AI nedan.'}</p>
     {launch.url ? <a className="btn btn--brand chat-start__open" href={launch.url}
       rel="noopener noreferrer"
       onClick={() => {
@@ -133,25 +136,25 @@ function LaunchCard({ client, health, preferred }: { client: ClientDescriptor; h
       }}>
       Öppna {client.displayName}<span aria-hidden="true"> ↗</span>
     </a> : <button className="btn chat-start__open" disabled>Öppna på datorn</button>}
+    {launch.url && launch.activationNote && <p className="chat-start__note">{launch.activationNote}</p>}
     {!launch.url && <p className="chat-start__note">Finns här när du använder Photographic på datorn.</p>}
     {status && <p className="chat-start__receipt" role="status">{status}</p>}
+    <details className="chat-start__setup">
+      <summary>{previous ? `Hantera kopplingen till ${client.displayName}` : `Koppla ${client.displayName} till Photographic`}</summary>
+      <SetupAction action={client.primary} />
+      {client.secondary.filter((action) => action.type === 'deeplink').map((action) => <SetupAction key={action.label} action={action} />)}
+      <ol>{client.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+      {client.caveats.map((note) => <p key={note}>{note}</p>)}
+      <p>Välj Photographic i chatten och skicka kontrollfrågan. En personlig hälsning eller ett svar från AI:ns eget minne bekräftar inte kopplingen.</p>
+      <blockquote>{client.verifyPrompt}</blockquote>
+      <CopyText value={client.verifyPrompt} label="Kopiera kontrollfrågan" />
+      <button className="btn" disabled={checking} onClick={() => void verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'))}>Kontrollera kopplingen</button>
+    </details>
     <details className="chat-start__setup">
       <summary>Hjälp med {client.displayName}</summary>
       <p>{launch.note}</p>
       {launch.url && <p>Öppnades inte appen? Kontrollera att den är installerad och tillåt webbläsaren att öppna den. På iPhone kan du hålla inne länken och välja att öppna i appen.</p>}
-      <p>Med Photographic anslutet följer instruktionerna med i bakgrunden. Om din AI inte känner igen starten kan du skicka den här hälsningen.</p>
-      <CopyText value={launch.prompt} label="Kopiera hälsning" />
       {launch.fallbackUrl && <a href={launch.fallbackUrl} target="_blank" rel="noopener noreferrer" className="chat-start__fallback">Öppna i webbläsaren</a>}
-      <p className="chat-start__status">{previous
-        ? `Kontext skickades senast ${new Date(previous.lastSeenAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })}.`
-        : health.status === 'error' ? 'Leveranshistoriken kunde inte visas just nu.' : health.status === 'loading' ? 'Hämtar leveranshistoriken…' : 'Ingen bekräftad leverans ännu.'} Att appen öppnas betyder inte att minnet har skickats.</p>
-      <details className="chat-start__setup">
-        <summary>Koppla {client.displayName} första gången</summary>
-        <SetupAction action={client.primary} />
-        <ol>{client.steps.map((step) => <li key={step}>{step}</li>)}</ol>
-        {client.caveats.map((note) => <p key={note}>{note}</p>)}
-      </details>
-      <button className="btn" disabled={checking} onClick={() => void verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'))}>Kontrollera kopplingen</button>
     </details>
   </article>;
 }

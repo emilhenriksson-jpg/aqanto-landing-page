@@ -4,8 +4,9 @@ Implemented 2026-09-16. `/chatt` is the signed-in start on both hosts; the produ
 root redirects there. `/personligt` retains the personal-room screen. Phone login
 without a return destination goes to `/chatt`.
 
-Every new conversation requests `get_context` without a room, even when its MCP
-connection predates another AI's writes. The bundle reserves a sample of recent
+Once Photographic is enabled in a conversation, its instructions ask the model to
+request `get_context` without a room, even when its MCP connection predates another
+AI's writes. A launch link alone does not supply those instructions. The bundle reserves a sample of recent
 calendar activity and open threads alongside profile/compass and room overviews.
 More timeline entries use spare space. Impossible budgets preserve safety rules
 and compass over timeline content. Relevant room detail is fetched on demand.
@@ -15,8 +16,8 @@ Saving, provenance, isolation and shared-write approval use the existing ports.
 
 The home greets the actual account name and remembers only the last chosen client on
 this device. Supported mobile clients come before desktop-only options. Account and
-receipt reads cannot block the launch list. Setup and historical receipts sit under
-help; a remembered click never counts as memory delivery.
+receipt reads cannot block the launch list. A remembered click never counts as memory delivery. The 2026-09-20 correction below
+moves setup and connection evidence out of the nested help.
 
 Conversation guidance now favours warmth and optional curiosity: one question at a time,
 listen before advice, stop after a short answer or topic change, and avoid inventing a
@@ -59,15 +60,16 @@ is separate; ChatGPT uses its documented association exclusion `no_universal_lin
 OS preferences, app installation and browser restrictions can still prevent opening
 an app. iOS Universal Links can stay on the web when disabled by the user; the UI
 explains the long-press/app option. We cannot override those OS preferences.
-The optional greeting sits under collapsed “Hjälp med [client]”. Copying requires a
-button click; clipboard denial exposes selectable text. No published plugin id is invented.
+The connection section offers an explicit Photographic retrieval question. Copying
+requires a button click; clipboard denial exposes selectable text. A greeting alone
+cannot enable the connector. No published plugin id is invented.
 
 Desktop links require the corresponding app. Directory publication and provider
 approval could reduce setup, but are not completed or claimed by this change.
 
 Old deliveries cannot satisfy a new verification baseline. A new receipt says
-“Ditt minne har skickats till [client]”: evidence of delivery to a client, not proof a
-particular model read it. Concurrent chats in one client are not individually
+that the client retrieved memory, explicitly noting that the individual chat cannot
+be identified. This is delivery evidence, not proof a particular model read it. Concurrent chats in one client are not individually
 correlated. Opening an app, copying text and installing configuration never count.
 
 ## Official sources checked 2026-09-16
@@ -145,3 +147,28 @@ Chrome verified phone signup → `/chatt`, desktop/mobile layout, first-time set
 expansion, waiting-for-delivery state and personal-room/calendar navigation locally.
 The full local unit run has an existing macOS unzip/Unicode failure in export; CI on
 Linux is required before merge. No export implementation is changed here.
+
+## Connection gap correction (2026-09-20)
+
+A real ChatGPT conversation opened from `/chatt` answered from its own memory and
+reported no Photographic connection. The signed-in Photographic account also showed
+no connected AIs. The launch routes were working; connector activation was absent.
+
+The home now exposes absence/error/history and first-time setup directly on each
+card. ChatGPT explicitly says to select Photographic in the new chat. The connection
+check asks for a fresh Photographic tool read, not an answer the provider could give
+from its own memory. Historical receipts never say the next chat is connected.
+
+Official docs describe a native `codex://new?prompt=...` with a `plugin://` mention,
+but only for an actual available plugin identity. Photographic was not found in the
+plugin directory. A registered ChatGPT MCP app ID and an installed/available plugin
+are still needed before that route can be implemented and tested honestly. A local
+MCP configuration is not evidence that a regular ChatGPT chat has the same access.
+
+The authenticated ChatGPT setup and native model/tool run remain unverified. Chrome
+is signed out of ChatGPT; the user must sign in before that account can be inspected.
+No invented plugin ID, automatic data access, or completed native connection is claimed.
+
+Sources checked: https://developers.openai.com/plugins/deploy/connect-chatgpt,
+https://learn.chatgpt.com/docs/reference/commands,
+https://developers.openai.com/plugins/build/plugins.
