@@ -113,8 +113,8 @@ function PersonalRoomReady({
         <div className="hero__identity">
           <h1 className="hero__title">{room.title}</h1>
           <p className="hero__lede">
-            Det här är ditt minne, läst av vilken modell du än pratar med. Varje rad har ett
-            kort id så du kan peka på den.
+            Det här är ditt minne. Det ger dina anslutna chattar sammanhang om dig
+            och det som är viktigt i ditt liv.
           </p>
           <TokenMeter used={tokenCount} ceiling={room.tokenCeiling} />
           {/*

@@ -1,68 +1,85 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 
 import { usePendingApprovals } from '../hooks/usePendingApprovals.js';
+import { Wordmark } from './Wordmark.js';
 
-const NAV = [
+const PRIMARY = [
   { to: '/chatt', end: true, label: 'Start', icon: HomeIcon },
-  { to: '/rum', end: true, label: 'Alla', icon: GridIcon },
-  // The calendar earns a rail slot: the scope calls it a central part of the app, the
-  // chronological representation of the person's memory, not something internal to the AI.
+  { to: '/rum', end: false, label: 'Rum', icon: GridIcon },
   { to: '/kalender', end: false, label: 'Kalender', icon: CalendarIcon },
+  { to: '/godkann', end: true, label: 'Godkänn', icon: CheckIcon },
+] as const;
+const SECONDARY = [
   { to: '/fraga', end: true, label: 'Fråga', icon: AskIcon },
   { to: '/klienter', end: true, label: 'Dina AI:er', icon: ClientsIcon },
-  { to: '/godkann', end: true, label: 'Godkänn', icon: CheckIcon },
-  // Export and permanent deletion, which had no caller anywhere in the app. One slot
-  // rather than two: the rail is the phone's entire navigation, and seven labels is what
-  // fits at 320px without them truncating.
   { to: '/konto', end: false, label: 'Konto', icon: AccountIcon },
 ] as const;
 
-/**
- * Desktop: 64px icon-only left rail. Mobile: bottom tab bar.
- * The person is inside a room; the rail is how they walk between spaces.
- */
+/** A labelled sidebar on desktop; four stable destinations and More on mobile. */
 export function Shell() {
+  const { pathname } = useLocation();
   const pending = usePendingApprovals();
   const waiting = pending?.length ?? 0;
+  const [moreOpen, setMoreOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const moreActive = SECONDARY.some(({ to, end }) => pathname === to || (!end && pathname.startsWith(`${to}/`)));
 
-  return (
-    <div className="shell">
-      <nav className="rail" aria-label="Huvudmeny">
-        {NAV.map(({ to, end, label, icon: Icon }) => {
-          /*
-            The only count in the rail, and the only place violet appears here.
-            It is on `Godkänn` because that is the one destination where the product is
-            waiting for the person rather than the other way round — everything else can
-            be visited whenever. No badge at zero: a permanent ornament stops being read.
-          */
-          const badge = to === '/godkann' && waiting > 0 ? waiting : 0;
+  useEffect(() => {
+    if (!moreOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !navRef.current?.contains(event.target)) setMoreOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setMoreOpen(false); moreRef.current?.focus(); }
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [moreOpen]);
 
-          return (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                isActive ? 'rail__link rail__link--active' : 'rail__link'
-              }
-              aria-label={badge > 0 ? `${label}, ${waitingLabel(badge)}` : label}
-            >
-              <Icon />
-              {badge > 0 ? (
-                <span className="rail__badge" aria-hidden="true">
-                  {badge > 9 ? '9+' : badge}
-                </span>
-              ) : null}
-              <span className="rail__label">{label}</span>
-            </NavLink>
-          );
-        })}
-      </nav>
-      <div className="shell__main">
-        <Outlet />
+  function navLink({ to, end, label, icon: Icon }: (typeof PRIMARY)[number] | (typeof SECONDARY)[number]) {
+    const badge = to === '/godkann' ? waiting : 0;
+    return <NavLink key={to} to={to} end={end} onClick={() => setMoreOpen(false)}
+      className={({ isActive }) => isActive || (to === '/rum' && pathname === '/personligt') ? 'rail__link rail__link--active' : 'rail__link'}
+      aria-label={badge > 0 ? `${label}, ${waitingLabel(badge)}` : label}>
+      <Icon />
+      <span className="rail__label">{label}</span>
+      {badge > 0 && <span className="rail__badge" aria-hidden="true">{badge > 9 ? '9+' : badge}</span>}
+    </NavLink>;
+  }
+
+  return <div className="shell">
+    <a className="skip-link" href="#main-content">Till innehållet</a>
+    <nav className="rail" aria-label="Huvudmeny" ref={navRef}>
+      <Link className="rail__brand" to="/chatt" aria-label="Photographic startsida"><Wordmark /></Link>
+      <div className="rail__primary">{PRIMARY.map(navLink)}</div>
+      <button className={`rail__more${moreOpen || moreActive ? ' rail__more--open' : ''}`} ref={moreRef}
+        aria-current={moreActive ? 'page' : undefined}
+        aria-expanded={moreOpen} aria-controls="more-navigation" onClick={() => setMoreOpen(open => !open)}>
+        <MoreIcon /><span>Mer</span>
+      </button>
+      <div className={`rail__secondary${moreOpen ? ' rail__secondary--open' : ''}`} id="more-navigation">
+        <span className="rail__section-label">Ditt Photographic</span>
+        {SECONDARY.map(navLink)}
       </div>
-    </div>
-  );
+      <p className="rail__foot">Ditt minne. Ditt sammanhang.</p>
+    </nav>
+    <main className="shell__main" id="main-content" tabIndex={-1}>
+      <div className="shell__mobile-brand"><Wordmark /></div>
+      <Outlet />
+    </main>
+  </div>;
+}
+
+function MoreIcon() {
+  return <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />
+  </svg>;
 }
 
 /** "1 väntar på dig" / "3 väntar på dig" — read out, never just a number. */

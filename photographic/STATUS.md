@@ -246,6 +246,8 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- **2026-09-20 — calm design pass:** independent GPT-5.5 critique and follow-up review; unified app launcher, labelled desktop sidebar, four fixed mobile destinations plus accessible More, quieter shared tokens, compact room headers and calendar timeline. Connection truth and direct setup preserved. Keyboard/menu regression coverage added; see `DESIGN.md`.
+
 - **2026-09-20 — connection gap:** surfaced setup and unverified/history/error states directly on chat cards; explicit per-chat ChatGPT selection; fresh Photographic retrieval question instead of generic personal-memory question; removed greeting-as-connection remedy and clarified client-level receipt. Native/account connection is still pending authenticated ChatGPT setup; see `CHAT-START.md`.
 
 - 2026-09-19 — Quiet personal start: removed technical launch prompts; ChatGPT/Codex/Claude desktop open blank composers, while supported Cursor and ChatGPT mobile routes carry only a short greeting. Background instructions govern a fresh, name-grounded greeting and concrete context-contribution examples; empty profiles and read failures are distinct. Collapsed start help and explicit clipboard copying replace automatic clipboard writes. Protocol, budget and UI tests cover delivery and launch behavior. Automatic native assistant-first replies and per-chat connector activation remain unverified; see CHAT-START.md.

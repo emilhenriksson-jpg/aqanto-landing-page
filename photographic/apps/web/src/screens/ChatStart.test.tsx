@@ -18,8 +18,8 @@ describe('conversation home', () => {
     }
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Ditt personliga rum/ })).toHaveAttribute('href', '/personligt');
-    for (const status of screen.getAllByText(/Ingen bekräftad koppling ännu/)) expect(status).toBeVisible();
-    expect(screen.getByText('Koppla ChatGPT till Photographic')).toBeVisible();
+    for (const status of screen.getAllByText(/Inte verifierad ännu/)) expect(status).toBeVisible();
+    expect(screen.getByLabelText('Koppla ChatGPT till Photographic')).toBeVisible();
     expect(screen.getByText('Välj Photographic i den nya chattens verktygsmeny innan du börjar prata.')).toBeVisible();
   });
 
@@ -35,7 +35,7 @@ describe('conversation home', () => {
     expect([...chatgptUrl.searchParams.keys()].sort()).toEqual(['mode']);
     expect(codexUrl.searchParams.has('prompt')).toBe(false);
     expect(link).not.toHaveAttribute('target');
-    fireEvent.click(screen.getByText('Hjälp med ChatGPT'));
+    fireEvent.click(screen.getByLabelText('Hjälp med ChatGPT'));
     expect(screen.getAllByRole('link', { name: 'Öppna i webbläsaren' }).some((entry) => entry.getAttribute('href') === 'https://chatgpt.com/?no_universal_links=1')).toBe(true);
   });
 
@@ -56,7 +56,7 @@ describe('conversation home', () => {
   it('shows selectable text if clipboard permission is denied', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
     render(<MemoryRouter><ChatStart /></MemoryRouter>);
-    const setup = screen.getByText('Koppla ChatGPT till Photographic');
+    const setup = screen.getByLabelText('Koppla ChatGPT till Photographic');
     fireEvent.click(setup);
     fireEvent.click(within(setup.closest('details')!).getByRole('button', { name: 'Kopiera kontrollfrågan' }));
     expect(await screen.findByRole('textbox', { name: 'Kopiera kontrollfrågan' })).toHaveValue(clients.find(client => client.id === 'chatgpt')!.verifyPrompt);
@@ -101,7 +101,7 @@ describe('conversation home', () => {
       throw new Error(url);
     }));
     render(<MemoryRouter><ChatStart /></MemoryRouter>);
-    const setup = await screen.findByText('Koppla ChatGPT till Photographic');
+    const setup = await screen.findByLabelText('Koppla ChatGPT till Photographic');
     fireEvent.click(setup);
     expect(within(setup.closest('details')!).getByRole('link', { name: 'Öppna ChatGPTs pluginsida' })).toHaveAttribute('href', 'https://chatgpt.com/plugins');
     fireEvent.click(within(setup.closest('details')!).getByRole('button', { name: 'Kontrollera kopplingen' }));

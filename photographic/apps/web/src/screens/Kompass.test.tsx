@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -45,7 +45,7 @@ describe('Kompass', () => {
   it('has no editing controls — proposing a change happens through conversation', () => {
     renderApp();
     expect(screen.queryByRole('textbox')).toBeNull();
-    expect(screen.queryByRole('button')).toBeNull();
+    expect(within(screen.getByRole('main')).queryByRole('button')).toBeNull();
   });
 
   it('links back to the personal room and to Historik', () => {

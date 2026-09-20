@@ -12,8 +12,11 @@ import { CHAT_CLIENTS, lastChatChoice, rememberChatChoice } from '../data/chat-c
 import { listClients } from '../api/clients.js';
 import type { ClientHealthDto } from '../api/types.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
-import { Wordmark } from '../components/Wordmark.js';
 import { useRoomData, type LoadState } from '../hooks/useRoomData.js';
+
+const CLIENT_MARKS: Record<ClientDescriptor['id'], string> = {
+  chatgpt: 'GPT', codex: 'Co', cursor: 'Cu', claude: 'Cl', 'claude-code': 'CC', vscode: 'VS',
+};
 
 export function ChatStart() {
   const [retry, setRetry] = useState(0);
@@ -41,10 +44,10 @@ export function ChatStart() {
 
   return <article className="page chat-start">
     <header className="page-head">
-      <Wordmark large />
       <h1 className="page-head__title">{firstName ? `Hej, ${firstName}.` : 'Hej.'}</h1>
-      <p className="page-head__lede">Vad har du på hjärtat? En tanke, dagen som gått eller något du vill få gjort. Börja där du är.</p>
+      <p className="page-head__lede">En tanke, en plan eller bara dagen som gått.<br />Börja där du är.</p>
     </header>
+    <div className="chat-start__section-head"><h2>Öppna en chatt</h2><span>Välj den app du vill prata i.</span></div>
     <section aria-label="Öppna en chatt" className="chat-start__clients">
       {ordered.map((id) => {
         const client = state.data.find((entry) => entry.id === id);
@@ -52,13 +55,14 @@ export function ChatStart() {
           health={health} /> : null;
       })}
     </section>
-    <p className="chat-start__explanation">Koppla din AI första gången. I ChatGPT väljer du också Photographic i den nya chatten. Då kan din AI hämta ditt minne och följa med mellan ämnen och rum. Öppningsknappen startar appen; den aktiverar inte kopplingen.</p>
-    <ContributionPreference />
+    <p className="chat-start__explanation">Koppla appen första gången så att den kan hämta ditt minne. Att öppna en chatt aktiverar inte kopplingen.</p>
+    <div className="chat-start__section-head chat-start__section-head--memory"><h2>Här finns ditt sammanhang</h2><span>Du bestämmer vad som stannar.</span></div>
     <section className="chat-start__memory" aria-label="Ditt minne">
-      <Link to="/personligt"><strong>Ditt personliga rum</strong><span>Vem du är, vad som är viktigt och hur din AI ska hjälpa dig.</span></Link>
-      <Link to="/rum"><strong>Dina rum</strong><span>En kort överblick från början. Mer sammanhang hämtas när ni pratar om ett rum.</span></Link>
-      <Link to="/kalender"><strong>Din kalender</strong><span>Senaste händelser och trådar att fortsätta på, även från en annan AI.</span></Link>
+      <Link to="/personligt"><span className="chat-start__memory-icon" aria-hidden="true">◎</span><strong>Ditt personliga rum<span aria-hidden="true">↗</span></strong><span>Det som gör dig till dig.</span></Link>
+      <Link to="/rum"><span className="chat-start__memory-icon" aria-hidden="true">▦</span><strong>Dina rum<span aria-hidden="true">↗</span></strong><span>Människor, projekt och det ni delar.</span></Link>
+      <Link to="/kalender"><span className="chat-start__memory-icon" aria-hidden="true">◷</span><strong>Din kalender<span aria-hidden="true">↗</span></strong><span>Det som hänt med ditt minne.</span></Link>
     </section>
+    <ContributionPreference />
     <footer className="page-foot"><Link to="/klienter" className="page-foot__link">Se vilka AI:er som har fått ditt minne</Link></footer>
   </article>;
 }
@@ -121,26 +125,33 @@ function LaunchCard({ client, health, preferred }: { client: ClientDescriptor; h
   }
 
   return <article className={`chat-start__card${preferred ? ' chat-start__card--preferred' : ''}`}>
+    <div className="chat-start__row">
+    <span className="chat-start__monogram" aria-hidden="true">{CLIENT_MARKS[client.id]}</span>
+    <div className="chat-start__identity">
     <div className="chat-start__card-head">
-      <h2>{client.displayName}</h2>
+      <h3>{client.displayName}</h3>
       {preferred && <span className="chat-start__last">Senast vald här</span>}
     </div>
     <p className="chat-start__status">{previous
       ? `Senast hämtat ${new Date(previous.lastSeenAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })}. Det bekräftar inte kopplingen i en ny chatt.`
-      : health.status === 'error' ? 'Kopplingen kunde inte kontrolleras just nu.' : health.status === 'loading' ? 'Kontrollerar tidigare hämtningar…' : 'Ingen bekräftad koppling ännu. Koppla din AI nedan.'}</p>
-    {launch.url ? <a className="btn btn--brand chat-start__open" href={launch.url}
+      : health.status === 'error' ? 'Kopplingen kunde inte kontrolleras just nu.' : health.status === 'loading' ? 'Kontrollerar tidigare hämtningar…' : 'Inte verifierad ännu'}</p>
+    </div>
+    {launch.url ? <a className={`btn${preferred ? ' btn--brand' : ''} chat-start__open`} href={launch.url}
+      aria-label={`Öppna ${client.displayName}`}
       rel="noopener noreferrer"
       onClick={() => {
         rememberChatChoice(client.id);
         verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'));
       }}>
-      Öppna {client.displayName}<span aria-hidden="true"> ↗</span>
-    </a> : <button className="btn chat-start__open" disabled>Öppna på datorn</button>}
+      Öppna<span aria-hidden="true"> ↗</span>
+    </a> : <button className="btn chat-start__open" aria-label="Öppna på datorn" disabled>På datorn</button>}
+    </div>
     {launch.url && launch.activationNote && <p className="chat-start__note">{launch.activationNote}</p>}
     {!launch.url && <p className="chat-start__note">Finns här när du använder Photographic på datorn.</p>}
     {status && <p className="chat-start__receipt" role="status">{status}</p>}
-    <details className="chat-start__setup">
-      <summary>{previous ? `Hantera kopplingen till ${client.displayName}` : `Koppla ${client.displayName} till Photographic`}</summary>
+    <div className="chat-start__support">
+    <details className="chat-start__setup chat-start__setup--connection">
+      <summary aria-label={previous ? `Hantera kopplingen till ${client.displayName}` : `Koppla ${client.displayName} till Photographic`}>{previous ? 'Hantera kopplingen' : 'Koppla Photographic'}</summary>
       <SetupAction action={client.primary} />
       {client.secondary.filter((action) => action.type === 'deeplink').map((action) => <SetupAction key={action.label} action={action} />)}
       <ol>{client.steps.map((step) => <li key={step}>{step}</li>)}</ol>
@@ -151,11 +162,12 @@ function LaunchCard({ client, health, preferred }: { client: ClientDescriptor; h
       <button className="btn" disabled={checking} onClick={() => void verify().catch(() => setStatus('Kunde inte kontrollera leveransen.'))}>Kontrollera kopplingen</button>
     </details>
     <details className="chat-start__setup">
-      <summary>Hjälp med {client.displayName}</summary>
+      <summary aria-label={`Hjälp med ${client.displayName}`}>Hjälp</summary>
       <p>{launch.note}</p>
       {launch.url && <p>Öppnades inte appen? Kontrollera att den är installerad och tillåt webbläsaren att öppna den. På iPhone kan du hålla inne länken och välja att öppna i appen.</p>}
       {launch.fallbackUrl && <a href={launch.fallbackUrl} target="_blank" rel="noopener noreferrer" className="chat-start__fallback">Öppna i webbläsaren</a>}
     </details>
+    </div>
   </article>;
 }
 

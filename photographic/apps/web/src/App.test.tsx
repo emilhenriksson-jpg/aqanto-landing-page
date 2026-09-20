@@ -27,7 +27,7 @@ describe('App', () => {
     const user = userEvent.setup();
     renderApp();
 
-    await user.click(screen.getByRole('link', { name: 'Alla' }));
+    await user.click(screen.getByRole('link', { name: 'Rum' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Rum' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Öppna ditt rum' })).toBeInTheDocument();
     expect(screen.getByLabelText('2 olästa')).toHaveTextContent('2 nya');
@@ -109,5 +109,31 @@ describe('App', () => {
 
     await user.click(screen.getByRole('link', { name: 'Papperskorg' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Papperskorg' })).toBeInTheDocument();
+  });
+
+  it('closes the secondary navigation on Escape and restores focus to More', async () => {
+    const user = userEvent.setup();
+    renderApp('/chatt');
+    const more = screen.getByRole('button', { name: 'Mer' });
+    await user.click(more);
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    await user.keyboard('{Escape}');
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(more).toHaveFocus();
+    expect(screen.getByRole('link', {name: 'Godkänn, 3 väntar på dig'})).toBeInTheDocument();
+  });
+
+  it('closes More after following a destination and when clicking outside navigation', async () => {
+    const user = userEvent.setup();
+    renderApp('/chatt');
+    const more = screen.getByRole('button', { name: 'Mer' });
+    await user.click(more);
+    await user.click(screen.getByRole('heading', {name: 'Hej, Emil.'}));
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    await user.click(more);
+    await user.click(screen.getByRole('link', {name: 'Konto'}));
+    expect(screen.getByRole('heading', {level: 1, name: 'Konto'})).toBeInTheDocument();
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(more).toHaveAttribute('aria-current', 'page');
   });
 });

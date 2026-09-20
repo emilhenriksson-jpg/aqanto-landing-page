@@ -42,7 +42,7 @@ export function Rooms() {
       <header className="page-head">
         <Wordmark />
         <h1 className="page-head__title">Rum</h1>
-        <p className="page-head__lede">Välj vart du går. Ditt rum ligger alltid först.</p>
+        <p className="page-head__lede">En plats för dig, och rum för det du delar med andra.</p>
       </header>
 
       <PendingApprovals />
@@ -77,6 +77,7 @@ function RoomTile({ room, featured = false }: { room: RoomCard; featured?: boole
             {room.unseenCount === 1 ? '1 ny' : `${room.unseenCount} nya`}
           </span>
         ) : null}
+        <span className="room-card__arrow" aria-hidden="true">↗</span>
       </div>
       {/* One subtitle only — shared membership is the avatar row, not a second line. */}
       <p className="room-card__brief">{room.headline}</p>
