@@ -1,3 +1,4 @@
+import type { ProposalConsent } from './chat-approval.js';
 import type { ContextCandidate, ContributionPreview, ContributionState, ContributionResolution } from './contributions.js';
 /**
  * Ports: every interface an implementation package must satisfy.
@@ -100,7 +101,7 @@ export interface IdentityPort {
 // ---------------------------------------------------------------------------
 
 export interface RoomPort {
-  create(actor: Actor, input: { title: string; description?: string }): Promise<Room>;
+  create(actor: Actor, input: { title: string; description?: string; reusePrivate?: boolean }): Promise<Room>;
   get(actor: Actor, roomId: RoomId): Promise<Room | null>;
   listForPerson(actor: Actor): Promise<RoomSummary[]>;
   archive(actor: Actor, roomId: RoomId): Promise<void>;
@@ -388,7 +389,8 @@ export interface IngestPort {
   undo(actor: Actor, undoToken: string): Promise<Item>;
 
   listProposals(actor: Actor): Promise<Proposal[]>;
-  resolveProposal(actor: Actor, id: ProposalId, accept: boolean): Promise<Item | null>;
+  /** Chat callers must use privateOnly consent with an exact preview key. Audience-widening proposals stay first-party. */
+  resolveProposal(actor: Actor, id: ProposalId, accept: boolean, consent?: ProposalConsent): Promise<Item | null>;
 
   /**
    * Sets the person's own first name.

@@ -1,3 +1,6 @@
+import { assertPrivateRoom, createPrivateRoom } from './private-rooms.js';
+import { proposalReviewKey } from '@photographic/core';
+import type { ProposalConsent } from '@photographic/core';
 import type { ContextCandidate, ContributionMeta, ContributionPreview, ContributionState, ContributionResolution } from '@photographic/core';
 import { candidateBody, contributionItemMetadata, compareContribution, containsSecret, contributionMeta, contributionReason, needsSeparateReview } from '@photographic/core';
 /**
@@ -178,7 +181,7 @@ export class MemoryIngest implements IngestPort {
     const planned: Array<{ body: string; kind: ItemKind; meta: ContributionMeta; conflict: Item | null }> = [];
     for (const [index, candidate] of input.candidates.entries()) {
       if (candidate.origin === 'photographic') { result.skipped.push({ index, reason: 'photographic' }); continue; }
-      if (containsSecret(candidate.text + ' ' + candidate.sourceLabel)) { result.skipped.push({ index, reason: 'secret' }); continue; }
+      if (containsSecret([candidate.text, candidate.sourceLabel, candidate.roomTitle, candidate.roomDescription].join(' '))) { result.skipped.push({ index, reason: 'secret' }); continue; }
       const body = candidateBody(candidate);
       const comparison = await compareContribution(candidate.text, items, previous, this.llm, embeddings, candidate.evidence);
       if (comparison.known) { result.skipped.push({ index, reason: 'known' }); continue; }
@@ -623,7 +626,8 @@ export class MemoryIngest implements IngestPort {
 
   async listProposals(actor: Actor): Promise<Proposal[]> {
     return [...this.store.proposals.values()]
-      .filter((p) => p.personId === actor.personId && p.status === 'pending')
+      .filter((p) => p.personId === actor.personId && p.status === 'pending'
+        && this.store.canRead(actor.personId, p.roomId) && (!actor.roomScope.length || actor.roomScope.includes(p.roomId)))
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
@@ -726,16 +730,35 @@ export class MemoryIngest implements IngestPort {
     return winner;
   }
 
-  async resolveProposal(actor: Actor, id: ProposalId, accept: boolean, consent?: { reason: string | undefined; reviewed: boolean }): Promise<Item | null> {
-    if (contributionMeta(this.store.proposals.get(id) ?? { structured: {} })) {
+  async resolveProposal(actor: Actor, id: ProposalId, accept: boolean, consent?: ProposalConsent): Promise<Item | null> {
+    if (consent?.privateOnly || contributionMeta(this.store.proposals.get(id) ?? { structured: {} })) {
       return this.withContributionLock(actor, () => this.resolveProposalWithin(actor, id, accept, consent));
     }
     return this.resolveProposalWithin(actor, id, accept, consent);
   }
-  private async resolveProposalWithin(actor: Actor, id: ProposalId, accept: boolean, consent?: { reason: string | undefined; reviewed: boolean }): Promise<Item | null> {
+  private async resolveProposalWithin(actor: Actor, id: ProposalId, accept: boolean, consent?: ProposalConsent): Promise<Item | null> {
     const proposal = this.store.proposals.get(id);
     if (!proposal || proposal.personId !== actor.personId) {
       throw new NotFoundError('Förslaget finns inte.');
+    }
+    if (consent?.privateOnly) {
+      assertPrivateRoom(this.store, actor, proposal.roomId);
+      if (proposal.intent !== 'remember' && proposal.intent !== 'update') {
+        throw new ValidationError('Delning och flytt ingår inte i ett privat chattgodkännande.');
+      }
+      if (!consent.confirmation?.trim() || consent.reviewKey !== await proposalReviewKey(proposal)) {
+        throw new ValidationError('Underlaget har ändrats eller godkännandet saknas. Läs förslaget igen.');
+      }
+      if (accept && !consent.reviewed && (contributionMeta(proposal)?.reviewRequired ?? true)) {
+        throw new ValidationError('Visa detaljerna och invänta uttryckligt godkännande av den här uppgiften.');
+      }
+      if (proposal.sourceItemId && this.store.items.get(proposal.sourceItemId)?.roomId !== proposal.roomId) throw new NotPermittedError();
+      if (proposal.status !== 'pending') {
+        if ((proposal.status === 'accepted') !== accept) throw new ValidationError('Förslaget är redan hanterat.');
+        const event = this.store.allEvents().find(e => e.eventType === 'proposal.accepted' && e.payload['proposal_id'] === id);
+        const item = event ? this.store.items.get(event.payload['item_id'] as ItemId) : null;
+        return item && this.store.canRead(actor.personId, item.roomId) ? item : null;
+      }
     }
     if (proposal.status !== 'pending') throw new ValidationError('Förslaget är redan hanterat.');
 
@@ -755,7 +778,7 @@ export class MemoryIngest implements IngestPort {
     const meta = contributionMeta(proposal);
     let duplicate: Item | undefined;
     if (meta) {
-      if (consent && (consent.reason !== proposal.reason || (meta.reviewRequired && !consent.reviewed))) {
+      if (consent && ((!consent.privateOnly && consent.reason !== proposal.reason) || (meta.reviewRequired && !consent.reviewed))) {
         throw new ValidationError('Underlaget har ändrats. Granska det igen.');
       }
       this.contributionRoom(actor);
@@ -769,6 +792,8 @@ export class MemoryIngest implements IngestPort {
         throw new ValidationError('Minnet har ändrats sedan förslaget skapades. Granska det uppdaterade förslaget.');
       }
     }
+
+    if (consent?.privateOnly) assertPrivateRoom(this.store, actor, proposal.roomId);
 
     // Claimed before applying, so two overlapping approvals cannot both get past the
     // pending check above — `applyProposal` awaits, and an await is an interleaving point
@@ -787,7 +812,8 @@ export class MemoryIngest implements IngestPort {
     this.store.append({
       roomId: proposal.roomId,
       eventType: 'proposal.accepted',
-      payload: { proposal_id: proposal.id, item_id: resulting.id, body: resulting.body },
+      payload: { proposal_id: proposal.id, item_id: resulting.id, body: resulting.body,
+        ...(consent?.privateOnly ? { approval_channel: 'chat', confirmation: consent.confirmation, review_key: consent.reviewKey } : {}) },
       actorPersonId: actor.personId,
       agentClient: actor.agentClient,
       clientId: actor.clientId ?? null,
@@ -845,6 +871,13 @@ export class MemoryIngest implements IngestPort {
       return this.applyUpdate(actor, target, proposal.body, {}, actor.personId);
     }
 
+    const destination = contributionMeta(proposal);
+    if (destination?.roomTitle) {
+      const target = createPrivateRoom(this.store, actor, { title: destination.roomTitle,
+        ...(destination.roomDescription ? { description: destination.roomDescription } : {}), reusePrivate: true });
+      proposal = { ...proposal, roomId: target.id,
+        conflictsWith: target.id === proposal.roomId ? proposal.conflictsWith : null };
+    }
     const conflicting = proposal.conflictsWith
       ? this.store.items.get(proposal.conflictsWith) ?? null
       : null;

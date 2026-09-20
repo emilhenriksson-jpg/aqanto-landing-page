@@ -56,6 +56,8 @@ export function renderWrite(decision: WriteDecision, roomTitle: string): string 
       return [
         `Inte sparat än — det här kräver personens godkännande: ${decision.proposal.reason}`,
         `Förslaget ligger och väntar (${decision.proposal.id}).`,
+        'För privata rum: review_proposals action list visar underlaget; godkänn eller avvisa i chatten när personen svarar.',
+
         '',
         'Berätta för personen att du har frågat, och vad du frågade om. Säg inte att det',
         'är sparat, och fråga inte igen — förslaget finns kvar tills de svarar.',
@@ -73,6 +75,8 @@ export function renderProposal(proposal: Proposal): string {
   return [
     `Förslag skapat (${proposal.id}), väntar på godkännande: ${proposal.reason}.`,
     wrapRoomContent(proposal.body),
+    'För privata rum kan personen svara här: använd review_proposals för granskning och godkännande.',
+
   ].join('\n');
 }
 

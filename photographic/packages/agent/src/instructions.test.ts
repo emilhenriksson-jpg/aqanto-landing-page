@@ -492,7 +492,7 @@ describe('the session instructions', () => {
 
     expect(rendered).toContain('- igår, Villan: Elektrikern kommer på torsdag');
     expect(rendered).not.toContain('2026-09-14');
-    expect(rendered).not.toContain('sparade');
+    expect(rendered).not.toContain('Villan — sparade');
   });
 
   it('still names the verb when the verb is the information', () => {

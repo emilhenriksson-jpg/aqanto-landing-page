@@ -246,6 +246,9 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- **2026-09-20 — Private onboarding and rooms can be completed in chat.** `create_room` creates/reuses a private owner-only room; `review_proposals` lists exact previews and accepts the user's in-chat answer. `prepare_context` carries proposed room names/purposes; room creation and each memory approval commit together in Postgres. Preview hashes, separate review flags, ownership/audience checks, retry idempotence and confirmation provenance protect the new path. First-meeting guidance now prepares a concrete draft instead of asking permission to start. Shared placements/invitations remain outside this private flow; OAuth and provider approval dialogs remain client-controlled.
+
+
 - **2026-09-20 — private ChatGPT setup wording:** authenticated browser inspection confirmed Add is disabled until Developer mode is enabled; its menu is Add → Create MCP App. The home now explicitly says Photographic is not in the public catalogue and gives that exact creation path with OAuth, preventing a fruitless plugin search. Connecting the private app and publishing a public plugin are separate steps.
 
 - **2026-09-20 — stable return from setup:** live verification exposed a temporary Connect → Open switch during history refresh. Preserve the previous history while refreshing; regression test covers a deliberately slow return. All 150 web tests, typecheck and changed-file lint pass.

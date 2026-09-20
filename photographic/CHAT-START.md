@@ -220,3 +220,36 @@ Official setup sources checked:
 - https://developers.openai.com/plugins/deploy/connect-chatgpt
 - https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities
 - https://prod.cursor.com/docs/mcp/install-links
+
+
+## Private onboarding in the conversation (2026-09-20)
+
+The regular workflow is chat → read current context → prepare a concrete memory and room
+proposal → the person's answer → create rooms and save accepted memories. Do not ask
+permission just to start preparing an ordinary relevant draft. Respect a pending offer
+or a pause, and help with an unrelated active task before offering an import.
+
+- `create_room` creates a sole-owner room or reuses the exact normalized private name.
+  It never invites anyone or changes an existing room description. Room-scoped clients
+  cannot create rooms outside their scope.
+- `prepare_context` accepts `roomTitle` and `roomDescription`. Its proposals remain
+  private and pending. Accepted proposals create missing rooms inside the memory's
+  transaction; no room is created at preparation time.
+- `review_proposals` lists twenty previews per page, including a SHA-256 review key.
+  The AI displays the content, destination and exceptional review details, then waits
+  for the person's answer in the same conversation. Approval includes the preview key
+  and the user's answer. Only explicit detailed acceptance sets `reviewed`.
+- The server checks current ownership, audience and room scope again at approval.
+  It rejects stale previews, foreign proposals, shared audiences, share/move intents
+  and scoped room creation. Repeated approval does not create duplicate events/items.
+  Conflicts are re-compared before writing; changed conflicts remain pending.
+- This is a client-attested approval model for **private** data. A review key prevents
+  stale application, but does not prove a human spoke. It does not open the separate
+  first-party authorization path for sharing with other people.
+- `review_proposals action resume` resumes offers when the person asks, inside chat.
+
+Photographic's review website is optional for this private workflow. Initial OAuth,
+reauthentication and provider tool-confirmation UI remain controlled by the AI client.
+Existing ChatGPT custom MCP apps may need their tool catalog refreshed; a running
+conversation may keep old instructions. Native greeting activation is not guaranteed
+by an MCP installation or by passing server-side tests.

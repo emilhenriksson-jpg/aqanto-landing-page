@@ -1,3 +1,4 @@
+import { createPrivateRoom } from './private-rooms.js';
 /**
  * Rooms and membership.
  */
@@ -15,9 +16,8 @@ import type {
 } from '@photographic/core';
 import { matchRoomByName, NotPermittedError } from '@photographic/core';
 
-import { slugify } from './identity.js';
 import type { MemoryIngest } from './ingest.js';
-import { MemoryStore, newId } from './store.js';
+import { MemoryStore } from './store.js';
 
 export class MemoryRooms implements RoomPort {
   constructor(
@@ -27,33 +27,8 @@ export class MemoryRooms implements RoomPort {
     private readonly ingest: Pick<MemoryIngest, 'softDelete'>,
   ) {}
 
-  async create(actor: Actor, input: { title: string; description?: string }): Promise<Room> {
-    const title = input.title.trim();
-    if (!title) throw new NotPermittedError('Rummet måste ha ett namn.');
-
-    const room: Room = {
-      id: newId<RoomId>(),
-      kind: 'shared',
-      slug: slugify(title),
-      title,
-      description: input.description ?? null,
-      sensitivity: 'normal',
-      createdBy: actor.personId,
-      createdAt: this.store.now(),
-      archivedAt: null,
-    };
-    this.store.rooms.set(room.id, room);
-    this.store.addMembership({ personId: actor.personId, roomId: room.id, role: 'owner' });
-
-    this.store.append({
-      roomId: room.id,
-      eventType: 'room.created',
-      payload: { title: room.title, kind: 'shared' },
-      actorPersonId: actor.personId,
-      agentClient: actor.agentClient,
-    });
-
-    return room;
+  async create(actor: Actor, input: { title: string; description?: string; reusePrivate?: boolean }): Promise<Room> {
+    return createPrivateRoom(this.store, actor, input);
   }
 
   /**

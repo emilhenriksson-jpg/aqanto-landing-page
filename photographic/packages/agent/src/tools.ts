@@ -1,7 +1,7 @@
 /**
  * The tool surface every connected model sees.
  *
- * Nine tools, deliberately. Tool definitions sit in the context window for the whole
+ * Twelve tools, including private room creation and in-chat approval. Tool definitions sit in the context window for the whole
  * session, and selection accuracy falls as the list grows, so each addition has to earn
  * its place against the option of folding it into an existing tool's parameters. Two
  * things that look missing are folded in on purpose: "where did you learn that" is
@@ -176,15 +176,59 @@ An omitted summary does not mean an empty room.`,
   },
 
   {
+    name: 'create_room',
+    description: `Create a private room after the person asks for it or accepts your named room
+suggestion in this chat. No visit to Photographic is needed. Reuses an unambiguous
+private room with the same name, never invites anyone. Suggest useful rooms from actual
+context; do not create speculative or empty categories without the person's agreement.
+For a combined memory-and-rooms proposal, use prepare_context with roomTitle instead:
+approving that proposal creates its rooms and saves its memories together.`,
+    inputSchema: { type: 'object', properties: {
+      title: { type: 'string', maxLength: 200, description: 'The room name the person requested or approved.' },
+      description: { type: 'string', maxLength: 2000, description: 'Optional short purpose. Do not put unapproved personal facts here.' },
+    }, required: ['title'], additionalProperties: false },
+    scopes: [TOOL_SCOPE.memoryWrite, TOOL_SCOPE.roomsRead],
+    annotations: { title: 'Create a private room', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+
+  {
+    name: 'review_proposals',
+    description: `Review and answer private proposals IN THIS CHAT, including context imports,
+instructions and private-room memories. List first; show what will be saved and where,
+then wait for the person's answer. Never approve your own suggestion. On approval use
+the returned ids and review_key values; quote the user's answer in confirmation.
+Set reviewed only for sensitive, inferred or conflicting items whose details the person
+has seen and explicitly accepted. A generic yes does not approve undisclosed details.
+Report each outcome truthfully; changed proposals require another review, not a blind
+retry. Shared audiences, invitations and placements are outside this private flow.
+Resume offers when the person asks; no visit to Photographic is needed.`,
+    inputSchema: { type: 'object', properties: {
+      action: { type: 'string', enum: ['list', 'approve', 'reject', 'resume'], description: 'List pending private proposals, answer selected ones, or resume paused offers.' },
+      offset: { type: 'integer', minimum: 0, description: 'List returns twenty proposals. Continue from next_offset until every relevant proposal has been read.' },
+      confirmation: { type: 'string', maxLength: 500, description: 'The user’s actual approval or rejection, required when answering.' },
+      decisions: { type: 'array', maxItems: 100, description: 'Only the proposals covered by the user’s answer.', items: {
+        type: 'object', properties: {
+          id: { type: 'string', description: 'Proposal UUID from a tool result.' },
+          review_key: { type: 'string', description: 'Exact review_key from the preview.' },
+          reviewed: { type: 'boolean', description: 'True only after detailed approval of this item.' },
+        }, required: ['id', 'review_key', 'reviewed'], additionalProperties: false,
+      } },
+    }, required: ['action'], additionalProperties: false },
+    scopes: [TOOL_SCOPE.memoryRead, TOOL_SCOPE.memoryWrite, TOOL_SCOPE.profileRead],
+    annotations: { title: 'Review and answer private proposals', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+
+  {
     name: 'prepare_context',
     description: `Compare available user context against stored memory and earlier offers; prepare
 private proposals, never saved facts. Read get_context first. Respect paused/pending
 state. Submit ALL new available context in batches with one batch_id, not just a few
-facts. Then offer one grouped review link from the result. Never claim access to unseen
+facts. Present one grouped proposal in chat, including proposed rooms; use review_proposals
+after the user's answer. Do not require the review website. Never claim access to unseen
 history or import Photographic's own output as independent evidence. Do not submit
 secrets. New external sources and sensitive transfers need the person's permission.
 Mark inferences and third-party information honestly. On "not now", use action pause;
-only the person can resume in Photographic. No approval or auto-save action exists.`,
+resume through review_proposals only when the person asks. Preparation never approves.`,
     inputSchema: {
       type: 'object', properties: {
         action: { type: 'string', enum: ['prepare', 'pause'], description: 'Prepare a private review, or pause all future proactive contribution offers.' },
@@ -199,6 +243,8 @@ only the person can resume in Photographic. No approval or auto-save action exis
             sensitive: { type: 'boolean', description: 'True for sensitive personal information that needs a separate review.' },
             concernsOthers: { type: 'boolean', description: 'True when the statement contains personal information about other people.' },
             observedAt: { type: 'string', description: 'Optional ISO date/time the statement refers to; do not invent a date.' },
+            roomTitle: { type: 'string', maxLength: 200, description: 'Optional private project room, existing or proposed. Omit for personal facts. Created only on approval; never route into a room with other members.' },
+            roomDescription: { type: 'string', maxLength: 2000, description: 'Optional short purpose for a proposed new room.' },
           }, required: ['text', 'kind', 'origin', 'sourceLabel', 'evidence', 'sensitive', 'concernsOthers'], additionalProperties: false },
         },
       }, required: ['action'], additionalProperties: false,

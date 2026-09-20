@@ -13,10 +13,13 @@
  * explain to a person.
  */
 
-import { TOOL_NAMES, wrapRoomContent } from '@photographic/agent';
+import { TOOL_NAMES, wrapRoomContent, renderContributionGuidance } from '@photographic/agent';
 import type { Actor, RoomId, Services, ShortId } from '@photographic/core';
 import {
   askMemory,
+  contributionMeta,
+  containsSecret,
+  proposalReviewKey,
   COMPASS_KEY_FIELD,
   COMPASS_PRINCIPLES,
   compassPrincipleLabel,
@@ -73,6 +76,13 @@ const shortId = z
  */
 const ARGS = {
   get_context: z.object({ room }).strict(),
+  create_room: z.object({ title: z.string().trim().min(1).max(200), description: z.string().trim().max(2000).optional() }).strict(),
+  review_proposals: z.object({
+    action: z.enum(['list', 'approve', 'reject', 'resume']),
+    offset: z.number().int().min(0).max(100000).default(0),
+    confirmation: z.string().trim().min(1).max(500).optional(),
+    decisions: z.array(z.object({ id: z.string().uuid(), review_key: z.string().regex(/^[a-f0-9]{64}$/), reviewed: z.boolean() }).strict()).min(1).max(100).optional(),
+  }).strict().refine(input => !['approve', 'reject'].includes(input.action) || Boolean(input.confirmation && input.decisions), 'Ett svar kräver confirmation och decisions.'),
   prepare_context: z.object({
     action: z.enum(['prepare', 'pause']),
     batch_id: z.string().uuid().optional(),
@@ -83,6 +93,8 @@ const ARGS = {
       sourceLabel: z.string().trim().min(1).max(200),
       evidence: z.enum(['reported', 'inferred']), sensitive: z.boolean(), concernsOthers: z.boolean(),
       observedAt: z.string().datetime({ offset: true }).optional(),
+      roomTitle: z.string().trim().min(1).max(200).optional(),
+      roomDescription: z.string().trim().max(2000).optional(),
     }).strict()).min(1).max(20).optional(),
   }).strict().refine(input => input.action === 'pause' || (input.batch_id && input.candidates), 'prepare kräver batch_id och candidates.'),
 
@@ -223,20 +235,60 @@ async function run<N extends ToolName>(
       await services.audit.record({ actor, action: 'bundle' });
 
       const contribution = await services.ingest.contributionState(actor);
-      return services.bundle.render(bundle) + `\n\nKontextbidrag: ${contribution.paused ? 'pausade — erbjud inte igen' : contribution.pending ? `${contribution.pending} väntar — påminn inte igen` : 'inget väntande underlag; jämför tillgänglig kontext före frågor'}.`;
+      return services.bundle.render(bundle) + '\n\n' + renderContributionGuidance(bundle, contribution);
 
+    }
+
+    case 'create_room': {
+      const input = args as ArgsOf<'create_room'>;
+      if (containsSecret([input.title, input.description].join(' '))) throw new ValidationError('Hemligheter ska inte sparas i rumsnamn eller beskrivningar.');
+      const created = await services.rooms.create(actor, { ...input, reusePrivate: true });
+      return 'Rummet finns nu och är privat. Ingen har bjudits in. Använd detta id när du sparar där.\n'
+        + wrapRoomContent(JSON.stringify({ id: created.id, title: created.title }), { label: 'privat rum', notice: true });
+    }
+
+    case 'review_proposals': {
+      const input = args as ArgsOf<'review_proposals'>;
+      if (input.action === 'resume') {
+        await services.ingest.pauseContributions(actor, false);
+        return 'Erbjudanden återupptagna på personens begäran. Läs get_context innan ett nytt förslag.';
+      }
+      if (input.action === 'list') {
+        const rooms = await services.rooms.listForPerson(actor);
+        const own = new Set(rooms.filter(r => r.role === 'owner' && r.memberCount === 1).map(r => r.roomId));
+        const proposals = (await services.ingest.listProposals(actor)).filter(p => own.has(p.roomId)
+          && (!actor.roomScope.length || actor.roomScope.includes(p.roomId)) && ['remember', 'update'].includes(p.intent));
+        const previews = await Promise.all(proposals.slice(input.offset, input.offset + 20).map(async p => ({ id: p.id, review_key: await proposalReviewKey(p),
+          text: p.body, reason: p.reason, room: contributionMeta(p)?.roomTitle ?? rooms.find(r => r.roomId === p.roomId)?.title,
+          reviewRequired: contributionMeta(p)?.reviewRequired ?? true })));
+        return 'Visa förslaget i chatten och invänta personens svar. Ett underlag är inte ett sparat minne.\n'
+          + wrapRoomContent(JSON.stringify({ total: proposals.length, next_offset: input.offset + 20 < proposals.length ? input.offset + 20 : null, proposals: previews }), { label: 'privata förslag', notice: true });
+      }
+      const results = [];
+      for (const decision of input.decisions!) {
+        try {
+          const item = await services.ingest.resolveProposal(actor, decision.id as import('@photographic/core').ProposalId,
+            input.action === 'approve', { reviewed: decision.reviewed, privateOnly: true,
+              reviewKey: decision.review_key, confirmation: input.confirmation! });
+          results.push({ id: decision.id, status: input.action === 'approve' ? (item ? 'saved' : 'already_handled') : 'dismissed',
+            ...(item ? { shortId: item.shortId, roomId: item.roomId } : {}) });
+        } catch (error) {
+          results.push({ id: decision.id, status: 'not_applied', message: error instanceof PhotographicError ? error.message : 'Kunde inte slutföras. Läs aktuellt underlag innan du försöker igen.' });
+        }
+      }
+      return 'Bekräfta bara sparade resultat. Vid not_applied: förklara kort och läs det aktuella förslaget; anta inte att resten lyckades.\n' + JSON.stringify(results);
     }
 
     case 'prepare_context': {
       const input = args as ArgsOf<'prepare_context'>;
       if (input.action === 'pause') {
         await services.ingest.pauseContributions(actor, true);
-        return 'Erbjudanden pausade. Fortsätt samtalet; personen kan återuppta dem i Photographic.';
+        return 'Erbjudanden pausade. Fortsätt samtalet. När personen ber att återuppta: review_proposals action resume.';
       }
       const result = await services.ingest.prepareContributions(actor, { batchId: input.batch_id!, candidates: input.candidates! });
       if (result.paused) return 'Erbjudanden är pausade. För inte över kontext och fråga inte igen.';
-      return `Privat granskningsunderlag, inte sparade minnen. Granska och dela: https://photographic.space/godkann. Om alla uppgifter var kända eller redan erbjudna, avbryt utan ny fråga.\n` +
-        wrapRoomContent(JSON.stringify({ batchId: result.batchId, proposed: result.proposals.map(p => ({ id: p.id, text: p.body, reason: p.reason })), skipped: result.skipped }), { label: 'granskningsunderlag', notice: true });
+      return `Privat granskningsunderlag, inte sparade minnen. Visa ett samlat förslag i chatten, inklusive rum. På personens godkännande: review_proposals. Webbsidan https://photographic.space/godkann är ett frivilligt alternativ. Om alla uppgifter var kända eller redan erbjudna, avbryt utan ny fråga.\n` +
+        wrapRoomContent(JSON.stringify({ batchId: result.batchId, proposed: await Promise.all(result.proposals.map(async p => ({ id: p.id, review_key: await proposalReviewKey(p), text: p.body, reason: p.reason, reviewRequired: contributionMeta(p)?.reviewRequired ?? true }))), skipped: result.skipped }), { label: 'granskningsunderlag', notice: true });
     }
 
     case 'remember': {

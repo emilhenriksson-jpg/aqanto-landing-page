@@ -11,6 +11,8 @@ export interface ContextCandidate {
   sensitive: boolean;
   concernsOthers: boolean;
   observedAt?: string;
+  roomTitle?: string;
+  roomDescription?: string;
 }
 export interface ContributionMeta extends ContextCandidate {
   batchId: string;
@@ -96,6 +98,8 @@ export async function compareContribution(
 export function contributionReason(meta: ContributionMeta): string {
   return [
     `Kontext från ${meta.sourceLabel}. Sparas privat efter ditt godkännande.`,
+    meta.roomTitle ? `Placeras i det privata rummet ”${meta.roomTitle}”, som skapas om det saknas.` : '',
+    meta.roomDescription ? `Rummets beskrivning: ${meta.roomDescription}` : '',
     meta.evidence === 'inferred' ? 'Obekräftad tolkning, inte ett fastställt faktum.' : '',
     meta.sensitive ? 'Innehåller känsliga uppgifter.' : '',
     meta.concernsOthers ? 'Innehåller uppgifter om andra.' : '',

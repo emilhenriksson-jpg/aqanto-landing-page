@@ -17,3 +17,4 @@ export * from './swedish.js';
 export * from './compass.js';
 
 export * from './contributions.js';
+export * from './chat-approval.js';

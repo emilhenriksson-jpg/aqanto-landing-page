@@ -1,3 +1,6 @@
+import { assertPrivateRoom, createPrivateRoom } from './private-rooms.js';
+import { proposalReviewKey } from '@photographic/core';
+import type { ProposalConsent } from '@photographic/core';
 import type { ContextCandidate, ContributionMeta, ContributionPreview, ContributionState, ContributionResolution } from '@photographic/core';
 import { candidateBody, contributionItemMetadata, compareContribution, containsSecret, contributionMeta, contributionReason, needsSeparateReview } from '@photographic/core';
 /**
@@ -181,7 +184,7 @@ export class PgIngest implements IngestPort {
     const planned: Array<{ body: string; kind: ItemKind; meta: ContributionMeta; conflict: Item | null }> = [];
     for (const [index, candidate] of input.candidates.entries()) {
       if (candidate.origin === 'photographic') { result.skipped.push({ index, reason: 'photographic' }); continue; }
-      if (containsSecret(candidate.text + ' ' + candidate.sourceLabel)) { result.skipped.push({ index, reason: 'secret' }); continue; }
+      if (containsSecret([candidate.text, candidate.sourceLabel, candidate.roomTitle, candidate.roomDescription].join(' '))) { result.skipped.push({ index, reason: 'secret' }); continue; }
       const body = candidateBody(candidate);
       const comparison = await compareContribution(candidate.text, items, previous, this.llm, embeddings, candidate.evidence);
       if (comparison.known) { result.skipped.push({ index, reason: 'known' }); continue; }
@@ -652,8 +655,10 @@ export class PgIngest implements IngestPort {
     const rows = await queryRows<ProposalRow>(
       this.pool,
       `SELECT ${PROPOSAL_COLUMNS}
-       FROM app.proposal WHERE person_id = $1 AND status = 'pending' ORDER BY created_at ASC`,
-      [actor.personId],
+       FROM app.proposal WHERE person_id = $1 AND status = 'pending'
+         AND room_id IN (SELECT room_id FROM app.accessible_room_ids($1))
+         AND (cardinality($2::uuid[]) = 0 OR room_id = ANY($2::uuid[])) ORDER BY created_at ASC`,
+      [actor.personId, actor.roomScope],
     );
     return rows.map(mapProposal);
   }
@@ -672,22 +677,55 @@ export class PgIngest implements IngestPort {
    * `resulting_item` pointer and `proposal.accepted` — commits with that claim or rolls
    * back with it, leaving the proposal pending and answerable again.
    *
-   * This route is first-party only (`FIRST_PARTY_ONLY_ROUTES`), which is what makes it the
-   * only way a placement into a shared room can happen: `share` and `move` can ask, and
-   * nothing they can send makes them the thing that answers.
+   * The REST route remains first-party. Chat approval is a separate, private-only path:
+   * it binds the answer to a preview and refuses audience-widening placements. A chat
+   * client's confirmation is an attestation, not cryptographic proof of human presence.
    */
-  async resolveProposal(actor: Actor, id: ProposalId, accept: boolean, consent?: { reason: string | undefined; reviewed: boolean }): Promise<Item | null> {
+  async resolveProposal(actor: Actor, id: ProposalId, accept: boolean, consent?: ProposalConsent): Promise<Item | null> {
     const row = await queryOne<ProposalRow>(
       this.pool,
-      `SELECT ${PROPOSAL_COLUMNS} FROM app.proposal WHERE id = $1`,
-      [id],
+      `SELECT ${PROPOSAL_COLUMNS} FROM app.proposal WHERE id = $1 AND person_id = $2
+       AND room_id IN (SELECT room_id FROM app.accessible_room_ids($2))
+       AND (cardinality($3::uuid[]) = 0 OR room_id = ANY($3::uuid[]))`,
+      [id, actor.personId, actor.roomScope],
     );
     if (!row || row.person_id !== actor.personId) throw new NotFoundError('Förslaget finns inte.');
-    if (mapProposal(row).status !== 'pending') {
+    if (mapProposal(row).status !== 'pending' && !consent?.privateOnly) {
       throw new ValidationError('Förslaget är redan hanterat.');
     }
 
     const outcome = await withTransaction(this.pool, async (tx) => {
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`rooms:${actor.personId}`]);
+      if (consent?.privateOnly) {
+        await assertNotFrozen(tx, actor.personId);
+        await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [row.room_id]);
+        const fresh = await queryOne<ProposalRow>(tx, `SELECT ${PROPOSAL_COLUMNS} FROM app.proposal
+          WHERE id = $1 AND person_id = $2 FOR UPDATE`, [id, actor.personId]);
+        if (!fresh) throw new NotFoundError('Förslaget finns inte.');
+        const preview = mapProposal(fresh);
+        await assertPrivateRoom(tx, actor, preview.roomId);
+        if (preview.intent !== 'remember' && preview.intent !== 'update') {
+          throw new ValidationError('Delning och flytt ingår inte i ett privat chattgodkännande.');
+        }
+        if (!consent.confirmation?.trim() || consent.reviewKey !== await proposalReviewKey(preview)) {
+          throw new ValidationError('Underlaget har ändrats eller godkännandet saknas. Läs förslaget igen.');
+        }
+        if (accept && !consent.reviewed && (contributionMeta(preview)?.reviewRequired ?? true)) {
+          throw new ValidationError('Visa detaljerna och invänta uttryckligt godkännande av den här uppgiften.');
+        }
+        if (preview.sourceItemId) {
+          const source = await this.findById(preview.sourceItemId, tx);
+          if (!source || source.roomId !== preview.roomId) throw new NotPermittedError();
+        }
+        if (preview.status !== 'pending') {
+          if ((preview.status === 'accepted') !== accept) throw new ValidationError('Förslaget är redan hanterat.');
+          const saved = accept ? await queryOne<ItemRow>(tx, `SELECT ${ITEM_COLUMNS} FROM app.item
+            WHERE id = (SELECT resulting_item FROM app.proposal WHERE id = $1 AND person_id = $2)
+            AND room_id IN (SELECT room_id FROM app.accessible_room_ids($2))
+            AND (cardinality($3::uuid[]) = 0 OR room_id = ANY($3::uuid[]))`, [id, actor.personId, actor.roomScope]) : null;
+          return { raced: false as const, item: saved ? mapItem(saved) : null };
+        }
+      }
       let duplicate: Item | undefined;
       if (accept && contributionMeta(mapProposal(row))) {
         await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [row.room_id]);
@@ -697,7 +735,7 @@ export class PgIngest implements IngestPort {
         if (!fresh || fresh.status !== 'pending') return { raced: true as const };
         const proposal = mapProposal(fresh);
         const meta = contributionMeta(proposal)!;
-        if (consent && (consent.reason !== proposal.reason || (meta.reviewRequired && !consent.reviewed))) {
+        if (consent && ((!consent.privateOnly && consent.reason !== proposal.reason) || (meta.reviewRequired && !consent.reviewed))) {
           return { raced: false as const, review: true, item: null };
         }
         const current = await compareContribution(meta.text, await scoped.contributionItems(actor), [], this.llm, undefined, meta.evidence);
@@ -747,7 +785,8 @@ export class PgIngest implements IngestPort {
       await appendEvent(tx, {
         roomId: proposal.roomId,
         eventType: 'proposal.accepted',
-        payload: { proposal_id: proposal.id, item_id: resulting.id, body: resulting.body },
+        payload: { proposal_id: proposal.id, item_id: resulting.id, body: resulting.body,
+          ...(consent?.privateOnly ? { approval_channel: 'chat', confirmation: consent.confirmation, review_key: consent.reviewKey } : {}) },
         actorPersonId: actor.personId,
         agentClient: actor.agentClient,
         clientId: actor.clientId ?? null,
@@ -993,6 +1032,13 @@ export class PgIngest implements IngestPort {
       return this.applyUpdate(actor, target, proposal.body, {}, actor.personId, tx);
     }
 
+    const destination = contributionMeta(proposal);
+    if (destination?.roomTitle) {
+      const target = await createPrivateRoom(tx, actor, { title: destination.roomTitle,
+        ...(destination.roomDescription ? { description: destination.roomDescription } : {}), reusePrivate: true });
+      proposal = { ...proposal, roomId: target.id,
+        conflictsWith: target.id === proposal.roomId ? proposal.conflictsWith : null };
+    }
     const conflicting = proposal.conflictsWith
       ? await this.findById(proposal.conflictsWith, tx)
       : null;

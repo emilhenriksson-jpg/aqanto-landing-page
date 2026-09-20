@@ -1,7 +1,7 @@
 import { CONTEXT_CONTRIBUTION_INSTRUCTIONS } from './contribution-instructions.js';
 /**
- * The session instructions: the text that arrives in system-prompt position before the
- * person types anything.
+ * Session guidance advertised by MCP and included in get_context results. External
+ * clients decide whether and when initialization instructions reach their model.
  *
  * This is what "full context immediately" actually means in practice. Everything else
  * — the tools, the search, the rooms — is what happens after the model already knows
@@ -168,8 +168,8 @@ export function renderProfile(profile: Profile, budgetTokens?: number, now?: Dat
 
   if (parts.length === 0) {
     return `Den personliga profilöversikten är tom; andra rum kan ha innehåll. Det är inget läsfel.
-Finns egen relevant kontext: erbjud ett bidrag när det passar. Annars räcker en enkel
-fråga. Respektera paus och väntande underlag.`;
+Vid en hälsning eller profilfråga, med egen relevant kontext: förbered direkt ett
+minnes- och rumsförslag. Annars räcker en enkel fråga. Respektera paus och väntande underlag.`;
   }
 
   return parts.join('\n\n');

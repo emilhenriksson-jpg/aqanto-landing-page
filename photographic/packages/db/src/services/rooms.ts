@@ -1,3 +1,4 @@
+import { createPrivateRoom } from './private-rooms.js';
 /**
  * Rooms and membership, backed by Postgres.
  */
@@ -26,7 +27,6 @@ import {
   type PersonRow,
   type RoomRow,
 } from '../rows.js';
-import { slugify } from '../slug.js';
 import { appendEvent } from './events.js';
 import type { PgIngest } from './ingest.js';
 import { accessibleRoomIds, assertNotFrozen, canRead, roleIn } from './permissions.js';
@@ -39,36 +39,8 @@ export class PgRooms implements RoomPort {
     private readonly ingest: Pick<PgIngest, 'softDelete'>,
   ) {}
 
-  async create(actor: Actor, input: { title: string; description?: string }): Promise<Room> {
-    await assertNotFrozen(this.pool, actor.personId);
-
-    const title = input.title.trim();
-    if (!title) throw new NotPermittedError('Rummet måste ha ett namn.');
-
-    const row = await queryOne<RoomRow>(
-      this.pool,
-      `INSERT INTO app.room (kind, slug, title, description, created_by)
-       VALUES ('shared', $1, $2, $3, $4)
-       RETURNING id, kind, slug, title, description, sensitivity, created_by, created_at, archived_at`,
-      [slugify(title), title, input.description ?? null, actor.personId],
-    );
-    const room = mapRoom(row!);
-
-    await execute(
-      this.pool,
-      `INSERT INTO app.membership (person_id, room_id, role) VALUES ($1, $2, 'owner')`,
-      [actor.personId, room.id],
-    );
-
-    await appendEvent(this.pool, {
-      roomId: room.id,
-      eventType: 'room.created',
-      payload: { title: room.title, kind: 'shared' },
-      actorPersonId: actor.personId,
-      agentClient: actor.agentClient,
-    });
-
-    return room;
+  async create(actor: Actor, input: { title: string; description?: string; reusePrivate?: boolean }): Promise<Room> {
+    return createPrivateRoom(this.pool, actor, input);
   }
 
   async get(actor: Actor, roomId: RoomId): Promise<Room | null> {
