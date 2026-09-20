@@ -44,6 +44,7 @@ function minutes(ms: number): number {
  * cannot fail on a permission the app does not have.
  */
 export const MIGRATION_ARTIFACTS: Record<string, string> = {
+  '0026_chatgpt_launch.sql': column('client_grant', 'chatgpt_plugin_id'),
   '0025_context_contributions.sql': `to_regclass('app.context_contribution_preference') IS NOT NULL`,
   '0024_browser_session_revocations.sql': `to_regclass('app.browser_session_revocation') IS NOT NULL`,
   '0001_init.sql': `to_regclass('app.person') IS NOT NULL`,
