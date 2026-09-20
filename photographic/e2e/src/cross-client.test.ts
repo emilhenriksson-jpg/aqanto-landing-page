@@ -29,7 +29,7 @@ it('continues a Claude decision in ChatGPT without choosing a room, then retriev
   await harness.runJobsToCompletion();
   const fresh = await call(chatgpt, 'get_context');
   expect(fresh.text).toContain('Lanseringen blir i november');
-  expect(fresh.text).toContain('Var ni var senast');
+  expect(fresh.text).toContain('Senast sparat');
   const history = await harness.services.history.list(chatgpt, {});
   expect(history.some((entry) => entry.body?.includes('Lanseringen blir i november') && entry.agentClient === 'claude-desktop')).toBe(true);
 

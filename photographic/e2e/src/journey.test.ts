@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   askMemory,
+  COMPASS_PRINCIPLES,
   memoryChanges,
   openThreadsFor,
   RECENT_ACTIVITY_LIMIT,
@@ -202,7 +203,7 @@ describe('a person and their memory', () => {
       // about the last few minutes.
       const client = await harness.connectMcpClient(await harness.tokenFor(email));
 
-      expect(client.instructions).toMatch(/Var ni var senast/);
+      expect(client.instructions).toMatch(/Senast sparat/);
       // The instruction saved earlier in this suite ("Utmana alltid mina idéer") is
       // recent enough to be one of the last few things that happened to this person.
       expect(client.instructions).toMatch(/Utmana/);
@@ -260,7 +261,9 @@ describe('the personal compass', () => {
     const client = await harness.connectMcpClient(await harness.tokenFor(email));
 
     expect(client.instructions).toMatch(/Personens kompass/);
-    expect(client.instructions).toMatch(/Var direkt/);
+    for (const principle of COMPASS_PRINCIPLES) {
+      expect(client.instructions).toContain(principle.defaultText);
+    }
     expect(client.instructions).toMatch(/Skilj på vad som är fakta/);
   });
 
@@ -296,7 +299,7 @@ describe('the personal compass', () => {
     // The other five principles are untouched, and there is exactly one line for
     // directness — the default is gone, not merely joined by the personal wording.
     expect(client.instructions).toMatch(/Skilj på vad som är fakta/);
-    expect(client.instructions).not.toMatch(/Var direkt\. Säg det du menar/);
+    expect(client.instructions).not.toContain(COMPASS_PRINCIPLES[0]!.defaultText);
   });
 });
 
