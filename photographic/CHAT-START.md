@@ -1,5 +1,9 @@
 # Room-independent conversation start
 
+Latest correction: [ChatGPT conversation activation](docs/chatgpt-start-verification.md)
+records a real selected-app greeting test and the account-scoped desktop launch
+binding. Earlier blank-link and missing-private-plugin observations below are historical.
+
 Implemented 2026-09-16. `/chatt` is the signed-in start on both hosts; the product
 root redirects there. `/personligt` retains the personal-room screen. Phone login
 without a return destination goes to `/chatt`.

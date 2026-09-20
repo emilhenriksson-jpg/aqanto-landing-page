@@ -427,6 +427,7 @@ export class PgTokenStore implements TokenStore {
 
 export interface ClientGrantRow {
   clientId: string;
+  chatgptPluginId: string | null;
   /** The person's own name for it, when they have set one. */
   displayName: string | null;
   /** The frozen label, derived at registration. */
@@ -471,6 +472,7 @@ export class PgClientGrants {
   async list(personId: PersonId): Promise<ClientGrantRow[]> {
     const rows = await queryRows<{
       client_id: string;
+      chatgpt_plugin_id: string | null;
       display_name: string | null;
       client_label: string;
       agent_client: string;
@@ -482,6 +484,7 @@ export class PgClientGrants {
     }>(
       this.pool,
       `SELECT g.client_id,
+              g.chatgpt_plugin_id,
               g.display_name,
               c.client_label,
               c.agent_client,
@@ -503,6 +506,7 @@ export class PgClientGrants {
 
     return rows.map((row) => ({
       clientId: row.client_id,
+      chatgptPluginId: row.chatgpt_plugin_id,
       displayName: row.display_name,
       clientLabel: row.client_label,
       agentClient: row.agent_client as AgentClient,
@@ -532,6 +536,17 @@ export class PgClientGrants {
        WHERE person_id = $1 AND client_id = $2`,
       [input.personId, input.clientId, input.displayName],
     );
+    return updated === 1;
+  }
+
+  /** First-party launch preference, isolated by both person and active provider grant. */
+  async setChatgptPlugin(input: { personId: PersonId; clientId: string; pluginId: string }): Promise<boolean> {
+    const updated = await execute(this.pool,
+      `UPDATE app.client_grant g SET chatgpt_plugin_id = $3
+       FROM app.oauth_client c
+       WHERE g.person_id = $1 AND g.client_id = $2 AND g.revoked_at IS NULL
+         AND c.client_id = g.client_id AND c.agent_client = 'chatgpt-web'`,
+      [input.personId, input.clientId, input.pluginId]);
     return updated === 1;
   }
 

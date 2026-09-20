@@ -308,6 +308,8 @@ export const renameClientSchema = z.object({
   displayName: z.string().trim().min(1).max(60).nullable(),
 });
 
+export const chatgptLaunchSchema = z.object({ link: z.string().trim().min(1).max(300) }).strict();
+
 /**
  * The person's own first name.
  *

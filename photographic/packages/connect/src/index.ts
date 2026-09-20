@@ -1,6 +1,7 @@
 export * from './break-glass.js';
 export * from './install-links.js';
 export * from './clients.js';
+export * from './chatgpt-plugin.js';
 export * from './detect.js';
 export * from './deps.js';
 export * from './phone.js';

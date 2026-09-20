@@ -315,6 +315,7 @@ export const HUMAN_DECISION_ROUTES: readonly ScopedRoute[] = [
  * others. And `HUMAN_DECISION_ROUTES`, for the reasons stated there.
  */
 export const FIRST_PARTY_ONLY_ROUTES: readonly ScopedRoute[] = [
+  ['PATCH', '/clients/:clientId/chatgpt-launch'],
   ['PATCH', '/clients/:clientId'],
   ['DELETE', '/clients/:clientId'],
 

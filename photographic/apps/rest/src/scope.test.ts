@@ -108,6 +108,7 @@ beforeAll(async () => {
     clientGrants: {
       list: async () => [],
       rename: async () => true,
+      setChatgptPlugin: async () => true,
       revoke: async () => true,
     },
     revokeClientTokens: async () => 1,
@@ -284,6 +285,16 @@ describe('per-route scopes', () => {
 });
 
 describe('managing the clients themselves', () => {
+  it('only lets the browser bind a private ChatGPT app, with strict link validation', async () => {
+    const link = 'https://chatgpt.com/plugins/plugin_asdk_app_0123456789abcdef0123456789abcdef';
+    const route = '/v1/clients/pgm_client_other/chatgpt-launch';
+    expect((await call(route, { method: 'PATCH', body: JSON.stringify({ link }), scopes: [SCOPE_MEMORY_WRITE, SCOPE_PROFILE_READ] })).status).toBe(403);
+    const saved = await call(route, { method: 'PATCH', body: JSON.stringify({ link }), clientId: FIRST_PARTY_CLIENT_ID });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ chatgptPluginId: 'dev-0123456789abcdef0123456789abcdef@openai-curated-remote' });
+    expect((await call(route, { method: 'PATCH', body: JSON.stringify({ link: link.replace('chatgpt.com', 'evil.test') }), clientId: FIRST_PARTY_CLIENT_ID })).status).toBe(400);
+  });
+
   it('refuses one AI client renaming another, whatever its scopes', async () => {
     // No scope is the right key here. A scope that permitted this would be held by every
     // client holding it, so the first thing a compromised AI would do is revoke the rest.

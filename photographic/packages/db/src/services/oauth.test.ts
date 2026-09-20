@@ -304,6 +304,21 @@ describe('PgTokenStore', () => {
 });
 
 describe('PgClientGrants', () => {
+  it('isolates private ChatGPT launch bindings by person, provider and revocation', async () => {
+    const client = await clients.create(registration('ChatGPT'));
+    const otherClient = await clients.create(registration('Claude'));
+    const pluginId = 'dev-0123456789abcdef0123456789abcdef@openai-curated-remote';
+    for (const owner of [personId, otherPersonId]) await grants.record({ personId: owner, clientId: client.clientId, scope: 'profile.read' });
+    await grants.record({ personId, clientId: otherClient.clientId, scope: 'profile.read' });
+    expect(await grants.setChatgptPlugin({ personId, clientId: client.clientId, pluginId })).toBe(true);
+    expect((await grants.list(personId)).find(row => row.clientId === client.clientId)?.chatgptPluginId).toBe(pluginId);
+    expect((await grants.list(otherPersonId)).find(row => row.clientId === client.clientId)?.chatgptPluginId).toBeNull();
+    expect(await grants.setChatgptPlugin({ personId, clientId: otherClient.clientId, pluginId })).toBe(false);
+    expect(await grants.setChatgptPlugin({ personId, clientId: 'not-granted', pluginId })).toBe(false);
+    await grants.revoke({ personId, clientId: client.clientId });
+    expect(await grants.setChatgptPlugin({ personId, clientId: client.clientId, pluginId })).toBe(false);
+  });
+
   it('lists a client under its frozen label until the person renames it', async () => {
     const client = await clients.create(registration('Claude Desktop'));
     await grants.record({ personId, clientId: client.clientId, scope: 'memory.read' });

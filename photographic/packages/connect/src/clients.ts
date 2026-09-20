@@ -7,6 +7,7 @@
  */
 
 import type { Platform } from './detect.js';
+import { chatgptPluginPrompt } from './chatgpt-plugin.js';
 import type { AgentClient, DeliveryMethod } from '@photographic/core';
 import {
   claudeCodeCommand,
@@ -79,7 +80,7 @@ export interface ChatLaunch {
 /** Optional greeting only. Behavioral instructions arrive through the MCP connection. */
 export const CHAT_START_PROMPT = 'Hej! Jag kommer från Photographic.';
 
-export function chatLaunch(id: ClientId, platform: Platform = 'unknown'): ChatLaunch | undefined {
+export function chatLaunch(id: ClientId, platform: Platform = 'unknown', binding?: { chatgptPluginId?: string | null }): ChatLaunch | undefined {
   const prompt = CHAT_START_PROMPT;
   const encoded = encodeURIComponent(prompt);
   const mobile = platform === 'ios' || platform === 'android';
@@ -124,14 +125,21 @@ export function chatLaunch(id: ClientId, platform: Platform = 'unknown'): ChatLa
       fallbackUrl: 'https://claude.ai/new',
       note: 'Öppnar en tom chatt i Claude. Börja prata när Photographic är anslutet; instruktionerna följer med genom kopplingen.',
     };
-    case 'chatgpt': return {
+    case 'chatgpt': {
+      const mention = chatgptPluginPrompt(binding?.chatgptPluginId);
+      return {
       // ChatGPT retains codex://, but the mode must be explicit: otherwise the app
       // can keep its active Codex mode and start a local task in the current project.
-      url: 'codex://threads/new?mode=chat', prompt, desktop: true,
-      activationNote: 'Välj Photographic i den nya chattens verktygsmeny innan du börjar prata.',
+      url: `codex://threads/new?mode=chat${mention ? `&prompt=${encodeURIComponent(mention)}` : ''}`,
+      prompt: mention ?? prompt, desktop: true,
+      activationNote: mention
+        ? 'Photographic följer med som valt tillägg. Skriv eller säg det du vill börja med och skicka.'
+        : 'Välj Photographic i den nya chattens verktygsmeny innan du börjar prata.',
       fallbackUrl: 'https://chatgpt.com/?no_universal_links=1',
-      note: 'Öppnar en tom ChatGPT-chatt i datorappen. Välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald, och börja prata.',
-    };
+      note: mention
+        ? 'Öppnar en ny ChatGPT-chatt med din Photographic-koppling markerad i skrivfältet. Länken skickar inget meddelande automatiskt. ChatGPT kan be dig bekräfta verktygsanrop.'
+        : 'Öppnar en tom ChatGPT-chatt i datorappen. Välj Photographic i chattens verktygsmeny om kopplingen inte redan är vald, och börja prata.',
+    }; }
     default: return undefined;
   }
 }

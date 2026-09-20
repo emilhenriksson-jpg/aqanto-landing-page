@@ -10,6 +10,55 @@ const clients = buildClients({ mcpUrl: 'https://memory.example/mcp', connectPage
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); });
 
 describe('conversation home', () => {
+  it('saves the active account binding and includes its app mention in the desktop launch', async () => {
+    vi.stubEnv('VITE_USE_DEMO', '0');
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)', maxTouchPoints: 0 });
+    const pluginId = 'dev-0123456789abcdef0123456789abcdef@openai-curated-remote';
+    const request = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/v1/connect')) return Response.json({ clients });
+      if (url.endsWith('/v1/account')) return Response.json({ firstName: 'Test' });
+      if (url.endsWith('/v1/clients')) return Response.json({ clients: [{ agentClient: 'chatgpt-web', clientId: 'my-client', revoked: false, profileDelivered: true, lastSeenAt: '2026-09-20T10:00:00Z' }] });
+      if (url.endsWith('/v1/clients/my-client/chatgpt-launch')) {
+        expect(init?.method).toBe('PATCH');
+        expect(JSON.parse(init?.body as string)).toEqual({ link: 'https://chatgpt.com/plugins/plugin_asdk_app_0123456789abcdef0123456789abcdef' });
+        return Response.json({ clientId: 'my-client', chatgptPluginId: pluginId });
+      }
+      throw new Error(url);
+    });
+    vi.stubGlobal('fetch', request);
+    render(<MemoryRouter><ChatStart /></MemoryRouter>);
+    expect(new URL((await screen.findByRole('link', { name: 'Öppna ChatGPT' })).getAttribute('href')!).searchParams.has('prompt')).toBe(false);
+    openGuide('ChatGPT');
+    fireEvent.click(screen.getByText('Välj Photographic automatiskt på datorn'));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Länk till din Photographic-app i ChatGPT' }), { target: { value: 'https://chatgpt.com/plugins/plugin_asdk_app_0123456789abcdef0123456789abcdef' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Spara startkoppling' }));
+    await screen.findByText('Sparat. Startknappen tar nu med Photographic på datorn.');
+    const url = new URL(screen.getByRole('link', { name: 'Öppna ChatGPT' }).getAttribute('href')!);
+    expect(url.searchParams.get('prompt')).toBe(`[@Photographic](plugin://${pluginId})`);
+    expect(url.searchParams.get('mode')).toBe('chat');
+    expect(screen.getAllByText('Photographic följer med som valt tillägg. Skriv eller säg det du vill börja med och skicka.')[0]).toBeVisible();
+  });
+
+  it('loads an existing account binding but never uses a revoked one', async () => {
+    vi.stubEnv('VITE_USE_DEMO', '0');
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)', maxTouchPoints: 0 });
+    const pluginId = 'dev-0123456789abcdef0123456789abcdef@openai-curated-remote';
+    let revoked = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/connect')) return Response.json({ clients });
+      if (url.endsWith('/v1/account')) return Response.json({ firstName: 'Test' });
+      if (url.endsWith('/v1/clients')) return Response.json({ clients: [{ agentClient: 'chatgpt-web', clientId: 'my-client', chatgptPluginId: pluginId, revoked, profileDelivered: true, lastSeenAt: '2026-09-20T10:00:00Z' }] });
+      throw new Error(url);
+    }));
+    render(<MemoryRouter><ChatStart /></MemoryRouter>);
+    expect(new URL((await screen.findByRole('link', { name: 'Öppna ChatGPT' })).getAttribute('href')!).searchParams.get('prompt')).toContain(pluginId);
+    revoked = true;
+    fireEvent(window, new Event('focus'));
+    await screen.findByRole('link', { name: 'Koppla ChatGPT' });
+    openGuide('ChatGPT');
+    expect(new URL(screen.getByRole('link', { name: 'Öppna ChatGPT efter koppling' }).getAttribute('href')!).searchParams.has('prompt')).toBe(false);
+  });
+
   it('opens with four AI choices and no room-selection requirement', () => {
     render(<MemoryRouter initialEntries={['/']}><AppRoutes /></MemoryRouter>);
     expect(screen.getByRole('heading', { name: 'Hej, Emil.' })).toBeInTheDocument();

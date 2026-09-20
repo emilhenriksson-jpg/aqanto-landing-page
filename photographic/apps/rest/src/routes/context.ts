@@ -7,13 +7,13 @@
  */
 
 import { clientDisplayName } from '@photographic/auth';
-import { buildClients, isDegraded } from '@photographic/connect';
+import { buildClients, chatgptPluginId, isDegraded } from '@photographic/connect';
 import type { ConnectConfig } from '@photographic/connect';
 import type { AgentClient, PersonId, RoomId } from '@photographic/core';
 import { Hono } from 'hono';
 
 import type { AppContext, AppEnv } from '../context.js';
-import { contextQuerySchema, renameClientSchema } from '../schemas.js';
+import { contextQuerySchema, renameClientSchema, chatgptLaunchSchema } from '../schemas.js';
 import { serialiseBundle, serialiseProfile } from '../serialise.js';
 import { parseJsonBody, parseQuery } from '../validation.js';
 import { getActor, getServices } from './shared.js';
@@ -45,6 +45,7 @@ export interface ClientGrants {
   list(personId: PersonId): Promise<
     Array<{
       clientId: string;
+      chatgptPluginId?: string | null;
       displayName: string | null;
       clientLabel: string;
       agentClient: AgentClient;
@@ -61,6 +62,7 @@ export interface ClientGrants {
     displayName: string | null;
   }): Promise<boolean>;
   revoke(input: { personId: PersonId; clientId: string }): Promise<boolean>;
+  setChatgptPlugin?(input: { personId: PersonId; clientId: string; pluginId: string }): Promise<boolean>;
 }
 
 export function contextRoutes(deps: ContextRouteDeps): Hono<AppEnv> {
@@ -138,6 +140,7 @@ export function contextRoutes(deps: ContextRouteDeps): Hono<AppEnv> {
         {
           agentClient: entry.agentClient,
           clientId: grant?.clientId ?? null,
+          chatgptPluginId: grant?.revokedAt ? null : grant?.chatgptPluginId ?? null,
           // The person's own name wins, then the frozen label, then the connect
           // descriptor. Never the registration name a client chose for itself.
           displayName: clientDisplayName({
@@ -168,6 +171,7 @@ export function contextRoutes(deps: ContextRouteDeps): Hono<AppEnv> {
       .map((row) => ({
         agentClient: row.agentClient,
         clientId: row.clientId,
+        chatgptPluginId: row.revokedAt ? null : row.chatgptPluginId ?? null,
         displayName: clientDisplayName(row),
         renamed: Boolean(row.displayName),
         lastSeenAt: row.lastSeenAt.toISOString(),
@@ -180,6 +184,18 @@ export function contextRoutes(deps: ContextRouteDeps): Hono<AppEnv> {
       }));
 
     return c.json({ clients: [...connected, ...dormant] });
+  });
+
+  routes.patch('/clients/:clientId/chatgpt-launch', async (c) => {
+    const actor = getActor(c);
+    if (!grants?.setChatgptPlugin) return noRegistry(c);
+    const { link } = await parseJsonBody(c, chatgptLaunchSchema);
+    const pluginId = chatgptPluginId(link);
+    if (!pluginId) return c.json({ error: { code: 'validation', message: 'Ange länken till din privata Photographic-app på chatgpt.com.' } }, 400);
+    const clientId = c.req.param('clientId');
+    const saved = await grants.setChatgptPlugin({ personId: actor.personId, clientId, pluginId });
+    if (!saved) return c.json({ error: { code: 'not_found', message: 'En aktiv ChatGPT-koppling behövs.' } }, 404);
+    return c.json({ clientId, chatgptPluginId: pluginId });
   });
 
   /**

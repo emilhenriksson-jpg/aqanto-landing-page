@@ -138,6 +138,7 @@ export interface AccountDto {
 /** GET /v1/clients — per-AI delivery lights. */
 export interface ClientHealthDto {
   agentClient: string;
+  chatgptPluginId?: string | null;
   /**
    * The OAuth client id, when this row is a registration. Used as the React key so two
    * dynamically-registered clients that both fall back to `unknown` still render as two

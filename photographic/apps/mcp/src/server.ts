@@ -1,12 +1,10 @@
 /**
  * The MCP server.
  *
- * One thing here matters more than everything else: `instructions`. It is the only place
- * in any protocol we can reach where our text lands in system-prompt position *before*
- * the person types. That is what "full context immediately" means concretely — not that
- * a model can look the person up, but that it already knows them by the time they say
- * hello. If a session starts and the model asks who it is talking to, the product has not
- * worked, however well the eight tools behave.
+ * `instructions` advertises startup guidance. A client decides whether to surface it
+ * to its model; initialization is not evidence that an individual conversation used
+ * the profile. In ChatGPT, selecting the app in the conversation is a separate step.
+ * Verify actual tool calls and responses, not merely tools/list or initialization.
  *
  * Which is why a server is constructed per connection rather than once per process: the
  * instructions string is one person's profile, and a shared server would either serve one

@@ -8,7 +8,7 @@ import { apiFetch } from '../api/client.js';
 import { getAccount } from '../api/account.js';
 import { loadAccountDemo } from '../data/demo.js';
 import { CHAT_CLIENTS, lastChatChoice, rememberChatChoice } from '../data/chat-choice.js';
-import { listClients } from '../api/clients.js';
+import { listClients, setChatgptLaunch } from '../api/clients.js';
 import type { ClientHealthDto } from '../api/types.js';
 import { CalmState, LoadingState } from '../components/CalmState.js';
 import { useRoomData, type LoadState } from '../hooks/useRoomData.js';
@@ -75,13 +75,15 @@ export function ChatStart() {
 
 function LaunchCard({ client, health, preferred }: { client: ClientDescriptor; health: LoadState<ClientHealthDto[]>; preferred: boolean }) {
   const platform = detect(navigator.userAgent, navigator.maxTouchPoints).platform;
-  const launch = chatLaunch(client.id, platform)!;
+  const [savedBinding, setSavedBinding] = useState<{ clientId: string; chatgptPluginId: string } | null>(null);
   const check = useConnectionCheck(client.id);
   const [guideOpen, setGuideOpen] = useState(false);
   const [copyState, setCopyState] = useState<'copied' | 'manual' | null>(null);
   const previous = (health.status === 'ready' ? health.data : []).filter((entry) => client.agentClients.some((name) => name === entry.agentClient)
     && !entry.revoked && entry.profileDelivered)
     .sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt))[0];
+  const pluginId = savedBinding?.clientId === previous?.clientId ? savedBinding?.chatgptPluginId : previous?.chatgptPluginId;
+  const launch = chatLaunch(client.id, platform, { chatgptPluginId: pluginId })!;
   const quick = client.quickSetup;
   const needsSetup = health.status === 'ready' && !previous && !check.hasReceipt;
 
@@ -157,6 +159,8 @@ function LaunchCard({ client, health, preferred }: { client: ClientDescriptor; h
           </a>}
           {client.caveats.map(note => <p key={note}>{note}</p>)}
         </>}
+        {client.id === 'chatgpt' && previous?.clientId && <ChatgptLaunchBinding clientId={previous.clientId}
+          configured={Boolean(pluginId)} onSaved={setSavedBinding} />}
         {launch.url && <div className="chat-start__continue">
           {check.state !== 'connected' && <>
             <h4>Kopplingen finns redan eller är tillagd?</h4>
@@ -185,6 +189,34 @@ function LaunchCard({ client, health, preferred }: { client: ClientDescriptor; h
       </details>
     </div>
   </article>;
+}
+
+function ChatgptLaunchBinding({ clientId, configured, onSaved }: {
+  clientId: string;
+  configured: boolean;
+  onSaved: (binding: { clientId: string; chatgptPluginId: string }) => void;
+}) {
+  const [link, setLink] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  return <details className="chat-start__troubleshoot">
+    <summary>{configured ? 'Photographic väljs vid start på datorn' : 'Välj Photographic automatiskt på datorn'}</summary>
+    <p>Spara länken till din privata Photographic-app i ChatGPT en gång. Då följer kopplingen med när du öppnar en chatt på datorn. På mobilen väljer du den fortfarande i chatten.</p>
+    <form className="chat-start__manual" onSubmit={event => {
+      event.preventDefault();
+      if (saving) return;
+      setSaving(true); setMessage(null);
+      void setChatgptLaunch(clientId, link).then(binding => {
+        onSaved(binding); setLink(''); setMessage('Sparat. Startknappen tar nu med Photographic på datorn.');
+      }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Kunde inte spara länken.'))
+        .finally(() => setSaving(false));
+    }}>
+      <label>Länk till din Photographic-app i ChatGPT<input aria-label="Länk till din Photographic-app i ChatGPT"
+        value={link} onChange={event => setLink(event.target.value)} placeholder="https://chatgpt.com/plugins/…" required maxLength={300} /></label>
+      <button className="btn" type="submit" disabled={saving}>{saving ? 'Sparar…' : 'Spara startkoppling'}</button>
+      {message && <p role="status">{message}</p>}
+    </form>
+  </details>;
 }
 
 function SetupAction({ action }: { action: ConnectAction }) {

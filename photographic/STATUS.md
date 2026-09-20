@@ -246,6 +246,8 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- 2026-09-20 — Root: reproduced ChatGPT's unselected greeting with no tool call; selecting the real private Photographic app made `hej` retrieve context and attempt a memory/room proposal (stopped at ChatGPT's data-transfer approval). Added account-scoped private ChatGPT app bindings and desktop launch mentions; no shared private app ID, no auto-send, no mobile activation claim. Binding changes are first-party only and constrained to active ChatGPT grants. See `docs/chatgpt-start-verification.md`.
+
 - **2026-09-20 — Private onboarding and rooms can be completed in chat.** `create_room` creates/reuses a private owner-only room; `review_proposals` lists exact previews and accepts the user's in-chat answer. `prepare_context` carries proposed room names/purposes; room creation and each memory approval commit together in Postgres. Preview hashes, separate review flags, ownership/audience checks, retry idempotence and confirmation provenance protect the new path. First-meeting guidance now prepares a concrete draft instead of asking permission to start. Shared placements/invitations remain outside this private flow; OAuth and provider approval dialogs remain client-controlled.
 
 
