@@ -16,6 +16,7 @@ export function useRoomData<T>(
   key: string,
   demo: () => T,
   live: () => Promise<T>,
+  options: { keepPreviousOnReload?: boolean } = {},
 ): LoadState<T> {
   const [state, setState] = useState<LoadState<T>>(() => {
     if (isDemoMode()) {
@@ -39,7 +40,8 @@ export function useRoomData<T>(
     }
 
     let cancelled = false;
-    setState({ status: 'loading' });
+    setState(previous => options.keepPreviousOnReload && previous.status === 'ready'
+      ? previous : { status: 'loading' });
 
     void live()
       .then((data) => {

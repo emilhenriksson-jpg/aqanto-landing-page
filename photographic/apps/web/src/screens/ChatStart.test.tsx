@@ -264,3 +264,22 @@ it('offers reconnect for a revoked client instead of treating its old receipt as
   expect(await screen.findByRole('link', { name: 'Koppla ChatGPT' })).toBeVisible();
   expect(screen.queryByRole('link', { name: 'Öppna ChatGPT' })).not.toBeInTheDocument();
 });
+
+it('keeps the setup destination stable while refreshing history on return', async () => {
+  vi.stubEnv('VITE_USE_DEMO', '0');
+  let healthReads = 0;
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.endsWith('/v1/connect')) return Response.json({ clients });
+    if (url.endsWith('/v1/clients')) {
+      if (++healthReads === 1) return Response.json({ clients: [] });
+      return new Promise<Response>(() => {});
+    }
+    return Response.json({});
+  }));
+  home();
+  expect(await screen.findByRole('link', { name: 'Koppla ChatGPT' })).toHaveAttribute('href', 'https://chatgpt.com/plugins');
+  fireEvent.focus(window);
+  await waitFor(() => expect(healthReads).toBe(2));
+  expect(screen.getByRole('link', { name: 'Koppla ChatGPT' })).toHaveAttribute('href', 'https://chatgpt.com/plugins');
+  expect(screen.queryByRole('link', { name: 'Öppna ChatGPT' })).not.toBeInTheDocument();
+});

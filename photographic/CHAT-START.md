@@ -192,7 +192,9 @@ Verification starts with the setup click and retains the original baseline for t
 minutes, allowing time for sign-in and consent. Chat launches use the existing shorter
 window. Focus/visibility return checks immediately; duplicate clicks and overlapping
 polls are coalesced. Network retry keeps the baseline, and page teardown aborts work.
-Account receipt history refreshes on return. A success is still client-level delivery
+Account receipt history refreshes on return, keeping the previous result visible so
+the primary action cannot briefly change from Connect to Open during that refresh.
+A success is still client-level delivery
 evidence, not proof of an individual chat or silent tool activation.
 
 Limits: these changes shorten the supported manual connection path. ChatGPT still
@@ -201,7 +203,7 @@ No registered or published Photographic plugin is available to attach in a deep 
 The first native model reply and physical mobile handoff still require end-to-end
 provider testing. The UI tests and browser layout verification do not establish them.
 
-Validation: web 149 tests, connect 149 tests, relevant typechecks and lint; Chrome
+Validation: web 150 tests, connect 149 tests, relevant typechecks and lint; Chrome
 setup-click/clipboard/destination check and 320px CSS-width guide with no overflow or
 console errors. No settings, connector grants or native chats were submitted in the
 provider apps during this verification.

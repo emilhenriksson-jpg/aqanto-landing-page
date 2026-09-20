@@ -31,7 +31,7 @@ export function ChatStart() {
   const platform = detect(navigator.userAgent, navigator.maxTouchPoints).platform;
   const account = useRoomData(`chat-account-${retry}`, loadAccountDemo, getAccount);
   const health = useRoomData(`chat-health-${retry}-${healthRefresh}`, () => [] as ClientHealthDto[],
-    async () => (await listClients()).clients);
+    async () => (await listClients()).clients, { keepPreviousOnReload: true });
   const state = useRoomData(`chat-start-${retry}`, () =>
     buildClients({ mcpUrl: 'https://mcp.photographic.space/mcp', connectPageUrl: '/connect' }),
     async () => (await apiFetch<ConnectPayload>('/v1/connect')).clients);
