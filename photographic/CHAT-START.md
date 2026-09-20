@@ -172,3 +172,43 @@ No invented plugin ID, automatic data access, or completed native connection is 
 Sources checked: https://developers.openai.com/plugins/deploy/connect-chatgpt,
 https://learn.chatgpt.com/docs/reference/commands,
 https://developers.openai.com/plugins/build/plugins.
+
+## Fewer clicks to a working connection (2026-09-20)
+
+The initial primary action now connects an unverified client instead of opening a
+blank chat first. One click opens the provider's supported setup destination and
+expands the guide in Photographic. For ChatGPT, Claude and Codex, the visible hint
+explicitly explains that this also copies the public MCP address; no memory or
+credential is copied. Clipboard denial shows selectable text. Cursor receives its
+existing prepared install link. Codex's main guide uses app settings, keeping the
+terminal alternative in extra help.
+
+Existing, non-revoked profile-delivery evidence retains direct native launch. An
+unknown/error state does not pretend the client is unconfigured or force reinstall.
+Someone who already installed a connector can open the chat from the guide and
+request memory without installing again. No room selection is added.
+
+Verification starts with the setup click and retains the original baseline for ten
+minutes, allowing time for sign-in and consent. Chat launches use the existing shorter
+window. Focus/visibility return checks immediately; duplicate clicks and overlapping
+polls are coalesced. Network retry keeps the baseline, and page teardown aborts work.
+Account receipt history refreshes on return. A success is still client-level delivery
+evidence, not proof of an individual chat or silent tool activation.
+
+Limits: these changes shorten the supported manual connection path. ChatGPT still
+needs account/workspace support for custom plugins and selection in the conversation.
+No registered or published Photographic plugin is available to attach in a deep link.
+The first native model reply and physical mobile handoff still require end-to-end
+provider testing. The UI tests and browser layout verification do not establish them.
+
+Validation: web 149 tests, connect 149 tests, relevant typechecks and lint; Chrome
+setup-click/clipboard/destination check and 320px CSS-width guide with no overflow or
+console errors. No settings, connector grants or native chats were submitted in the
+provider apps during this verification.
+
+Official setup sources checked:
+- https://learn.chatgpt.com/docs/extend/mcp
+- https://learn.chatgpt.com/docs/reference/commands
+- https://developers.openai.com/plugins/deploy/connect-chatgpt
+- https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities
+- https://prod.cursor.com/docs/mcp/install-links

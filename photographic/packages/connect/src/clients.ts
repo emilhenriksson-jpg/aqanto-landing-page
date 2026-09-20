@@ -46,6 +46,13 @@ export interface ClientDescriptor {
   oneClick: boolean;
   /** Chat launch is distinct from first-time authorization. */
   launch?: ChatLaunch;
+  /** Shortest supported setup entry point. Contains only the public server URL. */
+  quickSetup?: {
+    url: string;
+    copyValue?: string;
+    hint: string;
+    steps?: string[];
+  };
   primary: ConnectAction;
   secondary: ConnectAction[];
   steps: string[];
@@ -152,6 +159,11 @@ export function buildClients(config: ConnectConfig, platform: Platform = 'unknow
       capability: 'deterministic',
       expectedDelivery: 'mcp_instructions',
       oneClick: true,
+      quickSetup: {
+        url: cursorInstallLink(mcpUrl, name),
+        hint: 'Öppnar Cursor med Photographic förberett. Godkänn och logga in.',
+        steps: ['Godkänn att Photographic läggs till i Cursor.', 'Logga in med ditt Photographic-konto när webbläsaren öppnas.'],
+      },
       primary: {
         type: 'deeplink',
         label: 'Lägg till i Cursor',
@@ -179,11 +191,17 @@ export function buildClients(config: ConnectConfig, platform: Platform = 'unknow
       capability: 'deterministic',
       expectedDelivery: 'mcp_instructions',
       oneClick: false,
+      quickSetup: {
+        url: 'https://claude.ai/customize/connectors',
+        copyValue: mcpUrl,
+        hint: 'Kopierar adressen och öppnar Claudes kopplingar i webbläsaren.',
+        steps: ['Tryck på plus och välj Add custom connector.', 'Ange namnet Photographic, klistra in adressen och godkänn inloggningen.'],
+      },
       primary: { type: 'copy', label: 'Kopiera adressen', value: mcpUrl },
       secondary: [],
       steps: [
         'Öppna Claude i webbläsaren eller i skrivbordsappen — inte i mobilappen.',
-        'Gå till Settings → Connectors → Add custom connector.',
+        'Gå till Customize → Connectors, tryck på plus och välj Add custom connector.',
         'Klistra in adressen och godkänn inloggningen.',
         'Därefter fungerar det även i mobilappen, på samma konto.',
       ],
@@ -253,6 +271,16 @@ export function buildClients(config: ConnectConfig, platform: Platform = 'unknow
       capability: 'best_effort',
       expectedDelivery: 'tool_call',
       oneClick: false,
+      quickSetup: {
+        url: 'codex://settings',
+        copyValue: mcpUrl,
+        hint: 'Kopierar adressen och öppnar inställningarna i datorappen.',
+        steps: [
+          'Välj MCP servers → Add server i inställningarna.',
+          'Ange namnet Photographic, välj Streamable HTTP och klistra in adressen.',
+          'Spara, välj Restart och sedan Authenticate för att godkänna inloggningen.',
+        ],
+      },
       primary: { type: 'command', label: 'Kör i terminalen', command: codexCommand(mcpUrl, name) },
       secondary: [
         { type: 'copy', label: 'Kopiera konfigurationen', value: manualConfigSnippet(mcpUrl, name) },
@@ -272,6 +300,15 @@ export function buildClients(config: ConnectConfig, platform: Platform = 'unknow
       capability: 'best_effort',
       expectedDelivery: 'tool_call',
       oneClick: false,
+      quickSetup: {
+        url: 'https://chatgpt.com/plugins',
+        copyValue: mcpUrl,
+        hint: 'Kopierar adressen och öppnar ChatGPTs pluginsida i webbläsaren.',
+        steps: [
+          'Slå på Developer mode under Settings → Security and login, om ditt konto tillåter det.',
+          'På pluginsidan, tryck på plus. Ange Photographic, klistra in adressen och godkänn inloggningen.',
+        ],
+      },
       primary: { type: 'copy', label: 'Kopiera adressen', value: mcpUrl },
       secondary: [
         { type: 'deeplink', label: 'Öppna ChatGPTs pluginsida', url: 'https://chatgpt.com/plugins' },

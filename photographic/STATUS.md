@@ -246,6 +246,8 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- **2026-09-20 — shorter connection path:** unverified apps lead directly to supported setup; one clearly described click copies the public URL and opens settings for ChatGPT, Claude and Codex, while Cursor receives its prepared install link. Codex's primary guide uses app settings instead of a terminal. Existing delivery evidence retains direct native launch. Verification starts automatically, keeps a ten-minute baseline for first-time OAuth, refreshes on return and preserves the baseline across a network retry. Clipboard denial, revoked/history states, duplicate clicks and leaving the page are covered. No published plugin or automatic per-chat activation is claimed; see `CHAT-START.md`.
+
 - **2026-09-20 — calm design pass:** independent GPT-5.5 critique and follow-up review; unified app launcher, labelled desktop sidebar, four fixed mobile destinations plus accessible More, quieter shared tokens, compact room headers and calendar timeline. Connection truth and direct setup preserved. Keyboard/menu regression coverage added; see `DESIGN.md`.
 
 - **2026-09-20 — connection gap:** surfaced setup and unverified/history/error states directly on chat cards; explicit per-chat ChatGPT selection; fresh Photographic retrieval question instead of generic personal-memory question; removed greeting-as-connection remedy and clarified client-level receipt. Native/account connection is still pending authenticated ChatGPT setup; see `CHAT-START.md`.

@@ -131,6 +131,21 @@ describe('the connect payload', () => {
 });
 
 describe('verification routes', () => {
+  it('allows time for first-time OAuth without resetting the delivery baseline', async () => {
+    const h = createHarness();
+    const deps = { sessions: h.sessions, clock: h.deps.clock };
+    const started = await handleStartVerification(deps, CONFIG, {
+      actor: ACTOR, body: { clientId: 'chatgpt', purpose: 'setup' },
+    });
+    const { handle } = started.body as { handle: VerificationHandle };
+    h.setNow(new Date(h.now().getTime() + 5 * 60 * 1000));
+    const waiting = await handleVerificationStatus(deps, CONFIG, { actor: ACTOR, handle });
+    expect(waiting.body).toMatchObject({ status: 'waiting' });
+    await h.sessions.simulateDelivery({ personId: ACTOR.personId, agentClient: 'chatgpt-web', method: 'tool_call', at: h.now() });
+    const connected = await handleVerificationStatus(deps, CONFIG, { actor: ACTOR, handle });
+    expect(connected.body).toMatchObject({ status: 'connected' });
+  });
+
   it('refuses to start without an actor', async () => {
     const h = createHarness();
     const deps = { sessions: h.sessions, clock: h.deps.clock };

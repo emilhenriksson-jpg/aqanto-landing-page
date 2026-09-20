@@ -14,21 +14,22 @@ describe('conversation home', () => {
     render(<MemoryRouter initialEntries={['/']}><AppRoutes /></MemoryRouter>);
     expect(screen.getByRole('heading', { name: 'Hej, Emil.' })).toBeInTheDocument();
     for (const name of ['ChatGPT', 'Codex', 'Cursor', 'Claude']) {
-      expect(screen.getByRole('link', { name: `Öppna ${name}` })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: `Koppla ${name}` })).toBeInTheDocument();
     }
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Ditt personliga rum/ })).toHaveAttribute('href', '/personligt');
-    for (const status of screen.getAllByText(/Inte verifierad ännu/)) expect(status).toBeVisible();
+    for (const status of screen.getAllByText(/Börja med att koppla ditt minne/)) expect(status).toBeVisible();
     expect(screen.getByLabelText('Koppla ChatGPT till Photographic')).toBeVisible();
-    expect(screen.getByText('Välj Photographic i den nya chattens verktygsmeny innan du börjar prata.')).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Öppna ChatGPT' })).not.toBeInTheDocument();
   });
 
   it('keeps the Mac app handoff on the user click and offers the web separately', () => {
     vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)', maxTouchPoints: 0 });
     render(<MemoryRouter><ChatStart /></MemoryRouter>);
-    const link = screen.getByRole('link', { name: 'Öppna ChatGPT' });
+    openGuide('ChatGPT'); openGuide('Codex');
+    const link = screen.getByRole('link', { name: 'Öppna ChatGPT efter koppling' });
     const chatgptUrl = new URL(link.getAttribute('href')!);
-    const codexUrl = new URL(screen.getByRole('link', { name: 'Öppna Codex' }).getAttribute('href')!);
+    const codexUrl = new URL(screen.getByRole('link', { name: 'Öppna Codex efter koppling' }).getAttribute('href')!);
     expect(chatgptUrl.protocol + '//' + chatgptUrl.host + chatgptUrl.pathname).toBe('codex://threads/new');
     expect(chatgptUrl.searchParams.get('mode')).toBe('chat');
     expect(codexUrl.searchParams.get('mode')).toBe('codex');
@@ -46,8 +47,9 @@ describe('conversation home', () => {
   ])('uses mobile launches for %s even if the server sent desktop descriptors', (userAgent, maxTouchPoints, prefix) => {
     vi.stubGlobal('navigator', { userAgent, maxTouchPoints });
     render(<MemoryRouter><ChatStart /></MemoryRouter>);
-    expect(screen.getByRole('link', { name: 'Öppna ChatGPT' }).getAttribute('href')).toContain(prefix);
-    expect(screen.getByRole('link', { name: 'Öppna ChatGPT' })).not.toHaveAttribute('target');
+    openGuide('ChatGPT');
+    expect(screen.getByRole('link', { name: 'Öppna ChatGPT efter koppling' }).getAttribute('href')).toContain(prefix);
+    expect(screen.getByRole('link', { name: 'Öppna ChatGPT efter koppling' })).not.toHaveAttribute('target');
     expect(screen.queryByRole('link', { name: 'Öppna Codex' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Öppna Cursor' })).not.toBeInTheDocument();
     for (const button of screen.getAllByRole('button', { name: 'Öppna på datorn' })) expect(button).toBeDisabled();
@@ -58,6 +60,7 @@ describe('conversation home', () => {
     render(<MemoryRouter><ChatStart /></MemoryRouter>);
     const setup = screen.getByLabelText('Koppla ChatGPT till Photographic');
     fireEvent.click(setup);
+    fireEvent.click(within(setup.closest('details')!).getByText('Fler sätt och hjälp'));
     fireEvent.click(within(setup.closest('details')!).getByRole('button', { name: 'Kopiera kontrollfrågan' }));
     expect(await screen.findByRole('textbox', { name: 'Kopiera kontrollfrågan' })).toHaveValue(clients.find(client => client.id === 'chatgpt')!.verifyPrompt);
   });
@@ -79,7 +82,7 @@ describe('conversation home', () => {
     fireEvent.click(link);
     await waitFor(() => expect(request.mock.calls.some(([url]) => url.endsWith('/status'))).toBe(true));
     expect(screen.queryByText('Ditt minne har skickats till Codex.')).not.toBeInTheDocument();
-    expect(screen.getByText('Väntar på att Codex hämtar ditt minne.')).toBeInTheDocument();
+    expect(screen.getByText('Vi kontrollerar automatiskt när Codex hämtar ditt minne.')).toBeInTheDocument();
     expect(screen.getByText(/Det bekräftar inte kopplingen i en ny chatt/)).toBeVisible();
   });
 
@@ -101,13 +104,13 @@ describe('conversation home', () => {
       throw new Error(url);
     }));
     render(<MemoryRouter><ChatStart /></MemoryRouter>);
-    const setup = await screen.findByLabelText('Koppla ChatGPT till Photographic');
+    const setup = await screen.findByRole('link', { name: 'Koppla ChatGPT' });
+    setup.addEventListener('click', event => event.preventDefault());
+    expect(setup).toHaveAttribute('href', 'https://chatgpt.com/plugins');
     fireEvent.click(setup);
-    expect(within(setup.closest('details')!).getByRole('link', { name: 'Öppna ChatGPTs pluginsida' })).toHaveAttribute('href', 'https://chatgpt.com/plugins');
-    fireEvent.click(within(setup.closest('details')!).getByRole('button', { name: 'Kontrollera kopplingen' }));
     expect(await screen.findByText(status === 'connected'
       ? 'ChatGPT har hämtat ditt minne. Kvittot gäller appen; vi kan inte avgöra vilken chatt som hämtade det.'
-      : 'Ingen ny hämtning bekräftad. Välj Photographic i chatten och be din AI hämta ditt minne med kontrollfrågan nedan.')).toBeVisible();
+      : 'Ingen ny hämtning ännu. Du behöver inte lägga till kopplingen igen om den redan finns. Öppna chatten och be din AI hämta ditt minne.')).toBeVisible();
   });
 });
 
@@ -115,7 +118,8 @@ function home() { return render(<MemoryRouter><ChatStart /></MemoryRouter>); }
 
 it('remembers only a clicked AI, keeps the click layout stable, and brings it first next visit', () => {
   const view = home();
-  const link = screen.getByRole('link', { name: 'Öppna Claude' });
+  openGuide('Claude');
+  const link = screen.getByRole('link', { name: 'Öppna Claude efter koppling' });
   link.addEventListener('click', event => event.preventDefault());
   fireEvent.click(link);
   expect(screen.queryByText('Senast vald här')).not.toBeInTheDocument();
@@ -130,7 +134,7 @@ it('keeps mobile apps first when the last device choice needs a desktop', () => 
   rememberChatChoice('codex');
   vi.stubGlobal('navigator', { userAgent: 'iPhone', maxTouchPoints: 5 });
   home();
-  expect(within(screen.getByRole('region', { name: 'Öppna en chatt' })).getAllByRole('heading')
+  expect(within(screen.getByRole('region', { name: 'Öppna en chatt' })).getAllByRole('heading', { level: 3 })
     .map(heading => heading.textContent)).toEqual(['ChatGPT', 'Claude', 'Codex', 'Cursor']);
   expect(screen.queryByText('Senast vald här')).not.toBeInTheDocument();
 });
@@ -141,7 +145,8 @@ it('still opens an AI if storage is blocked, without touching the clipboard', ()
   const writeText = vi.fn();
   vi.stubGlobal('navigator', { userAgent: 'iPhone', maxTouchPoints: 5, clipboard: { writeText } });
   home();
-  const link = screen.getByRole('link', { name: 'Öppna ChatGPT' });
+  openGuide('ChatGPT');
+  const link = screen.getByRole('link', { name: 'Öppna ChatGPT efter koppling' });
   link.addEventListener('click', event => event.preventDefault());
   fireEvent.click(link);
   expect(link).toHaveAttribute('href', expect.stringContaining('https://chatgpt.com/?q='));
@@ -183,4 +188,79 @@ it('greets the signed-in account by its actual name', async () => {
   home();
   expect(await screen.findByRole('heading', { name: 'Hej, Nora.' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'Hej, Emil.' })).not.toBeInTheDocument();
+});
+
+function openGuide(name: string) {
+  fireEvent.click(screen.getByLabelText(`Koppla ${name} till Photographic`));
+}
+
+it('copies the public address and starts observing from the same setup click', async () => {
+  vi.stubEnv('VITE_USE_DEMO', '0');
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
+  const request = vi.fn(async (url: string, _init?: RequestInit) => {
+    if (url.endsWith('/v1/connect')) return Response.json({ clients });
+    if (url.endsWith('/v1/clients')) return Response.json({ clients: [] });
+    if (url.endsWith('/verify')) return Response.json({ handle: { clientId: 'chatgpt', startedAtMs: 123 } });
+    if (url.endsWith('/status')) return Response.json({ status: 'waiting' });
+    return Response.json({});
+  });
+  vi.stubGlobal('fetch', request);
+  home();
+  const setup = await screen.findByRole('link', { name: 'Koppla ChatGPT' });
+  setup.addEventListener('click', event => event.preventDefault());
+  fireEvent.click(setup); fireEvent.click(setup);
+  expect(writeText).toHaveBeenCalledWith('https://memory.example/mcp');
+  await waitFor(() => expect(request.mock.calls.some(([url]) => url.endsWith('/status'))).toBe(true));
+  expect(request.mock.calls.filter(([url]) => url.endsWith('/verify'))).toHaveLength(1);
+  expect(JSON.parse(request.mock.calls.find(([url]) => url.endsWith('/verify'))![1]!.body as string)).toEqual({clientId: 'chatgpt', purpose: 'setup'});
+  expect(screen.getByText('Adressen är kopierad. Klistra in den i ChatGPT.')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Kontrollera kopplingen' })).not.toBeInTheDocument();
+  expect(screen.queryByText(/ChatGPT har hämtat ditt minne/)).not.toBeInTheDocument();
+});
+
+it('keeps setup recoverable when copying is unavailable', async () => {
+  vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+  home();
+  const setup = screen.getByRole('link', { name: 'Koppla Claude' });
+  setup.addEventListener('click', event => event.preventDefault());
+  fireEvent.click(setup);
+  expect(await screen.findByRole('textbox', { name: 'Adress för Claude' })).toHaveValue('https://mcp.photographic.space/mcp');
+  expect(screen.getByRole('link', {name: 'Öppna Claude efter koppling'})).toBeVisible();
+});
+
+it('checks immediately on return, then offers opening without another setup', async () => {
+  vi.stubEnv('VITE_USE_DEMO', '0');
+  let delivered = false;
+  const request = vi.fn(async (url: string) => {
+    if (url.endsWith('/v1/connect')) return Response.json({ clients });
+    if (url.endsWith('/v1/clients')) return Response.json({ clients: [] });
+    if (url.endsWith('/verify')) return Response.json({ handle: { clientId: 'cursor' } });
+    if (url.endsWith('/status')) return Response.json({ status: delivered ? 'connected' : 'waiting' });
+    return Response.json({});
+  });
+  vi.stubGlobal('fetch', request);
+  home();
+  const setup = await screen.findByRole('link', { name: 'Koppla Cursor' });
+  setup.addEventListener('click', event => event.preventDefault());
+  fireEvent.click(setup);
+  await waitFor(() => expect(request.mock.calls.some(([url]) => url.endsWith('/status'))).toBe(true));
+  delivered = true;
+  fireEvent.focus(window);
+  expect(await screen.findByText(/Cursor har hämtat ditt minne/)).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Öppna Cursor' })).toHaveAttribute('href', expect.stringContaining('cursor://'));
+  expect(screen.queryByRole('link', { name: 'Koppla Cursor' })).not.toBeInTheDocument();
+  expect(request.mock.calls.filter(([url]) => url.endsWith('/verify'))).toHaveLength(1);
+});
+
+it('offers reconnect for a revoked client instead of treating its old receipt as active', async () => {
+  vi.stubEnv('VITE_USE_DEMO', '0');
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.endsWith('/v1/connect')) return Response.json({ clients });
+    if (url.endsWith('/v1/clients')) return Response.json({ clients: [{ agentClient: 'chatgpt-web', revoked: true, profileDelivered: true, lastSeenAt: '2026-09-01T10:00:00Z' }] });
+    return Response.json({});
+  }));
+  home();
+  expect(await screen.findByRole('link', { name: 'Koppla ChatGPT' })).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Öppna ChatGPT' })).not.toBeInTheDocument();
 });

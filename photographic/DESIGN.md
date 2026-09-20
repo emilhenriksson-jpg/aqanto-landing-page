@@ -48,15 +48,24 @@ and navigation targets, and room above the bottom safe area. Verify at 320px CSS
 ## Start
 
 A single list of chat apps replaces four competing launch cards. Each row contains a
-quiet monogram, name, actual verification state, compact Open action, and direct
+quiet monogram, name, actual verification state, compact Connect/Open action, and direct
 connection/help disclosures. The device's last chosen app may receive the violet
 button. Do not invent a favourite for a first visit. Reordering happens on the next
 visit, so a click does not move its own target.
 
 Opening an app does not establish a connection. ChatGPT's required per-chat selection
 stays beside its launch. Historical deliveries never imply the next chat is connected.
-Errors are different from missing verification. No long starter prompt, automatic
-clipboard write, or fake success state is introduced by the design.
+Errors are different from missing verification. Without a receipt, Connect goes directly
+to the supported setup destination and opens the short guide on this page. For clients
+needing a pasted URL, the visible hint explains that the same click copies the public
+server address. Chat launch never writes to the clipboard. A blocked clipboard exposes
+a selectable URL. Previously verified apps keep their direct Open action. No long
+starter prompt or fake success state is introduced.
+
+Observation starts with setup/launch and checks again on return; do not require a
+separate verification click in the normal path. Keep manual commands and diagnostics
+under additional help. The external client's consent and per-chat tool activation
+remain visible where required; a design change cannot remove that provider boundary.
 
 Below the launcher, three quiet destinations lead to personal memory, rooms and the
 calendar. Memory-sharing preferences stay optional, with the existing explicit review

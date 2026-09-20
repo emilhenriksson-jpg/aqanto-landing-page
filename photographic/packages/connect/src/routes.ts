@@ -162,7 +162,10 @@ export async function handleStartVerification(
     if (!clientId) return { status: 400, body: { error: 'validation', message: 'Ange klient.' } };
 
     const client = findClient(buildClients(config), clientId);
-    const handle = await startVerification(deps, req.actor, client);
+    // First-time authorization includes switching apps and possibly signing in.
+    // Keep the original baseline while the person completes those steps.
+    const handle = await startVerification(deps, req.actor, client,
+      asRecord(req.body).purpose === 'setup' ? { timeoutMs: 10 * 60 * 1000 } : {});
 
     return ok({ handle, prompt: client.verifyPrompt });
   } catch (error) {

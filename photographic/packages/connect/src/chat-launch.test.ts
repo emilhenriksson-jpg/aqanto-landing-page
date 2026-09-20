@@ -3,6 +3,16 @@ import { buildClients, chatLaunch, CHAT_START_PROMPT } from './clients.js';
 
 describe('room-independent chat launch', () => {
   const clients = buildClients({ mcpUrl: 'https://memory.example/mcp', connectPageUrl: 'https://memory.example/connect' });
+  it('offers supported setup destinations with only a public address to copy', () => {
+    expect(clients.find(client => client.id === 'cursor')?.quickSetup?.url).toContain('cursor://anysphere.cursor-deeplink/mcp/install?');
+    for (const [id, url] of [['chatgpt', 'https://chatgpt.com/plugins'], ['claude', 'https://claude.ai/customize/connectors'], ['codex', 'codex://settings']]) {
+      const setup = clients.find(client => client.id === id)!.quickSetup!;
+      expect(setup.url).toBe(url);
+      expect(setup.copyValue).toBe('https://memory.example/mcp');
+      expect(setup.hint).toContain('Kopierar');
+    }
+    expect(clients.find(client => client.id === 'codex')?.quickSetup?.steps?.join(' ')).not.toContain('terminal');
+  });
   it('separates setup from launch and exposes exactly the four requested clients', () => {
     expect(clients.filter((client) => client.launch).map((client) => client.id).sort())
       .toEqual(['chatgpt', 'claude', 'codex', 'cursor']);
