@@ -183,6 +183,12 @@ credential is copied. Clipboard denial shows selectable text. Cursor receives it
 existing prepared install link. Codex's main guide uses app settings, keeping the
 terminal alternative in extra help.
 
+Authenticated ChatGPT UI inspection confirmed the path **Add → Create MCP App**
+after enabling Developer mode. Add is disabled before that setting is enabled.
+The home and guide explicitly state that Photographic is not in the public catalogue;
+it must currently be created as a private connection, using the shared URL and OAuth.
+An account-level creation/authorization flow is not public plugin publication.
+
 Existing, non-revoked profile-delivery evidence retains direct native launch. An
 unknown/error state does not pretend the client is unconfigured or force reinstall.
 Someone who already installed a connector can open the chat from the guide and

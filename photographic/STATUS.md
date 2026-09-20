@@ -246,6 +246,8 @@ llm 9, web 45, services-memory 7, db 3, onboarding 24, mcp 40, rest 72; e2e 44 m
 
 ## Completed
 
+- **2026-09-20 — private ChatGPT setup wording:** authenticated browser inspection confirmed Add is disabled until Developer mode is enabled; its menu is Add → Create MCP App. The home now explicitly says Photographic is not in the public catalogue and gives that exact creation path with OAuth, preventing a fruitless plugin search. Connecting the private app and publishing a public plugin are separate steps.
+
 - **2026-09-20 — stable return from setup:** live verification exposed a temporary Connect → Open switch during history refresh. Preserve the previous history while refreshing; regression test covers a deliberately slow return. All 150 web tests, typecheck and changed-file lint pass.
 
 - **2026-09-20 — shorter connection path:** unverified apps lead directly to supported setup; one clearly described click copies the public URL and opens settings for ChatGPT, Claude and Codex, while Cursor receives its prepared install link. Codex's primary guide uses app settings instead of a terminal. Existing delivery evidence retains direct native launch. Verification starts automatically, keeps a ten-minute baseline for first-time OAuth, refreshes on return and preserves the baseline across a network retry. Clipboard denial, revoked/history states, duplicate clicks and leaving the page are covered. No published plugin or automatic per-chat activation is claimed; see `CHAT-START.md`.

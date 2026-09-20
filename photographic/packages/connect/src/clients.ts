@@ -303,10 +303,11 @@ export function buildClients(config: ConnectConfig, platform: Platform = 'unknow
       quickSetup: {
         url: 'https://chatgpt.com/plugins',
         copyValue: mcpUrl,
-        hint: 'Kopierar adressen och öppnar ChatGPTs pluginsida i webbläsaren.',
+        hint: 'Kopierar adressen för en egen koppling. Photographic finns inte i plugin-katalogen ännu.',
         steps: [
           'Slå på Developer mode under Settings → Security and login, om ditt konto tillåter det.',
-          'På pluginsidan, tryck på plus. Ange Photographic, klistra in adressen och godkänn inloggningen.',
+          'Välj Add → Create MCP App på pluginsidan. Du ska skapa en egen koppling, inte söka i katalogen.',
+          'Ange namnet Photographic, klistra in adressen som Server URL och behåll OAuth. Välj Create och godkänn inloggningen.',
         ],
       },
       primary: { type: 'copy', label: 'Kopiera adressen', value: mcpUrl },
@@ -322,7 +323,7 @@ export function buildClients(config: ConnectConfig, platform: Platform = 'unknow
       ],
       steps: [
         'Öppna ChatGPT → Settings → Security and login och slå på Developer mode, om ditt konto tillåter det.',
-        'Öppna Plugins, tryck på plus och lägg till Photographic med adressen ovan. Godkänn inloggningen.',
+        'Öppna Plugins → Add → Create MCP App. Ange Photographic och adressen ovan, behåll OAuth och godkänn inloggningen. Photographic går ännu inte att söka fram i katalogen.',
         'Starta en ny chatt och välj Photographic i verktygsmenyn.',
       ],
       caveats: [
