@@ -13,7 +13,7 @@ const CLIENTS = buildClients({ mcpUrl: MCP_URL, connectPageUrl: 'https://photogr
 
 function connected(overrides: Partial<{ degraded: boolean }> = {}) {
   return [
-    { status: 'waiting' as const, prompt: 'Vad vet du om mig?', elapsedMs: 0, remainingMs: 90_000 },
+    { status: 'waiting' as const, prompt: 'Hämta mitt minne från Photographic nu. Om du inte har tillgång till Photographics verktyg, säg det.', elapsedMs: 0, remainingMs: 90_000 },
     {
       status: 'connected' as const,
       agentClient: 'claude-desktop' as const,
@@ -416,7 +416,7 @@ describe('verification', () => {
   it('shows the prompt while waiting and claims nothing yet', async () => {
     render(<App api={new FakeApi()} initial={{ name: 'verify', client: claude }} />);
 
-    expect(await screen.findByText('Vad vet du om mig?')).toBeInTheDocument();
+    expect(await screen.findByText('Hämta mitt minne från Photographic nu. Om du inte har tillgång till Photographics verktyg, säg det.')).toBeInTheDocument();
     expect(screen.getByText(/Öppna Claude och fråga/)).toBeInTheDocument();
     expect(screen.queryByText(/läste din profil/)).toBeNull();
   });
@@ -430,7 +430,7 @@ describe('verification', () => {
     await user.click(within(card as HTMLElement).getByRole('button', { name: 'Jag har gjort det' }));
 
     // The person said they did it. That is not evidence, so we are still waiting.
-    expect(await screen.findByText('Vad vet du om mig?')).toBeInTheDocument();
+    expect(await screen.findByText('Hämta mitt minne från Photographic nu. Om du inte har tillgång till Photographics verktyg, säg det.')).toBeInTheDocument();
     expect(screen.queryByText(/läste din profil/)).toBeNull();
   });
 
