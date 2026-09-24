@@ -19,7 +19,7 @@ Emil is asleep. These were decided autonomously and are cheap to reverse in the 
 
 ## Blockers
 
-- 2026-09-24 — ChatGPT phone Voice retest failed after `6870a06`. In “Photographic introduktion”, the initial context call succeeded but the spoken create/save requests generated no write calls in the visible conversation or retained server trace. Host-side catalogue/routing and write-tool availability remain unresolved; no server write rejection was observed. See `docs/chatgpt-voice-verification.md`. Do not present transport/CI success as Voice support or request another unchanged retest.
+- 2026-09-24 — ChatGPT phone Voice retest failed after `6870a06`. In “Photographic introduktion”, the initial context call succeeded but the spoken create/save requests generated no write calls in the visible conversation or retained server trace. Read-only verification confirmed the used token has write/room scopes and ChatGPT's plugin settings list all 12 tools. Delivery/invocation inside Voice remains unresolved; no server write rejection was observed. See `docs/chatgpt-voice-verification.md`. Do not present transport/CI success as Voice support or request another unchanged retest.
 
 _Agents append here. Do not edit another package to unblock yourself._
 

@@ -53,12 +53,29 @@ Production logs inspected immediately after the report contained a ChatGPT
 an `ok` response in 50 ms. The retained window contained no `create_room`,
 `remember`, scope denial or authorization-change event for this attempt. It also
 contained no `tools_listed` event. The successful read alone cannot establish the
-cached write-tool catalogue or the grant's write scopes.
+voice model's tool catalogue.
+
+Two additional read-only checks narrowed the diagnosis:
+
+- The account's ChatGPT **Settings → Plugins → Photographic** page listed all 12
+  tools, including `create_room`, `remember` and `review_proposals` as WRITE tools.
+  The registry has the required tools; their delivery to Voice is still unproven.
+- A read-only database transaction inspected only scope/status fields of the token
+  used at **10:58:59.475 UTC**, restricted to the reported audit session's person.
+  It was unexpired and unrevoked, with `memory.read memory.write rooms.read
+  profile.read offline_access` and no room restrictions. No token values or hashes
+  were read or printed. Missing server-side write authorization is ruled out for
+  that connection.
+
+The web account's Voice settings exposed model/language choices, with no separate
+plugin-enable control visible. No settings or permissions were changed. This does
+not establish which phone-specific controls may exist.
 
 Together, the transcript and trace show that these requested writes did not reach
-Photographic's tool handlers. There is no observed Photographic write rejection to
-fix for this attempt. Host tool discovery, Voice routing and permission presentation
-remain possible explanations; the exact host-side reason is unverified. This is
+Photographic's tool handlers despite sufficient server authorization and registered
+write tools. There is no observed Photographic write rejection to fix for this
+attempt. Host delivery to Voice, invocation routing and provider-side approval
+handling remain possible explanations; the exact host-side reason is unverified. This is
 not proof that all ChatGPT phone versions are universally incompatible with MCP.
 
 ### Prepared provider investigation request (not submitted)
@@ -66,9 +83,11 @@ not proof that all ChatGPT phone versions are universally incompatible with MCP.
 Investigate why ChatGPT phone Voice does not invoke a connected private MCP app's
 `create_room` or `remember` tools in a conversation where a preceding text message
 successfully invokes `get_context`. The server exposes these write tools when
-authorized; no write request arrived during the failed attempt. Please establish:
+authorized; the used token had the required scopes, the account's plugin settings
+listed the write tools, and no write request arrived during the failed attempt.
+Please establish:
 
-- Which tool catalogue and authorized scopes the voice model received.
+- Which tool catalogue and permission representation the voice model received.
 - Whether private MCP app write tools are supported on this phone Voice surface,
   including any account/app-version rollout or approval limitations.
 - Whether switching from text to Voice requires different activation or discovery.
