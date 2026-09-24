@@ -46,6 +46,13 @@ not yet established as the root cause.
 
 ## Fix and diagnostics
 
+Deployed `6870a06` after full CI run [35985545247](https://github.com/emilhenriksson-jpg/aqanto-landing-page/actions/runs/35985545247)
+passed. Production health reported Postgres healthy. A read-only call through the
+existing connected Codex plugin succeeded at 10:13:50 UTC on 24 September; the new
+request and `ok` response shared a call ID and audit-session ID (92 ms server time).
+No `tools/list` event accompanied that read, consistent with a cached host catalogue;
+this live check proves request/response tracing, not rediscovery or phone Voice.
+
 An MCP connection previously captured permissions at initialization and, on later
 requests, checked only the person's identity. It now also binds the OAuth client,
 scopes and room scope. Changed authorization returns 404 and requires a fresh
