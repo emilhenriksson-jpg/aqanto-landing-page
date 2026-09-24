@@ -16,10 +16,10 @@ describe('private ChatGPT launch binding', () => {
     }
   });
 
-  it('attaches only the selected app mention to a new ordinary desktop chat', () => {
+  it('starts an ordinary chat with the selected app and an explicit read-and-propose request', () => {
     const url = new URL(chatLaunch('chatgpt', 'macos', { chatgptPluginId: pluginId })!.url!);
     expect(url.searchParams.get('mode')).toBe('chat');
-    expect(url.searchParams.get('prompt')).toBe(`[@Photographic](plugin://${pluginId})`);
+    expect(url.searchParams.get('prompt')).toBe(`[@Photographic](plugin://${pluginId}) Läs mitt minne och föreslå relevant information och rum som saknas, utifrån det du redan vet om mig.`);
     expect([...url.searchParams.keys()].sort()).toEqual(['mode', 'prompt']);
     expect(chatLaunch('chatgpt', 'macos')!.url).not.toContain(appId);
     expect(chatLaunch('chatgpt', 'macos', { chatgptPluginId: 'https://evil.test' })!.url).not.toContain('prompt');

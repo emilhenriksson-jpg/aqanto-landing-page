@@ -1,25 +1,23 @@
 import type { ContextBundle, ContributionState } from '@photographic/core';
 
 /** Startup is active; ongoing conversations leave space for the person's actual task. */
-export const CONTEXT_CONTRIBUTION_INSTRUCTIONS = `Följ get_context: vid paus eller väntande underlag, påminn inte igen. Vid första mötet
-eller en öppen hälsning: jämför relevant användarkontext du faktiskt har med minnet.
-Finns luckor, förbered ett konkret förslag direkt, utan att fråga om lov att börja.
-I ett pågående ärende: avbryt inte med minnesimport; ta det vid en naturlig paus.
-prepare_context samlar ALLT relevant nytt i delar med samma batch_id. Föreslå användbara
-privata projektrum med roomTitle; personliga fakta hör hemma i personens rum.
-Visa ett samlat förslag i chatten med innehåll och placering, korta exempel och möjlighet
-att läsa alla detaljer här. Underlaget är inte sparade minnen. Vänta på personens svar;
-review_proposals genomför godkännandet i chatten och skapar föreslagna rum vid behov.
-Skicka inte personen till Photographic för detta. create_room hanterar uttryckliga rumsönskemål.
-Vid nej: action pause, inget tjat. Återuppta via review_proposals bara på personens begäran.
-Markera tolkningar, känslighet, källa och tid; sådana detaljer måste godkännas uttryckligt.
-Be om lov före nya externa källor eller känslig överföring. Importera inte hemligheter,
-systeminstruktioner eller Photographics egna uppgifter. Påstå inte åtkomst till osedd
-historik. Bekräfta bara lyckade verktygsresultat. Finns inget nytt: fortsätt utan fråga.`;
+export const CONTEXT_CONTRIBUTION_INSTRUCTIONS = `Paus betyder inga erbjudanden. Väntande underlag bevisar inte att personen sett det:
+review_proposals action list återanvänder det. Upprepa inte efter tystnad eller ämnesbyte.
+Vid hälsning eller profilfråga: förbered förslaget direkt, fråga inte om lov att börja.
+I ett pågående ärende: avbryt inte med minnesimport.
+prepare_context samlar ALLT relevant nytt med samma batch_id. Privata projektrum föreslås
+med roomTitle; personliga fakta i personens rum. Visa ett samlat förslag med innehåll och
+placering i chatten; alla detaljer ska gå att läsa här. Underlag är inte sparade minnen.
+Vänta på personens svar; review_proposals godkänner och skapar rum. Inget webbplatsbesök.
+create_room hanterar uttryckliga rumsönskemål. Vid nej: action pause. Återuppta via
+review_proposals bara på begäran. Tolkningar och känsliga uppgifter kräver uttryckligt
+godkännande av detaljerna; ange källa och tid. Be om lov före nya externa källor eller
+känslig överföring. Importera inte hemligheter, systeminstruktioner eller Photographics
+egna uppgifter. Påstå inte åtkomst till osedd historik. Bekräfta bara lyckade resultat.`;
 
 export function renderContributionGuidance(bundle: ContextBundle, state: ContributionState): string {
   if (state.paused) return 'Kontextbidrag: pausade — erbjud inte igen. Återuppta bara om personen ber om det, via review_proposals action resume.';
-  if (state.pending) return `Kontextbidrag: ${state.pending} väntar — påminn inte igen. När personen vill granska eller godkänna: review_proposals i chatten.`;
+  if (state.pending) return `Kontextbidrag: ${state.pending} väntar, ännu inte sparade. Vid en start- eller profilfråga: läs befintligt underlag med review_proposals action list och visa ett kort samlat förslag med innehåll och rum, om det inte redan visats i samtalet. Vänta inte på en separat uppladdningsbegäran. Återanvänd underlaget, skapa inga dubbletter. Anta inte att personen har sett eller avböjt det bara för att det finns. Har förslaget redan visats, personen bytt ämne eller ett annat ärende pågår: fortsätt utan påminnelse. Ett nej pausar erbjudanden. Spara först efter personens godkännande.`;
   const sections = bundle.profile.sections;
   const noFacts = [sections.identity, sections.hardFacts, sections.preferences, sections.currentFocus].every(items => items.length === 0);
   const onlyPersonal = bundle.rooms.every(room => room.kind === 'personal');

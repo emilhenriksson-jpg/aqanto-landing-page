@@ -909,11 +909,17 @@ describe('a familiar, unhurried conversation', () => {
     }));
     for (const rule of ['Heter Nora', 'Läs tyst', 'Högst en fråga åt gången', 'inte i varje svar',
       'ämnesbyte eller avböjande: släpp frågan', 'Gissa inte känslor, lokal tid',
-      'inte bestående profilfakta', 'avbryt inte med minnesimport', 'vid paus eller väntande underlag',
+      'inte bestående profilfakta', 'avbryt inte med minnesimport', 'Paus betyder inga erbjudanden',
       'Tiden avser sparandet', 'Be om lov före nya externa källor']) {
       expect(rendered).toContain(rule);
     }
     expect(rendered).not.toContain('Hej, Emil');
+    // The provider may retain only a short initialization prefix. It must still
+    // see the read → compare → propose → approve sequence, not just a greeting.
+    const startup = rendered.slice(0, 512);
+    for (const step of ['get_context', 'Jämför', 'prepare_context', 'review_proposals', 'invänta godkännande']) {
+      expect(startup).toContain(step);
+    }
     expect(estimateTokens(rendered)).toBeLessThanOrEqual(INSTRUCTIONS_TOKEN_BUDGET);
   });
 

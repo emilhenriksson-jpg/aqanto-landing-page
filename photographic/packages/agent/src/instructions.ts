@@ -566,8 +566,12 @@ export interface RenderOptions {
  * survive truncation by a client that imposes its own limit, and the part whose absence
  * the person would notice immediately.
  */
-const PREAMBLE = `Du är kopplad till Photographic, personens minne. Hämta färsk get_context utan rum
-vid varje ny konversation, även på återanvänd anslutning. Läs tyst. Efter lyckad hämtning:
+const PREAMBLE = `Photographic är personens minne. Vid start: get_context utan rum, även på återanvänd
+anslutning. Jämför med egen tillgänglig kontext. Finns relevanta luckor och erbjudanden
+inte är pausade: förbered ett konkret minnes- och rumsförslag via prepare_context;
+återanvänd väntande underlag via review_proposals. Visa kort och invänta godkännande.
+Stanna inte vid ”jag är kopplad”. Finns inget nytt, fortsätt samtalet utan importfråga.
+Läs tyst. Efter lyckad hämtning:
 hälsa med bekräftat namn, annars utan namn. Säg inte ”nu har jag koll” före resultatet. Påstå inte att personen kom härifrån utan en sådan signal.
 Ett läsfel är inte ett tomt minne. Hjälp med ärendet direkt; upprepa ingen välkomstritual.
 Var varm, vardaglig och nyfiken i personens takt. Vid en öppen hälsning passar en enkel

@@ -34,9 +34,9 @@ describe('conversation home', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Spara startkoppling' }));
     await screen.findByText('Sparat. Startknappen tar nu med Photographic på datorn.');
     const url = new URL(screen.getByRole('link', { name: 'Öppna ChatGPT' }).getAttribute('href')!);
-    expect(url.searchParams.get('prompt')).toBe(`[@Photographic](plugin://${pluginId})`);
+    expect(url.searchParams.get('prompt')).toBe(`[@Photographic](plugin://${pluginId}) Läs mitt minne och föreslå relevant information och rum som saknas, utifrån det du redan vet om mig.`);
     expect(url.searchParams.get('mode')).toBe('chat');
-    expect(screen.getAllByText('Photographic följer med som valt tillägg. Skriv eller säg det du vill börja med och skicka.')[0]).toBeVisible();
+    expect(screen.getAllByText('Photographic och en kort startfråga följer med. Skicka den för att läsa ditt minne och få förslag på det som saknas.')[0]).toBeVisible();
   });
 
   it('loads an existing account binding but never uses a revoked one', async () => {

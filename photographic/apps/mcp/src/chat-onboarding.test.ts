@@ -90,12 +90,21 @@ it('does not approve an audience change, another person’s proposal or a room t
   expect(foreign.text).toContain('"status":"not_applied"');
 });
 
-it('pauses and resumes contributions in the chat and never repeats pending offers', async () => {
+it('distinguishes pending proposals from a paused or already-presented offer', async () => {
   await call('prepare_context', { action: 'pause' });
   expect((await call('get_context')).text).toContain('pausade — erbjud inte igen');
   await call('review_proposals', { action: 'resume' });
   await call('prepare_context', { action: 'prepare', batch_id: randomUUID(), candidates: [candidate('Jag gillar korta svar.')] });
-  expect((await call('get_context')).text).toContain('1 väntar — påminn inte igen');
+  const pending = await call('get_context');
+  expect(pending.text).toContain('1 väntar, ännu inte sparade');
+  expect(pending.text).toContain('review_proposals action list');
+  expect(pending.text).toContain('om det inte redan visats i samtalet');
+  expect(pending.text).toContain('fortsätt utan påminnelse');
+  expect(pending.text).not.toContain('väntar — påminn inte igen');
+  // Merely reading context must neither approve the proposal nor pause it.
+  expect(await wired.services.ingest.contributionState(actor)).toEqual({ paused: false, pending: 1 });
+  await call('prepare_context', { action: 'pause' });
+  expect((await call('get_context')).text).toContain('pausade — erbjud inte igen');
   const result = await call('review_proposals', { action: 'reject', confirmation: 'Ta bort det förslaget', decisions: await decisions() });
   expect(result.text).toContain('dismissed');
   expect(await wired.services.ingest.listProposals(actor)).toHaveLength(0);

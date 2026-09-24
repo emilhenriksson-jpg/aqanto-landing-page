@@ -133,7 +133,7 @@ export function chatLaunch(id: ClientId, platform: Platform = 'unknown', binding
       url: `codex://threads/new?mode=chat${mention ? `&prompt=${encodeURIComponent(mention)}` : ''}`,
       prompt: mention ?? prompt, desktop: true,
       activationNote: mention
-        ? 'Photographic följer med som valt tillägg. Skriv eller säg det du vill börja med och skicka.'
+        ? 'Photographic och en kort startfråga följer med. Skicka den för att läsa ditt minne och få förslag på det som saknas.'
         : 'Välj Photographic i den nya chattens verktygsmeny innan du börjar prata.',
       fallbackUrl: 'https://chatgpt.com/?no_universal_links=1',
       note: mention
