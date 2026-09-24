@@ -25,6 +25,21 @@ guidance, approval boundaries and the instruction budget. They do not prove nati
 model initiative. Native composer behavior and mobile remain separate acceptance
 checks; an app-only greeting is no longer the supported desktop startup contract.
 
+### Live verification after deployment
+
+Production deployed `db66c7b`; health and full CI run `35983640093` passed. Reloaded
+Emil's original `/chatt` tab and verified the actual desktop link includes the new
+request. Sent the exact request with the private app selected in a separate ChatGPT
+**Chat / Instant** web conversation. It retrieved personal context and attempted
+a grouped proposal without a second upload request. ChatGPT required approval for
+the preparation tool; the test declined it. The final answer still gave concrete
+missing-context and room suggestions and accurately said nothing new was saved.
+A fresh Photographic read confirmed no pending contribution proposals afterwards.
+
+This verifies the web model's initiative with the new request, not the native
+composer handoff or a completed write. Keep the provider's transfer approval.
+Test conversation: https://chatgpt.com/c/6ab4f2a4-a508-83ed-a2ed-260eef3903cc
+
 ## Observed provider behavior
 
 The reported ChatGPT Instant conversation replied to `hej` and `har du photografic`
