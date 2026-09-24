@@ -53,9 +53,10 @@ interface ClientDescriptor {
 never hide the right answer. `oneClick` is true only for Cursor and VS Code, the two
 clients with a real install deeplink.
 
-Render `caveats` in the open. The ChatGPT card says its voice mode cannot reach
-connectors, and that is exactly the kind of thing a person needs to read *before* they
-spend ten minutes wondering why it does not work.
+Render the current `caveats` in the open; do not invent additional capability claims.
+ChatGPT phone Voice still needs a real tool-invocation test. Neither a text result
+available to Voice nor a spoken refusal proves support or incompatibility. See
+`../../docs/chatgpt-voice-verification.md`.
 
 The ChatGPT card's second secondary action is a `copy` with an empty `value`: fill it
 with the text from `GET /v1/context/rendered` so the button pastes the person's actual

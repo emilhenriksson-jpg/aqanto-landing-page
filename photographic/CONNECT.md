@@ -81,13 +81,15 @@ afterwards. Getting this wrong is the single most common support question we wil
 
 ### ChatGPT — be honest about the limits
 
-Web only, behind Developer mode, and its voice mode reportedly cannot call connectors
-at all. So the card leads with the honest version and offers the fallback that actually
-works everywhere: a copy button for the rendered profile from `/v1/context/rendered`,
-to paste into ChatGPT's Custom Instructions.
+The private Photographic MCP app is connected through ChatGPT's settings and OAuth.
+Per-conversation selection and the native startup path are documented in
+`docs/chatgpt-start-verification.md`; use the current `ClientDescriptor` instructions.
 
-Do not hide this behind optimistic wording. A person who follows confident instructions
-that cannot work loses trust in the whole product, not just that card.
+Phone Voice tool invocation is not yet verified. A text tool result carried into a
+voice conversation does not prove that Voice can make a fresh call. Equally, a spoken
+claim that a tool is unavailable does not establish a server limitation. Do not promise
+support or state a blanket incompatibility from either observation. See
+`docs/chatgpt-voice-verification.md` for the evidence and acceptance test.
 
 ### Phone
 

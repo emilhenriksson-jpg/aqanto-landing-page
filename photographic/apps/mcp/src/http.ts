@@ -26,12 +26,13 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
-import type { McpDeps } from './deps.js';
+import type { AuthenticatedCaller, McpDeps, McpLog } from './deps.js';
 import { SILENT_LOG } from './deps.js';
 import { buildInstructions, createMcpServer } from './server.js';
 
 interface Connection {
   personId: PersonId;
+  authorizationKey: string;
   server: Server;
   transport: WebStandardStreamableHTTPServerTransport;
   lastSeenAt: number;
@@ -130,6 +131,13 @@ export function createMcpApp(deps: McpDeps): McpApp {
         return notFound('Sessionen finns inte.');
       }
 
+      // The server captures actor/scopes at initialize. Changed grants must not
+      // keep a stale tool list or old permissions. Normal token refresh is fine.
+      if (existing.authorizationKey !== authorizationKey(caller)) {
+        log.warn('session_authorization_changed', { personId: actor.personId });
+        return notFound('Anslutningens behörigheter har ändrats. Initiera anslutningen igen.');
+      }
+
       existing.lastSeenAt = now();
       return existing.transport.handleRequest(request);
     }
@@ -161,26 +169,34 @@ export function createMcpApp(deps: McpDeps): McpApp {
     });
 
     const sessionActor = { ...actor, agentClient, sessionId: session.id };
+    // Our audit session id is not the transport's bearer-like session id.
+    // These trace fields contain no raw client names, headers, arguments or results.
+    const fields = { personId: actor.personId, agentClient, auditSessionId: session.id };
+    const sessionLog: McpLog = {
+      info: (event, extra) => log.info(event, { ...extra, ...fields }),
+      warn: (event, extra) => log.warn(event, { ...extra, ...fields }),
+      error: (event, extra) => log.error(event, { ...extra, ...fields }),
+    };
     const instructions = await buildInstructions({
       services: deps.services,
       actor: sessionActor,
-      log,
+      log: sessionLog,
     });
 
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       onsessioninitialized: (id) => {
-        connections.set(id, { personId: actor.personId, server, transport, lastSeenAt: now() });
-        log.info('session_opened', { agentClient, personId: actor.personId });
+        connections.set(id, { personId: actor.personId, authorizationKey: authorizationKey(caller), server, transport, lastSeenAt: now() });
+        sessionLog.info('session_opened');
       },
       onsessionclosed: (id) => {
         connections.delete(id);
-        log.info('session_closed', { agentClient });
+        sessionLog.info('session_closed');
       },
     });
 
     const server = createMcpServer(
-      { services: deps.services, actor: sessionActor, scopes, config: deps.config, log },
+      { services: deps.services, actor: sessionActor, scopes, config: deps.config, log: sessionLog },
       instructions,
     );
 
@@ -200,6 +216,11 @@ export function createMcpApp(deps: McpDeps): McpApp {
     },
     size: () => connections.size,
   };
+}
+
+function authorizationKey({ actor, scopes }: AuthenticatedCaller): string {
+  const sorted = (values: readonly string[]) => [...new Set(values)].sort();
+  return JSON.stringify([actor.personId, actor.clientId ?? null, sorted(actor.roomScope), sorted(scopes)]);
 }
 
 function bearerToken(request: Request): string | null {

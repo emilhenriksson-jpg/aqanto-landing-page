@@ -103,20 +103,27 @@ export function createMcpServer(deps: McpServerDeps, instructions: string): Serv
 
   const allowed = toolsFor(deps.scopes);
 
-  server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: allowed.map(toolWireFormat),
-  }));
+  server.setRequestHandler(ListToolsRequestSchema, () => {
+    // This proves what was offered, not whether a voice model received the list.
+    log.info('tools_listed', { toolCount: allowed.length, tools: allowed.map(tool => tool.name) });
+    return { tools: allowed.map(toolWireFormat) };
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const callId = crypto.randomUUID();
+    const tool = TOOLS.some(t => t.name === request.params.name) ? request.params.name : 'unknown';
+    const started = performance.now();
+    log.info('tool_requested', { callId, tool });
     // Checked again rather than relying on the filtered list. `tools/list` is advice a
     // client may ignore, cache from a previous connection, or never call at all — and a
     // model that has seen `remember` in an earlier session will try it.
     const denial = denyForScope(request.params.name, deps.scopes);
     if (denial) {
       log.warn('tool_scope_denied', {
-        tool: request.params.name,
+        callId, tool,
         personId: deps.actor.personId,
       });
+      log.info('tool_response', { callId, tool, outcome: 'scope_denied', durationMs: Math.round(performance.now() - started) });
       return { content: [{ type: 'text' as const, text: denial }], isError: true };
     }
 
@@ -126,6 +133,8 @@ export function createMcpServer(deps: McpServerDeps, instructions: string): Serv
       request.params.name,
       request.params.arguments,
     );
+
+    log.info('tool_response', { callId, tool, outcome: result.isError ? 'error' : 'ok', durationMs: Math.round(performance.now() - started) });
 
     return {
       content: [{ type: 'text' as const, text: result.text }],
@@ -166,8 +175,8 @@ function denyForScope(name: string, scopes: readonly string[]): string | null {
 
   return (
     `Not permitted: this connection was granted ${scopes.join(', ') || 'no scopes'} and ` +
-    `${name} requires ${missing.join(', ')}. This is a read-only connection, not an ` +
-    'error. Tell the person they can reconnect granting write access if they want you ' +
-    'to be able to do this.'
+    `${name} requires ${missing.join(', ')}. These required permissions are missing; ` +
+    'this is not evidence that the tool is unsupported in voice or text. The person ' +
+    'can reconnect and grant the required permissions if they want this action.'
   );
 }

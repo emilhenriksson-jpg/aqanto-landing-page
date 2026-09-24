@@ -1,7 +1,7 @@
 /**
  * A real MCP client, connecting.
  *
- * This is the test that decides whether the product works. Everything else in the
+ * This tests the server's transport contract, not a hosted model or Voice mode. Everything else in the
  * repository can be correct while a client fails to complete a handshake, drops the
  * instructions string, or gets someone else's memory — and none of that is visible from a
  * unit test of a dispatcher.
@@ -15,7 +15,7 @@
 import { occursOnlyInsideRoomContent, TOOLS } from '@photographic/agent';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { Actor } from '@photographic/core';
+import type { Actor, RoomId } from '@photographic/core';
 import type { MemoryServices } from '@photographic/services-memory';
 import { createMemoryServices } from '@photographic/services-memory';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -33,6 +33,7 @@ let wired: MemoryServices;
 let app: McpApp;
 let tokens: Map<string, AuthenticatedCaller>;
 let open: Client[];
+let observations: Array<{ event: string; fields: Record<string, unknown> }>;
 
 /**
  * A token that resolves to a person, the way an access token will.
@@ -91,11 +92,14 @@ beforeEach(() => {
   wired = createMemoryServices();
   tokens = new Map();
   open = [];
+  observations = [];
+  const record = (event: string, fields: Record<string, unknown> = {}) => observations.push({ event, fields });
 
   app = createMcpApp({
     services: wired.services,
     config: defaultConfig({ publicUrl: 'https://photographic.test' }),
     authenticate: async (token) => tokens.get(token) ?? null,
+    log: { info: record, warn: record, error: record },
   });
 });
 
@@ -106,10 +110,8 @@ afterEach(async () => {
 
 describe('connecting', () => {
   it('sends the person their own profile before they have said anything', async () => {
-    // The promise of the whole product, asserted at the only place it can be: the
-    // instructions string in the initialize result, which lands in system-prompt position
-    // before the first token the person types. A model that has to call a tool to learn
-    // who it is talking to has already failed the person once.
+    // This proves delivery in initialize. The hosted client still decides whether
+    // its text/voice model receives or follows those instructions.
     const token = await register('Emil', 'emil@example.com');
     const actor = tokens.get(token)!.actor;
     const personal = await wired.services.identity.personalRoomOf(actor.personId);
@@ -150,10 +152,8 @@ describe('connecting', () => {
     expect(instructions).toMatch(/get_context med rummets namn/);
   });
 
-  it('records the delivery as guaranteed, against the client that made it', async () => {
-    // Green rather than amber, and only here: the profile arrived without the model
-    // choosing to ask for it. The health screen is worth showing a person precisely
-    // because it distinguishes these two.
+  it('records initialize delivery against the client that requested it', async () => {
+    // Delivery through initialize is separate from the hosted model using the profile.
     const token = await register('Emil', 'emil@example.com');
     await connect(token, 'claude-ai');
 
@@ -291,6 +291,122 @@ describe('authentication', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { message: expect.stringContaining('initialize') },
     });
+  });
+});
+
+describe('protocol continuity (not a hosted Voice test)', () => {
+  const expectedTools = ['get_context', 'create_room', 'remember', 'search_memory',
+    'update_memory', 'forget_memory', 'restore_memory', 'list_history', 'list_trash',
+    'prepare_context', 'review_proposals', 'update_compass'].sort();
+
+  it('keeps all tools and the create/approve/save/read chain across reuse and reconnect', async () => {
+    const token = await register('Nora', 'continuity-voice@example.com');
+    const first = await connect(token, 'chatgpt');
+    // Initialization is NOT an automatic get_context tool call or a voice-start event.
+    expect(observations.some(o => o.event === 'tool_requested')).toBe(false);
+    expect((await first.listTools()).tools.map(t => t.name).sort()).toEqual(expectedTools);
+    expect((await callTool(first, 'get_context')).isError).toBeFalsy();
+    expect((await callTool(first, 'create_room', { title: 'Test Voice' })).isError).toBeFalsy();
+
+    // A UI mode change may reuse a transport. The server has no audio-mode signal.
+    expect((await first.listTools()).tools.map(t => t.name).sort()).toEqual(expectedTools);
+    const saved = await callTool(first, 'remember', {
+      room: 'Test Voice', text: 'Voice-testet fungerade.', kind: 'note', explicit: true,
+    });
+    expect(saved.isError).toBeFalsy();
+    // Project rooms currently require a reviewed proposal, even with one owner.
+    // A successful tool result is not evidence that a memory was committed.
+    expect(saved.text).toContain('Inte sparat än');
+    expect((await callTool(first, 'get_context', { room: 'Test Voice' })).text).not.toContain('Voice-testet fungerade.');
+    const review = await callTool(first, 'review_proposals', { action: 'list' });
+    expect(review.isError).toBeFalsy();
+    const preview = JSON.parse(review.text.match(/<room-content[^>]*>\n([\s\S]*?)\n<\/room-content>/)![1]!) as {
+      proposals: Array<{ id: string; review_key: string; text: string; room: string }>;
+    };
+    expect(preview.proposals).toHaveLength(1);
+    expect(preview.proposals[0]).toMatchObject({ text: 'Voice-testet fungerade.', room: 'Test Voice' });
+    // Simulated user has reviewed the exact preview and explicitly approved it.
+    const approved = await callTool(first, 'review_proposals', {
+      action: 'approve', confirmation: 'Ja, spara Voice-testet fungerade. i Test Voice.',
+      decisions: preview.proposals.map(p => ({ id: p.id, review_key: p.review_key, reviewed: true })),
+    });
+    expect(approved.isError).toBeFalsy();
+    expect(approved.text).toContain('"status":"saved"');
+    await wired.runJobsToCompletion();
+    expect((await callTool(first, 'get_context', { room: 'Test Voice' })).text).toContain('Voice-testet fungerade.');
+
+    // Synthetic name only; this does not claim the phone sends this clientInfo.
+    const reconnected = await connect(token, 'openai-voice-protocol-test');
+    expect((await reconnected.listTools()).tools.map(t => t.name).sort()).toEqual(expectedTools);
+    expect((await callTool(reconnected, 'get_context', { room: 'Test Voice' })).text).toContain('Voice-testet fungerade.');
+    expect((await callTool(reconnected, 'list_history', { room: 'Test Voice' })).text).toContain('Voice-testet fungerade.');
+    const actor = tokens.get(token)!.actor;
+    expect((await wired.services.rooms.listForPerson(actor)).filter(r => r.title === 'Test Voice')).toHaveLength(1);
+  });
+
+  it('correlates offered tools, requests and results without recording content or credentials', async () => {
+    const token = await register('Nora', 'diagnostics@example.com');
+    const { client, transport } = await connectWithTransport(token, 'chatgpt-private-client-name');
+    await client.listTools();
+    await callTool(client, 'remember', { text: 'Privat innehåll som inte får hamna i loggen.', explicit: true });
+    const listed = observations.find(o => o.event === 'tools_listed')!;
+    expect(listed.fields).toMatchObject({ agentClient: 'chatgpt-web', toolCount: 12, auditSessionId: expect.any(String) });
+    expect(listed.fields['tools']).toContain('create_room');
+    const requested = observations.find(o => o.event === 'tool_requested')!;
+    expect(observations.find(o => o.event === 'tool_response')?.fields).toMatchObject({
+      callId: requested.fields['callId'], auditSessionId: listed.fields['auditSessionId'],
+      tool: 'remember', outcome: 'ok', durationMs: expect.any(Number),
+    });
+    for (const privateValue of [token, transport.sessionId!, 'chatgpt-private-client-name', 'Privat innehåll', 'diagnostics@example.com']) {
+      expect(JSON.stringify(observations)).not.toContain(privateValue);
+    }
+  });
+
+  async function rawList(token: string, sessionId: string) {
+    return app.fetch(new Request(ENDPOINT, { method: 'POST', headers: {
+      authorization: `Bearer ${token}`, 'mcp-session-id': sessionId,
+      'content-type': 'application/json', accept: 'application/json, text/event-stream',
+    }, body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/list' }) }));
+  }
+
+  it.each(['narrower scopes', 'wider scopes', 'different client', 'different rooms'] as const)(
+    'requires fresh discovery after authorization changes: %s', async change => {
+      const token = await register('Nora', `${change.replaceAll(' ', '-')}@grant.test`,
+        change === 'wider scopes' ? ['profile.read'] : [...SUPPORTED_SCOPES]);
+      const original = tokens.get(token)!;
+      const { transport } = await connectWithTransport(token, 'chatgpt');
+      const next: AuthenticatedCaller = { actor: { ...original.actor }, scopes: [...original.scopes] };
+      if (change === 'narrower scopes') next.scopes = ['profile.read'];
+      if (change === 'wider scopes') next.scopes = [...SUPPORTED_SCOPES];
+      if (change === 'different client') next.actor.clientId = 'another-oauth-client';
+      if (change === 'different rooms') next.actor.roomScope = ['some-room' as RoomId];
+      tokens.set('replacement-token', next);
+      expect((await rawList('replacement-token', transport.sessionId!)).status).toBe(404);
+      expect(observations.some(o => o.event === 'session_authorization_changed')).toBe(true);
+      if (change === 'narrower scopes' || change === 'wider scopes') {
+        const fresh = await connect('replacement-token', 'chatgpt');
+        const names = (await fresh.listTools()).tools.map(t => t.name);
+        expect(names.includes('create_room')).toBe(change === 'wider scopes');
+      }
+    },
+  );
+
+  it('allows refreshed tokens with the same grant, regardless of scope ordering', async () => {
+    const token = await register('Nora', 'refresh@example.com');
+    const original = tokens.get(token)!;
+    const { transport } = await connectWithTransport(token);
+    tokens.set('refreshed-token', { actor: { ...original.actor }, scopes: [...original.scopes].reverse() });
+    expect((await rawList('refreshed-token', transport.sessionId!)).status).toBe(200);
+  });
+
+  it('distinguishes missing write permission from unsupported client modes', async () => {
+    const client = await connect(await register('Nora', 'readonly@example.com', ['profile.read']));
+    expect((await client.listTools()).tools.map(t => t.name)).toEqual(['get_context']);
+    const denied = await callTool(client, 'create_room', { title: 'Test Voice' });
+    expect(denied.isError).toBe(true);
+    expect(denied.text).toContain('memory.write');
+    expect(denied.text).toContain('rooms.read');
+    expect(observations.find(o => o.event === 'tool_response')?.fields['outcome']).toBe('scope_denied');
   });
 });
 
