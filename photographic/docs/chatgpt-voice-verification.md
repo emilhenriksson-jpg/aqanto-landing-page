@@ -2,6 +2,10 @@
 
 ## Status and evidence
 
+**Latest result: the physical phone retest failed after deployment.** The server
+authorization correction did not resolve Voice creation or saving. Do not ask the
+person to repeat this unchanged test or call the issue fixed on the basis of CI.
+
 Emil confirmed that the failing test used **the ChatGPT app on his phone**.
 The phone OS and app version were not established. Do not substitute desktop
 Live, the Realtime API, or a synthetic MCP client for this acceptance surface.
@@ -28,6 +32,53 @@ call corresponding to the reported refusal. Retention and absent modality marker
 prevent a definitive historical diagnosis. The leading hypothesis is a difference
 in client-side discovery, selection or invocation between text and Voice; this is
 not yet established as the root cause.
+
+### Phone retest after deployment
+
+The user reported that neither room creation nor saving worked in phone Voice.
+Read-only inspection of the new conversation, **“Photographic introduktion”**,
+confirmed this sequence:
+
+1. “Hej! Jag kommer från Photographic.” produced a visible tool call and a greeting
+   confirming access to the profile/rooms.
+2. The spoken request to create **Test Voice** produced a refusal and instructions
+   to open Photographic manually. There was no visible tool call.
+3. The spoken request to save a memory produced a refusal stating that only
+   ChatGPT's own memory could be used. There was no visible tool call.
+
+Conversation: https://chatgpt.com/c/6ab5026c-732c-83eb-87bf-d34e873a3b14
+
+Production logs inspected immediately after the report contained a ChatGPT
+`get_context` request at **2026-09-24 10:58:59 UTC (12:58:59 Europe/Madrid)** and
+an `ok` response in 50 ms. The retained window contained no `create_room`,
+`remember`, scope denial or authorization-change event for this attempt. It also
+contained no `tools_listed` event. The successful read alone cannot establish the
+cached write-tool catalogue or the grant's write scopes.
+
+Together, the transcript and trace show that these requested writes did not reach
+Photographic's tool handlers. There is no observed Photographic write rejection to
+fix for this attempt. Host tool discovery, Voice routing and permission presentation
+remain possible explanations; the exact host-side reason is unverified. This is
+not proof that all ChatGPT phone versions are universally incompatible with MCP.
+
+### Prepared provider investigation request (not submitted)
+
+Investigate why ChatGPT phone Voice does not invoke a connected private MCP app's
+`create_room` or `remember` tools in a conversation where a preceding text message
+successfully invokes `get_context`. The server exposes these write tools when
+authorized; no write request arrived during the failed attempt. Please establish:
+
+- Which tool catalogue and authorized scopes the voice model received.
+- Whether private MCP app write tools are supported on this phone Voice surface,
+  including any account/app-version rollout or approval limitations.
+- Whether switching from text to Voice requires different activation or discovery.
+
+The complete create/save/read workflow is therefore blocked on actual host
+invocation. Keep the existing external-chat architecture; do not silently replace
+it with a separate voice app or lower approval requirements. Dictating a prompt
+into the ordinary text chat is a possible interim input method, not evidence of
+live Voice integration. No additional phone retest is justified until there is a
+specific change or host-side explanation to test.
 
 ## Answers to the handoff's ten questions
 
@@ -95,7 +146,7 @@ of Voice availability. Do not bypass the shared-room write policy to make that
 test green. Removing a redundant approval for owner-only project rooms requires
 an explicit policy change with atomic audience checks in both persistence drivers.
 
-## Physical phone acceptance test — still pending
+## Physical phone acceptance test — latest run failed
 
 Use the connected phone account; record app version, OS, local time/timezone,
 whether this is a new/existing conversation and whether Photographic is selected.
